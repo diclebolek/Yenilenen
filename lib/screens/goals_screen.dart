@@ -6,6 +6,7 @@ import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/api_service.dart';
 import '../models/consumption_entry.dart';
+import '../algorithms/calculation.dart';
 import 'dart:async';
 
 class GoalsScreen extends StatefulWidget {
@@ -240,25 +241,84 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final goalsData = await _firebaseService.getGoals(_userId!);
       bool updated = false;
 
+      // Önceki ay verilerini al (karşılaştırma için)
+      final now = DateTime.now();
+      final currentMonthStart = DateTime(now.year, now.month, 1);
+      final previousMonthStart = DateTime(now.year, now.month - 1, 1);
+      final previousMonthEnd =
+          currentMonthStart.subtract(const Duration(days: 1));
+
+      // Bu ayın verilerini al
+      final currentMonthData = await _firebaseService.getHistoryData(
+        deviceId: 'esp8266_001',
+        startDate: currentMonthStart,
+        endDate: now,
+      );
+
+      // Önceki ayın verilerini al
+      final previousMonthData = await _firebaseService.getHistoryData(
+        deviceId: 'esp8266_001',
+        startDate: previousMonthStart,
+        endDate: previousMonthEnd,
+      );
+
+      // Bu ayın toplam tüketimlerini hesapla
+      double currentMonthElectricity = 0;
+      double currentMonthWater = 0;
+      double currentMonthGas = 0;
+      for (var entry in currentMonthData) {
+        currentMonthElectricity += entry.electricityKwh;
+        currentMonthWater += entry.waterCubicMeters;
+        currentMonthGas += entry.fuelLiters;
+      }
+
+      // Önceki ayın toplam tüketimlerini hesapla
+      double previousMonthElectricity = 0;
+      double previousMonthWater = 0;
+      double previousMonthGas = 0;
+      for (var entry in previousMonthData) {
+        previousMonthElectricity += entry.electricityKwh;
+        previousMonthWater += entry.waterCubicMeters;
+        previousMonthGas += entry.fuelLiters;
+      }
+
       for (var goalData in goalsData) {
         final type = goalData['type'] ?? '';
         double? newCurrent;
 
         switch (type) {
           case 'electricity_saving':
-            // Elektrik tasarrufu yüzdesi hesapla (basit örnek)
-            // Gerçek hesaplama için önceki ay verileriyle karşılaştırılmalı
-            break;
-          case 'co2_reduction':
-            // CO2 azaltma (kg) - tüketim verilerinden hesapla
-            // Basit örnek: fuel (CO2 ppm) değerinden kg'a çevir
-            if (consumption.fuelLiters > 0) {
-              newCurrent = consumption.fuelLiters * 0.001; // Basit dönüşüm
+            // Elektrik tasarrufu yüzdesi: (Önceki ay - Bu ay) / Önceki ay * 100
+            if (previousMonthElectricity > 0) {
+              final saving = previousMonthElectricity - currentMonthElectricity;
+              newCurrent = (saving / previousMonthElectricity) * 100;
+              // Negatif değerler (artış) için 0 göster
+              if (newCurrent < 0) newCurrent = 0;
+            } else {
+              newCurrent = 0.0;
             }
             break;
+          case 'co2_reduction':
+            // CO2 azaltma (kg) - gerçek emisyon faktörüyle hesapla
+            // Önceki ayın CO2 emisyonu - Bu ayın CO2 emisyonu
+            final previousMonthCO2 =
+                previousMonthGas * Calculation.factorFuelKgPerLiter;
+            final currentMonthCO2 =
+                currentMonthGas * Calculation.factorFuelKgPerLiter;
+            final reduction = previousMonthCO2 - currentMonthCO2;
+            // Negatif değerler (artış) için 0 göster
+            newCurrent = reduction > 0 ? reduction : 0.0;
+            break;
           case 'water_saving':
-            // Su tasarrufu yüzdesi hesapla
-            // Gerçek hesaplama için önceki ay verileriyle karşılaştırılmalı
+            // Su tasarrufu yüzdesi: (Önceki ay - Bu ay) / Önceki ay * 100
+            if (previousMonthWater > 0) {
+              final saving = previousMonthWater - currentMonthWater;
+              newCurrent = (saving / previousMonthWater) * 100;
+              // Negatif değerler (artış) için 0 göster
+              if (newCurrent < 0) newCurrent = 0;
+            } else {
+              newCurrent = 0.0;
+            }
             break;
         }
 
@@ -559,38 +619,40 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 _AchievementBadge(
-                                  icon: Icons.eco,
+                                  imagePath: 'assets/images/1rozet.png',
                                   title: translate(
                                     'environment_friendly',
                                     locale,
                                   ),
                                   isUnlocked:
-                                      _badges['environment_friendly'] ?? false,
+                                      true, // Çevre dostu rozeti her zaman açık
                                 ),
                                 const SizedBox(width: 12),
                                 _AchievementBadge(
-                                  icon: Icons.energy_savings_leaf,
+                                  imagePath: 'assets/images/2rozet.png',
                                   title: translate('energy_saving', locale),
                                   isUnlocked: _badges['energy_saving'] ?? false,
                                 ),
                                 const SizedBox(width: 12),
                                 _AchievementBadge(
-                                  icon: Icons.water_drop,
+                                  imagePath: 'assets/images/3rozet.png',
                                   title: translate('water_protector', locale),
                                   isUnlocked:
                                       _badges['water_protector'] ?? false,
                                 ),
                                 const SizedBox(width: 12),
                                 _AchievementBadge(
-                                  icon: Icons.emoji_events,
+                                  imagePath: 'assets/images/4rozet.png',
                                   title: translate('goal_master', locale),
                                   isUnlocked: _badges['goal_master'] ?? false,
                                 ),
                                 const SizedBox(width: 12),
                                 _AchievementBadge(
-                                  icon: Icons.local_fire_department,
+                                  imagePath: 'assets/images/5rozet.png',
                                   title: translate('eco_warrior', locale),
                                   isUnlocked: _badges['eco_warrior'] ?? false,
                                 ),
@@ -1447,12 +1509,12 @@ class _GoalCard extends StatelessWidget {
 
 class _AchievementBadge extends StatelessWidget {
   const _AchievementBadge({
-    required this.icon,
+    required this.imagePath,
     required this.title,
     required this.isUnlocked,
   });
 
-  final IconData icon;
+  final String imagePath;
   final String title;
   final bool isUnlocked;
 
@@ -1463,6 +1525,8 @@ class _AchievementBadge extends StatelessWidget {
       message: title,
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Instagram story tarzı yuvarlak buton
           AnimatedContainer(
@@ -1513,14 +1577,42 @@ class _AchievementBadge extends StatelessWidget {
                       ),
                     ],
             ),
-            child: Icon(
-              icon,
-              color: isUnlocked
-                  ? Colors.white
-                  : Colors.grey.withValues(
-                      alpha: 0.7,
-                    ), // Kilitli rozetler için gri ikon
-              size: 32,
+            child: ClipOval(
+              child: isUnlocked
+                  ? Image.asset(
+                      imagePath,
+                      width: 70,
+                      height: 70,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Icon(
+                          Icons.star,
+                          color: Colors.white,
+                          size: 32,
+                        );
+                      },
+                    )
+                  : ColorFiltered(
+                      colorFilter: const ColorFilter.matrix([
+                        0.3, 0.3, 0.3, 0, 0, // R
+                        0.3, 0.3, 0.3, 0, 0, // G
+                        0.3, 0.3, 0.3, 0, 0, // B
+                        0, 0, 0, 0.5, 0, // A (opacity)
+                      ]),
+                      child: Image.asset(
+                        imagePath,
+                        width: 70,
+                        height: 70,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.star,
+                            color: Colors.grey.withValues(alpha: 0.7),
+                            size: 32,
+                          );
+                        },
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 8),
@@ -1530,16 +1622,10 @@ class _AchievementBadge extends StatelessWidget {
             child: Text(
               title,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: isDark
-                        ? (isUnlocked
-                            ? Colors.white
-                            : Colors.grey.withValues(alpha: 0.6))
-                        : (isUnlocked
-                            ? Colors.black
-                            : Colors.grey.withValues(alpha: 0.6)),
+                    color: isDark ? Colors.white : Colors.black,
                     fontWeight:
                         isUnlocked ? FontWeight.w600 : FontWeight.normal,
-                    fontSize: 11,
+                    fontSize: 13,
                   ),
               textAlign: TextAlign.center,
               maxLines: 2,

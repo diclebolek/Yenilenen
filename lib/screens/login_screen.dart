@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
-                  vertical: 40,
+                  vertical: 10,
                 ),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -125,35 +125,46 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             child: Padding(
-                              padding: const EdgeInsets.all(32),
+                              padding: const EdgeInsets.only(
+                                left: 32,
+                                right: 32,
+                                top: 8,
+                                bottom: 12,
+                              ),
                               child: Form(
                                 key: _formKey,
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
                                     // Logo/Icon
-                                    Container(
-                                      width: 80,
-                                      height: 80,
-                                      decoration: BoxDecoration(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.3,
+                                    Transform.rotate(
+                                      angle: 1.5708, // 90 derece (pi/2)
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.3,
+                                              ),
+                                              blurRadius: 30,
+                                              spreadRadius: 10,
                                             ),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ClipOval(
+                                            BoxShadow(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
+                                                  .withValues(alpha: 0.5),
+                                              blurRadius: 40,
+                                              spreadRadius: 5,
+                                            ),
+                                          ],
+                                        ),
                                         child: Image.asset(
                                           'assets/images/logoCo2.png',
+                                          width: 280,
+                                          height: 280,
                                           fit: BoxFit.cover,
                                           errorBuilder:
                                               (context, error, stackTrace) {
@@ -161,25 +172,27 @@ class _LoginScreenState extends State<LoginScreen> {
                                             return const Icon(
                                               Icons.eco,
                                               color: Colors.white,
-                                              size: 40,
+                                              size: 120,
                                             );
                                           },
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(height: 24),
 
                                     // Başlık
-                                    Text(
-                                      translate('welcome_back', locale),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .headlineMedium
-                                          ?.copyWith(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                      textAlign: TextAlign.center,
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        'Zero Trace',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineMedium
+                                            ?.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                        textAlign: TextAlign.center,
+                                      ),
                                     ),
                                     const SizedBox(height: 8),
 

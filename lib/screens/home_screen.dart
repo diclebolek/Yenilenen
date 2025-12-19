@@ -276,85 +276,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 imageAssetPath: 'assets/images/olive-drab_small.webp',
                 languageProvider: widget.languageProvider,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               // İşletme karşılaştırma tablosu
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    translate('business_comparison_title', locale),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  Text(
-                    translate('see_all', locale),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color:
-                              (isDark ? Colors.white : Colors.black).withValues(
-                            alpha: 0.6,
-                          ),
-                        ),
-                  ),
-                ],
+              Text(
+                translate('business_comparison_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
-              const SizedBox(height: 12),
-              _BusinessComparisonTable(locale: locale, isDark: isDark),
               const SizedBox(height: 16),
+              _BusinessComparisonTable(locale: locale, isDark: isDark),
+              const SizedBox(height: 24),
               // Fatura tarama başlığı
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    translate('bill_scanning_title', locale),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  Text(
-                    translate('see_all', locale),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color:
-                              (isDark ? Colors.white : Colors.black).withValues(
-                            alpha: 0.6,
-                          ),
-                        ),
-                  ),
-                ],
+              Text(
+                translate('bill_scanning_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               // Fatura tarama kartı
               BillScannerCard(
                 languageProvider: widget.languageProvider,
                 onCalculated: (value) =>
                     setState(() => _dailyEmissionKg = value),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               // GNÇ tarzında başlık
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    translate('energy_tips_title', locale),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  Text(
-                    translate('see_all', locale),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color:
-                              (isDark ? Colors.white : Colors.black).withValues(
-                            alpha: 0.6,
-                          ),
-                        ),
-                  ),
-                ],
+              Text(
+                translate('energy_tips_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               LayoutBuilder(
                 builder: (context, constraints) {
                   final bool isWide = constraints.maxWidth >= 900;
@@ -446,48 +404,32 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
+              const SizedBox(height: 24),
               // Hava durumu bölümü başlığı
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        translate('weather_energy_title', locale),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      if (_currentWeather != null &&
-                          _currentWeather!['city'] != null)
-                        Text(
-                          _currentWeather!['city'] ?? 'İstanbul',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                                color: (isDark ? Colors.white : Colors.black)
-                                    .withValues(
-                                  alpha: 0.7,
-                                ),
-                              ),
-                        ),
-                    ],
-                  ),
                   Text(
-                    translate('see_all', locale),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color:
-                              (isDark ? Colors.white : Colors.black).withValues(
-                            alpha: 0.6,
-                          ),
+                    translate('weather_energy_title', locale),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold,
                         ),
                   ),
+                  if (_currentWeather != null &&
+                      _currentWeather!['city'] != null)
+                    Text(
+                      _currentWeather!['city'] ?? 'İstanbul',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               // Hava durumu kartları
               LayoutBuilder(
                 builder: (context, constraints) {
@@ -692,8 +634,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               // Gerçek zamanlı iklim verileri
+              Text(
+                translate('climate_realtime_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 16),
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: BackdropFilter(
@@ -709,125 +659,112 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.public,
-                            color: Colors.tealAccent,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _isLoadingWeather
-                                ? const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(16),
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                      ),
+                      child: _isLoadingWeather
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                ),
+                              ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 0),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.public,
+                                      color: Colors.tealAccent,
+                                      size: 24,
                                     ),
-                                  )
-                                : Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        translate(
-                                          'climate_realtime_title',
-                                          locale,
-                                        ),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge
-                                            ?.copyWith(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                            ),
+                                    const SizedBox(width: 8),
+                                    _InfoChip(
+                                      label: translate('city', locale),
+                                      value: _currentWeather?['city'] ??
+                                          'İstanbul',
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    _InfoChip(
+                                      label: translate(
+                                        'temperature',
+                                        locale,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          _InfoChip(
-                                            label: translate('city', locale),
-                                            value: _currentWeather?['city'] ??
-                                                'İstanbul',
-                                          ),
-                                          _InfoChip(
-                                            label: translate(
-                                              'temperature',
-                                              locale,
-                                            ),
-                                            value: _currentWeather != null
-                                                ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
-                                                : '24°C',
-                                          ),
-                                          _InfoChip(
-                                            label: translate('aqi', locale),
-                                            value: _airQuality != null
-                                                ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
-                                                : '78 (Orta)',
-                                          ),
-                                          _InfoChip(
-                                            label: translate(
-                                              'carbon_intensity',
-                                              locale,
-                                            ),
-                                            value: _carbonIntensity != null
-                                                ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
-                                                : '420 gCO₂/kWh',
-                                          ),
-                                        ],
+                                      value: _currentWeather != null
+                                          ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
+                                          : '24°C',
+                                    ),
+                                    _InfoChip(
+                                      label: translate('aqi', locale),
+                                      value: _airQuality != null
+                                          ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
+                                          : '78 (Orta)',
+                                    ),
+                                    _InfoChip(
+                                      label: translate(
+                                        'carbon_intensity',
+                                        locale,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            translate(
-                                              'climate_data_source_hint',
-                                              locale,
-                                            ),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.75),
-                                                ),
-                                          ),
-                                          const Spacer(),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.refresh,
-                                              color: Colors.white70,
-                                              size: 18,
-                                            ),
-                                            onPressed: _loadWeatherData,
-                                            tooltip: 'Yenile',
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                      value: _carbonIntensity != null
+                                          ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
+                                          : '420 gCO₂/kWh',
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: IconButton(
+                                    icon: const Icon(
+                                      Icons.refresh,
+                                      color: Colors.white70,
+                                      size: 18,
+                                    ),
+                                    onPressed: _loadWeatherData,
+                                    tooltip: 'Yenile',
                                   ),
-                          ),
-                        ],
-                      ),
+                                ),
+                              ],
+                            ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               // Emisyon farkındalık / karşılaştırma (placeholder hesap)
+              Text(
+                translate('emission_awareness_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 16),
               _EmissionComparisonCard(
                 userDailyEmissionKg: _dailyEmissionKg ?? 12.0,
                 nationalAvgKg: 15.0,
                 globalAvgKg: 15.0,
                 locale: locale,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               // Eşdeğer görselleştirme
+              Text(
+                translate('impact_equivalents_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 16),
               _EquivalentsCard(
                 dailyEmissionKg: _dailyEmissionKg ?? 12.0,
                 locale: locale,
@@ -1001,23 +938,7 @@ class _EmissionComparisonCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      isLower ? Icons.trending_down : Icons.trending_up,
-                      color: isLower ? Colors.greenAccent : Colors.redAccent,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      translate('emission_awareness_title', locale),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 0),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -1136,20 +1057,7 @@ class _EquivalentsCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.equalizer, color: Colors.amberAccent),
-                    const SizedBox(width: 8),
-                    Text(
-                      translate('impact_equivalents_title', locale),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 0),
                 Row(
                   children: [
                     metric(

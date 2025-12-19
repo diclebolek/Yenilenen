@@ -70,7 +70,6 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
     // Responsive boyutlar
     final cardHeight = isMobile ? 120.0 : (isTablet ? 140.0 : 150.0);
     final cardWidth = isMobile ? 120.0 : (isTablet ? 130.0 : 140.0);
-    final titleFontSize = isMobile ? 16.0 : (isTablet ? 18.0 : 20.0);
     final buttonFontSize = isMobile ? 12.0 : (isTablet ? 13.0 : 14.0);
     final labelFontSize = isMobile ? 10.0 : (isTablet ? 11.0 : 12.0);
 
@@ -125,12 +124,9 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                     child: Container(
                       decoration: BoxDecoration(
                         color: Theme.of(context).brightness == Brightness.dark
-                            ? const Color(0xFF304411).withValues(
-                                alpha: 0.6,
-                              ) // Koyu modda
-                            : const Color(0xFF304411).withValues(
-                                alpha: 0.6,
-                              ), // Açık modda da koyu mod rengi
+                            ? const Color(0xFF304411) // Koyu modda navbar rengi
+                            : const Color(
+                                0xFF48631F), // Açık modda navbar rengi
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color: Colors.white.withValues(alpha: 0.3),
@@ -209,9 +205,9 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                                 horizontal: isMobile ? 8 : 12,
                                 vertical: isMobile ? 6 : 8,
                               ),
-                              decoration: BoxDecoration(
+                              decoration: const BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: const BorderRadius.only(
+                                borderRadius: BorderRadius.only(
                                   bottomLeft: Radius.circular(16),
                                   bottomRight: Radius.circular(16),
                                 ),
@@ -227,7 +223,12 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                                     .textTheme
                                     .labelMedium
                                     ?.copyWith(
-                                      color: const Color(0xFF304411),
+                                      color: Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? const Color(
+                                              0xFF304411) // Koyu modda navbar rengi
+                                          : const Color(
+                                              0xFF48631F), // Açık modda navbar rengi
                                       fontWeight: FontWeight.w600,
                                       fontSize: labelFontSize,
                                     ),

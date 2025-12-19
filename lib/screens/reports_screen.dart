@@ -29,7 +29,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<double> _dailyEmissions = [0, 0, 0, 0, 0, 0, 0]; // Son 7 gün
   Map<String, double> _categoryDistribution = {
     'electricity': 0.0,
-    'fuel': 0.0,
+    'gas': 0.0,
     'water': 0.0,
     'waste': 0.0,
   };
@@ -125,12 +125,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
         dailyData.putIfAbsent(0, () => []).add(latestEntry);
       }
 
-      // Her gün için toplam emisyonu hesapla
+      // Her gün için toplam emisyonu hesapla (günlük trend grafiği için)
       final List<double> emissions = [];
       double totalElectricity = 0;
-      double totalFuel = 0;
+      double totalGas = 0;
       double totalWater = 0;
-      double totalWaste = 0;
 
       for (int i = 6; i >= 0; i--) {
         // En eski günden en yeni güne (Pazartesi'den Pazar'a)
@@ -140,13 +139,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
             final emission = Calculation.calculateDailyEmission(entry);
             dayEmission += emission;
 
-            // Kategori dağılımı için topla
-            totalElectricity +=
-                entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
-            totalFuel += entry.fuelLiters * Calculation.factorFuelKgPerLiter;
-            totalWater +=
-                entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
-            totalWaste += entry.wasteKg * Calculation.factorWasteKgPerKg;
+            // Kategori dağılımı için sadece bugünün (i == 0) verilerini topla
+            if (i == 0) {
+              totalElectricity +=
+                  entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
+              totalGas += entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+              totalWater +=
+                  entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
+            }
           }
           emissions.add(dayEmission);
         } else {
@@ -155,25 +155,80 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
 
       // Kategori yüzdelerini hesapla
-      final double totalEmission =
-          totalElectricity + totalFuel + totalWater + totalWaste;
+      final double totalEmission = totalElectricity + totalGas + totalWater;
 
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
       if (totalEmission > 0) {
+        // Yüzdeleri hesapla
+        double electricityPercent = (totalElectricity / totalEmission * 100);
+        double gasPercent = (totalGas / totalEmission * 100);
+        double waterPercent = (totalWater / totalEmission * 100);
+
+        // Eğer bir kategori 0 ise, minimum %2 göster (görünürlük için)
+        // Diğer kategorilerden orantılı olarak azalt
+        const double minPercent = 2.0;
+        double nonZeroTotal = 0;
+        int zeroCount = 0;
+
+        if (electricityPercent == 0)
+          zeroCount++;
+        else
+          nonZeroTotal += electricityPercent;
+        if (waterPercent == 0)
+          zeroCount++;
+        else
+          nonZeroTotal += waterPercent;
+        if (gasPercent == 0)
+          zeroCount++;
+        else
+          nonZeroTotal += gasPercent;
+
+        if (zeroCount > 0 && nonZeroTotal > 0) {
+          // Sıfır olan kategorilere minimum %2 ver
+          final double remaining = 100 - (minPercent * zeroCount);
+
+          // Sıfır olmayan kategorileri orantılı olarak yeniden hesapla
+          if (electricityPercent > 0) {
+            electricityPercent =
+                (electricityPercent / nonZeroTotal) * remaining;
+          } else {
+            electricityPercent = minPercent;
+          }
+
+          if (waterPercent > 0) {
+            waterPercent = (waterPercent / nonZeroTotal) * remaining;
+          } else {
+            waterPercent = minPercent;
+          }
+
+          if (gasPercent > 0) {
+            gasPercent = (gasPercent / nonZeroTotal) * remaining;
+          } else {
+            gasPercent = minPercent;
+          }
+        }
+
         setState(() {
           _dailyEmissions = emissions;
           _categoryDistribution = {
-            'electricity': (totalElectricity / totalEmission * 100),
-            'fuel': (totalFuel / totalEmission * 100),
-            'water': (totalWater / totalEmission * 100),
-            'waste': (totalWaste / totalEmission * 100),
+            'electricity': electricityPercent,
+            'gas': gasPercent,
+            'water': waterPercent,
+            'waste': 0.0,
           };
           _isLoadingTrends = false;
         });
       } else {
+        // Veri olmadığında bile grafiği göstermek için eşit dağılım göster (3 kategori)
         setState(() {
           _dailyEmissions = emissions;
+          _categoryDistribution = {
+            'electricity': 33.33,
+            'gas': 33.33,
+            'water': 33.34,
+            'waste': 0.0,
+          };
           _isLoadingTrends = false;
         });
       }
@@ -407,13 +462,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                         ),
                       const SizedBox(height: 16),
-                      Text(
-                        translate('daily_trends', locale),
-                        style: Theme.of(
-                          context,
-                        ).textTheme.titleLarge?.copyWith(color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: BackdropFilter(
@@ -606,25 +654,47 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     leftTitles: AxisTitles(
                                                       sideTitles: SideTitles(
                                                         showTitles: true,
-                                                        interval: 1,
+                                                        interval:
+                                                            20, // Her 20 birimde bir sayı göster
                                                         getTitlesWidget: (
                                                           double value,
                                                           TitleMeta meta,
                                                         ) {
-                                                          return Text(
-                                                            '${value.toInt()}',
-                                                            style:
-                                                                const TextStyle(
-                                                              color:
-                                                                  Colors.white,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              fontSize: 12,
+                                                          return Padding(
+                                                            padding:
+                                                                const EdgeInsets
+                                                                    .only(
+                                                                    right: 8),
+                                                            child: Text(
+                                                              '${value.toInt()}',
+                                                              style:
+                                                                  const TextStyle(
+                                                                color: Colors
+                                                                    .white,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                fontSize: 16,
+                                                                shadows: [
+                                                                  Shadow(
+                                                                    color: Colors
+                                                                        .black,
+                                                                    blurRadius:
+                                                                        3,
+                                                                    offset:
+                                                                        Offset(
+                                                                            1,
+                                                                            1),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                              textAlign:
+                                                                  TextAlign
+                                                                      .right,
                                                             ),
                                                           );
                                                         },
-                                                        reservedSize: 28,
+                                                        reservedSize: 50,
                                                       ),
                                                     ),
                                                   ),
@@ -765,13 +835,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        translate('category_distribution', locale),
-                        style: Theme.of(
-                          context,
-                        ).textTheme.titleLarge?.copyWith(color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: BackdropFilter(
@@ -783,6 +846,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Text(
+                                    translate('category_distribution', locale),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(color: Colors.white),
+                                  ),
+                                  const SizedBox(height: 16),
                                   Row(
                                     children: [
                                       // Pasta grafiği
@@ -805,8 +876,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             sectionsSpace: 2,
                                             centerSpaceRadius: 40,
                                             sections: [
+                                              // Elektrik - Turuncu
                                               PieChartSectionData(
-                                                color: const Color(0xFF304411),
+                                                color: Colors.orange,
                                                 value: _categoryDistribution[
                                                         'electricity'] ??
                                                     0.0,
@@ -823,26 +895,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   color: Colors.white,
                                                 ),
                                               ),
+                                              // Su - Mavi
                                               PieChartSectionData(
-                                                color: const Color(0xFF48631F),
-                                                value: _categoryDistribution[
-                                                        'fuel'] ??
-                                                    0.0,
-                                                title: (_categoryDistribution[
-                                                                'fuel'] ??
-                                                            0.0) >
-                                                        0
-                                                    ? '${(_categoryDistribution['fuel'] ?? 0.0).toStringAsFixed(0)}%'
-                                                    : '',
-                                                radius: 50,
-                                                titleStyle: const TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                              PieChartSectionData(
-                                                color: const Color(0xFF304411),
+                                                color: Colors.blue,
                                                 value: _categoryDistribution[
                                                         'water'] ??
                                                     0.0,
@@ -859,22 +914,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   color: Colors.white,
                                                 ),
                                               ),
+                                              // Gaz - Beyaz/Açık Gri
                                               PieChartSectionData(
-                                                color: const Color(0xFF48631F),
+                                                color: Colors.grey.shade300,
                                                 value: _categoryDistribution[
-                                                        'waste'] ??
+                                                        'gas'] ??
                                                     0.0,
                                                 title: (_categoryDistribution[
-                                                                'waste'] ??
+                                                                'gas'] ??
                                                             0.0) >
                                                         0
-                                                    ? '${(_categoryDistribution['waste'] ?? 0.0).toStringAsFixed(0)}%'
+                                                    ? '${(_categoryDistribution['gas'] ?? 0.0).toStringAsFixed(0)}%'
                                                     : '',
                                                 radius: 50,
                                                 titleStyle: const TextStyle(
                                                   fontSize: 12,
                                                   fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
+                                                  color: Colors.black87,
                                                 ),
                                               ),
                                             ],
@@ -892,22 +948,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 'electricity',
                                                 locale,
                                               ),
-                                              color: const Color(0xFF304411),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            _LegendDot(
-                                              label: translate('fuel', locale),
-                                              color: const Color(0xFF48631F),
+                                              color: Colors.orange,
                                             ),
                                             const SizedBox(height: 8),
                                             _LegendDot(
                                               label: translate('water', locale),
-                                              color: const Color(0xFF304411),
+                                              color: Colors.blue,
                                             ),
                                             const SizedBox(height: 8),
                                             _LegendDot(
-                                              label: translate('waste', locale),
-                                              color: const Color(0xFF48631F),
+                                              label: translate(
+                                                  'gas_label', locale),
+                                              color: Colors.grey.shade300,
                                             ),
                                           ],
                                         ),

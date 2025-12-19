@@ -255,24 +255,38 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
                       extendBody: true,
                       extendBodyBehindAppBar: true,
                       appBar: AppBar(
+                        titleSpacing: 0,
+                        leadingWidth: 0,
                         title: Row(
                           mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.start,
                           children: [
-                            Image.asset(
-                              'assets/images/logoCo2.png',
-                              height: 48,
-                              width: 48,
-                              errorBuilder: (context, error, stackTrace) {
-                                // Logo yüklenemezse boş widget göster
-                                return const SizedBox.shrink();
-                              },
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              translate(
-                                'app_title',
-                                languageProvider.currentLocale,
+                            Transform.rotate(
+                              angle: 1.5708, // 90 derece (pi/2)
+                              child: Image.asset(
+                                'assets/images/logoCo2.png',
+                                height: 90,
+                                width: 90,
+                                errorBuilder: (context, error, stackTrace) {
+                                  // Logo yüklenemezse boş widget göster
+                                  return const SizedBox.shrink();
+                                },
                               ),
+                            ),
+                            const SizedBox(width: 8),
+                            Image.asset(
+                              'assets/images/navbarbaslik.png',
+                              height: 40,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                // Resim yüklenemezse text göster
+                                return Text(
+                                  translate(
+                                    'app_title',
+                                    languageProvider.currentLocale,
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),
