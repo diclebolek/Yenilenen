@@ -156,7 +156,9 @@ class RealtimeEspDataWidget extends StatelessWidget {
                 _DataRow(
                   icon: Icons.water_drop,
                   label: 'Su',
-                  value: '${data.waterCubicMeters.toStringAsFixed(2)} m³',
+                  value: data.waterCubicMeters < 0.01
+                      ? '${(data.waterCubicMeters * 1000).toStringAsFixed(2)} L'
+                      : '${data.waterCubicMeters.toStringAsFixed(3)} m³',
                   color: Colors.blue,
                   isDarkBackground: true,
                 ),

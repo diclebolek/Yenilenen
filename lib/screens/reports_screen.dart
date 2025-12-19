@@ -43,35 +43,86 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   /// Son 7 günün verilerini Firebase'den çek ve grafik için hazırla
   Future<void> _loadTrendData() async {
+    if (!mounted) return; // Widget dispose edilmişse işlemi durdur
     setState(() => _isLoadingTrends = true);
     try {
       final now = DateTime.now();
       final startDate = now.subtract(const Duration(days: 7));
       final endDate = now;
 
-      // Firebase'den geçmiş verileri çek
-      final historyData = await _firebaseService.getHistoryData(
+      // Firebase'den geçmiş verileri çek - timeout ile
+      final historyData = await _firebaseService
+          .getHistoryData(
         deviceId: 'esp8266_001', // ESP8266 cihaz ID'si
         startDate: startDate,
         endDate: endDate,
+      )
+          .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          // Timeout durumunda boş liste döndür
+          return <ConsumptionEntry>[];
+        },
       );
 
+      if (!mounted) return; // Widget dispose edilmişse işlemi durdur
+
+      // Eğer history'de veri yoksa, latest verisini de kontrol et
       if (historyData.isEmpty) {
-        // Veri yoksa, varsayılan değerleri kullan
-        setState(() {
-          _dailyEmissions = [0, 0, 0, 0, 0, 0, 0];
-          _isLoadingTrends = false;
-        });
-        return;
+        try {
+          // Latest verisini al
+          final latestEntry =
+              await _firebaseService.getLatestData('esp8266_001');
+
+          if (latestEntry != null && mounted) {
+            // Latest verisini bugün olarak ekle
+            historyData.add(ConsumptionEntry(
+              electricityKwh: latestEntry.electricityKwh,
+              waterCubicMeters: latestEntry.waterCubicMeters,
+              fuelLiters: latestEntry.fuelLiters,
+              wasteKg: latestEntry.wasteKg,
+              createdAt: DateTime.now(), // Bugün olarak işaretle
+            ));
+          } else {
+            // Veri yoksa, varsayılan değerleri kullan
+            if (mounted) {
+              setState(() {
+                _dailyEmissions = [0, 0, 0, 0, 0, 0, 0];
+                _isLoadingTrends = false;
+              });
+            }
+            return;
+          }
+        } catch (e) {
+          // Latest verisi alınamazsa varsayılan değerleri kullan
+          if (mounted) {
+            setState(() {
+              _dailyEmissions = [0, 0, 0, 0, 0, 0, 0];
+              _isLoadingTrends = false;
+            });
+          }
+          return;
+        }
       }
 
       // Günlere göre grupla ve toplam emisyonu hesapla
       final Map<int, List<ConsumptionEntry>> dailyData = {};
       for (var entry in historyData) {
-        final dayIndex = now.difference(entry.createdAt).inDays;
+        // Tarih farkını hesapla (mutlak değer)
+        final difference = now.difference(entry.createdAt);
+        final dayIndex = difference.inDays;
+
+        // Son 7 gün içindeki verileri al (0-6 gün önce)
         if (dayIndex >= 0 && dayIndex < 7) {
           dailyData.putIfAbsent(dayIndex, () => []).add(entry);
         }
+      }
+
+      // Eğer hiç veri yoksa, latest verisini kullan (bugün için)
+      if (dailyData.isEmpty && historyData.isNotEmpty) {
+        // En son veriyi bugün olarak ekle
+        final latestEntry = historyData.last;
+        dailyData.putIfAbsent(0, () => []).add(latestEntry);
       }
 
       // Her gün için toplam emisyonu hesapla
@@ -106,6 +157,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       // Kategori yüzdelerini hesapla
       final double totalEmission =
           totalElectricity + totalFuel + totalWater + totalWaste;
+
+      if (!mounted) return; // Widget dispose edilmişse işlemi durdur
+
       if (totalEmission > 0) {
         setState(() {
           _dailyEmissions = emissions;
@@ -125,16 +179,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
     } catch (e) {
       // Hata durumunda varsayılan değerleri kullan
-      setState(() {
-        _dailyEmissions = [0, 0, 0, 0, 0, 0, 0];
-        _isLoadingTrends = false;
-      });
+      if (mounted) {
+        setState(() {
+          _dailyEmissions = [0, 0, 0, 0, 0, 0, 0];
+          _isLoadingTrends = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    // MediaQuery'yi build metodunun başında hesapla - ListView içinde değil
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final listViewPadding = EdgeInsets.only(
+      top: 8,
+      left: 16,
+      right: 16,
+      bottom: 16 + bottomPadding + 80, // Bottom nav bar için ekstra padding
+    );
+
     return Scaffold(
       appBar: null,
       body: Stack(
@@ -166,12 +231,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   // Varsayılan Text rengi de beyaz
                   style: const TextStyle(color: Colors.white),
                   child: ListView(
-                    padding: const EdgeInsets.only(
-                      top: 8,
-                      left: 16,
-                      right: 16,
-                      bottom: 16,
-                    ), // Üst padding azaltıldı
+                    padding: listViewPadding, // Üst padding azaltıldı
                     children: [
                       // Üst alan: artık arka plan tüm sayfada, burada görsel yer tutucu ve ölçerin konumlandırılması var
                       Stack(
@@ -182,9 +242,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           Positioned(
                             left: 0,
                             right: 0,
-                            bottom:
-                                -(gaugeSize /
-                                    3), // Daha az overlap - widget daha yukarıda
+                            bottom: -(gaugeSize /
+                                3), // Daha az overlap - widget daha yukarıda
                             child: Center(
                               child: _FootprintGauge(
                                 kgCo2e: _lastCalculatedKgCo2e,
@@ -230,8 +289,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               onPressed: () => setState(
                                 () => _selectedMode =
                                     _selectedMode == _InputMode.raspberry
-                                    ? _InputMode.none
-                                    : _InputMode.raspberry,
+                                        ? _InputMode.none
+                                        : _InputMode.raspberry,
                               ),
                               style: ButtonStyle(
                                 minimumSize: const WidgetStatePropertyAll(
@@ -242,11 +301,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                                 backgroundColor:
                                     _selectedMode == _InputMode.raspberry
-                                    ? WidgetStatePropertyAll(
-                                        Theme.of(context).colorScheme.primary
-                                            .withValues(alpha: 0.3),
-                                      )
-                                    : null,
+                                        ? WidgetStatePropertyAll(
+                                            Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.3),
+                                          )
+                                        : null,
                                 shape: WidgetStatePropertyAll(
                                   StadiumBorder(
                                     side: BorderSide(
@@ -380,70 +441,89 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             child: CircularProgressIndicator(),
                                           ),
                                         )
-                                      : SizedBox(
-                                          height: 200,
-                                          child: LineChart(
-                                            LineChartData(
-                                              gridData: FlGridData(
-                                                show: true,
-                                                drawVerticalLine: true,
-                                                horizontalInterval: 1,
-                                                verticalInterval: 1,
-                                                getDrawingHorizontalLine:
-                                                    (value) {
-                                                      return FlLine(
+                                      : _dailyEmissions.isEmpty ||
+                                              _dailyEmissions
+                                                  .every((e) => e == 0)
+                                          ? SizedBox(
+                                              height: 200,
+                                              child: Center(
+                                                child: Text(
+                                                  translate('no_data_available',
+                                                      locale),
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.copyWith(
                                                         color: Colors.white
                                                             .withValues(
-                                                              alpha: 0.1,
-                                                            ),
-                                                        strokeWidth: 1,
-                                                      );
-                                                    },
-                                                getDrawingVerticalLine:
-                                                    (value) {
-                                                      return FlLine(
-                                                        color: Colors.white
-                                                            .withValues(
-                                                              alpha: 0.1,
-                                                            ),
-                                                        strokeWidth: 1,
-                                                      );
-                                                    },
+                                                          alpha: 0.7,
+                                                        ),
+                                                      ),
+                                                ),
                                               ),
-                                              titlesData: FlTitlesData(
-                                                show: true,
-                                                rightTitles: const AxisTitles(
-                                                  sideTitles: SideTitles(
-                                                    showTitles: false,
+                                            )
+                                          : SizedBox(
+                                              height: 200,
+                                              child: LineChart(
+                                                LineChartData(
+                                                  gridData: FlGridData(
+                                                    show: true,
+                                                    drawVerticalLine: true,
+                                                    horizontalInterval: 1,
+                                                    verticalInterval: 1,
+                                                    getDrawingHorizontalLine:
+                                                        (value) {
+                                                      return FlLine(
+                                                        color: Colors.white
+                                                            .withValues(
+                                                          alpha: 0.1,
+                                                        ),
+                                                        strokeWidth: 1,
+                                                      );
+                                                    },
+                                                    getDrawingVerticalLine:
+                                                        (value) {
+                                                      return FlLine(
+                                                        color: Colors.white
+                                                            .withValues(
+                                                          alpha: 0.1,
+                                                        ),
+                                                        strokeWidth: 1,
+                                                      );
+                                                    },
                                                   ),
-                                                ),
-                                                topTitles: const AxisTitles(
-                                                  sideTitles: SideTitles(
-                                                    showTitles: false,
-                                                  ),
-                                                ),
-                                                bottomTitles: AxisTitles(
-                                                  sideTitles: SideTitles(
-                                                    showTitles: true,
-                                                    reservedSize: 30,
-                                                    interval: 1,
-                                                    getTitlesWidget:
-                                                        (
+                                                  titlesData: FlTitlesData(
+                                                    show: true,
+                                                    rightTitles:
+                                                        const AxisTitles(
+                                                      sideTitles: SideTitles(
+                                                        showTitles: false,
+                                                      ),
+                                                    ),
+                                                    topTitles: const AxisTitles(
+                                                      sideTitles: SideTitles(
+                                                        showTitles: false,
+                                                      ),
+                                                    ),
+                                                    bottomTitles: AxisTitles(
+                                                      sideTitles: SideTitles(
+                                                        showTitles: true,
+                                                        reservedSize: 30,
+                                                        interval: 1,
+                                                        getTitlesWidget: (
                                                           double value,
                                                           TitleMeta meta,
                                                         ) {
                                                           const style =
                                                               TextStyle(
-                                                                color: Colors
-                                                                    .white,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                                fontSize: 12,
-                                                              );
+                                                            color: Colors.white,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 12,
+                                                          );
                                                           Widget text;
-                                                          switch (value
-                                                              .toInt()) {
+                                                          switch (
+                                                              value.toInt()) {
                                                             case 0:
                                                               text = Text(
                                                                 translate(
@@ -521,14 +601,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             child: text,
                                                           );
                                                         },
-                                                  ),
-                                                ),
-                                                leftTitles: AxisTitles(
-                                                  sideTitles: SideTitles(
-                                                    showTitles: true,
-                                                    interval: 1,
-                                                    getTitlesWidget:
-                                                        (
+                                                      ),
+                                                    ),
+                                                    leftTitles: AxisTitles(
+                                                      sideTitles: SideTitles(
+                                                        showTitles: true,
+                                                        interval: 1,
+                                                        getTitlesWidget: (
                                                           double value,
                                                           TitleMeta meta,
                                                         ) {
@@ -536,60 +615,74 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             '${value.toInt()}',
                                                             style:
                                                                 const TextStyle(
-                                                                  color: Colors
-                                                                      .white,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .bold,
-                                                                  fontSize: 12,
-                                                                ),
+                                                              color:
+                                                                  Colors.white,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              fontSize: 12,
+                                                            ),
                                                           );
                                                         },
-                                                    reservedSize: 28,
-                                                  ),
-                                                ),
-                                              ),
-                                              borderData: FlBorderData(
-                                                show: true,
-                                                border: Border.all(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.2),
-                                                ),
-                                              ),
-                                              minX: 0,
-                                              maxX: 6,
-                                              minY: 0,
-                                              maxY: _dailyEmissions.isEmpty
-                                                  ? 5
-                                                  : (_dailyEmissions.reduce(
-                                                              (a, b) =>
-                                                                  a > b ? a : b,
-                                                            ) *
-                                                            1.2)
-                                                        .clamp(1.0, 100.0),
-                                              lineBarsData: [
-                                                LineChartBarData(
-                                                  spots: List.generate(
-                                                    7,
-                                                    (index) => FlSpot(
-                                                      index.toDouble(),
-                                                      _dailyEmissions[index]
-                                                          .clamp(0.0, 100.0),
+                                                        reservedSize: 28,
+                                                      ),
                                                     ),
                                                   ),
-                                                  isCurved: true,
-                                                  gradient: LinearGradient(
-                                                    colors: [
-                                                      const Color(0xFF304411),
-                                                      const Color(0xFF48631F),
-                                                    ],
-                                                  ),
-                                                  barWidth: 3,
-                                                  isStrokeCapRound: true,
-                                                  dotData: FlDotData(
+                                                  borderData: FlBorderData(
                                                     show: true,
-                                                    getDotPainter:
-                                                        (
+                                                    border: Border.all(
+                                                      color: Colors.white
+                                                          .withValues(
+                                                              alpha: 0.2),
+                                                    ),
+                                                  ),
+                                                  minX: 0,
+                                                  maxX: 6,
+                                                  minY: 0,
+                                                  maxY: _dailyEmissions
+                                                              .isEmpty ||
+                                                          _dailyEmissions.every(
+                                                              (e) => e == 0)
+                                                      ? 10
+                                                      : (_dailyEmissions.reduce(
+                                                                (a, b) => a > b
+                                                                    ? a
+                                                                    : b,
+                                                              ) *
+                                                              1.2)
+                                                          .clamp(1.0, 100.0),
+                                                  lineBarsData: [
+                                                    LineChartBarData(
+                                                      spots: List.generate(
+                                                        7,
+                                                        (index) => FlSpot(
+                                                          index.toDouble(),
+                                                          _dailyEmissions
+                                                                      .isNotEmpty &&
+                                                                  index <
+                                                                      _dailyEmissions
+                                                                          .length
+                                                              ? _dailyEmissions[
+                                                                      index]
+                                                                  .clamp(0.0,
+                                                                      100.0)
+                                                              : 0.0,
+                                                        ),
+                                                      ),
+                                                      isCurved: true,
+                                                      gradient: LinearGradient(
+                                                        colors: [
+                                                          const Color(
+                                                              0xFF304411),
+                                                          const Color(
+                                                              0xFF48631F),
+                                                        ],
+                                                      ),
+                                                      barWidth: 3,
+                                                      isStrokeCapRound: true,
+                                                      dotData: FlDotData(
+                                                        show: true,
+                                                        getDotPainter: (
                                                           spot,
                                                           percent,
                                                           barData,
@@ -605,33 +698,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                 Colors.white,
                                                           );
                                                         },
-                                                  ),
-                                                  belowBarData: BarAreaData(
-                                                    show: true,
-                                                    gradient: LinearGradient(
-                                                      colors: [
-                                                        const Color(
-                                                          0xFF304411,
-                                                        ).withValues(
-                                                          alpha: 0.3,
+                                                      ),
+                                                      belowBarData: BarAreaData(
+                                                        show: true,
+                                                        gradient:
+                                                            LinearGradient(
+                                                          colors: [
+                                                            const Color(
+                                                              0xFF304411,
+                                                            ).withValues(
+                                                              alpha: 0.3,
+                                                            ),
+                                                            const Color(
+                                                              0xFF48631F,
+                                                            ).withValues(
+                                                              alpha: 0.1,
+                                                            ),
+                                                          ],
+                                                          begin: Alignment
+                                                              .topCenter,
+                                                          end: Alignment
+                                                              .bottomCenter,
                                                         ),
-                                                        const Color(
-                                                          0xFF48631F,
-                                                        ).withValues(
-                                                          alpha: 0.1,
-                                                        ),
-                                                      ],
-                                                      begin:
-                                                          Alignment.topCenter,
-                                                      end: Alignment
-                                                          .bottomCenter,
+                                                      ),
                                                     ),
-                                                  ),
+                                                  ],
                                                 ),
-                                              ],
+                                              ),
                                             ),
-                                          ),
-                                        ),
                                   const SizedBox(height: 16),
                                   // Yenile butonu
                                   Row(
@@ -655,7 +749,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   const SizedBox(height: 8),
                                   Text(
                                     translate('last_7_days_trend', locale),
-                                    style: Theme.of(context).textTheme.bodySmall
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
                                         ?.copyWith(
                                           color: Colors.white.withValues(
                                             alpha: 0.7,
@@ -696,13 +792,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                         child: PieChart(
                                           PieChartData(
                                             pieTouchData: PieTouchData(
-                                              touchCallback:
-                                                  (
-                                                    FlTouchEvent event,
-                                                    pieTouchResponse,
-                                                  ) {
-                                                    // Dokunma etkileşimi
-                                                  },
+                                              touchCallback: (
+                                                FlTouchEvent event,
+                                                pieTouchResponse,
+                                              ) {
+                                                // Dokunma etkileşimi
+                                              },
                                             ),
                                             borderData: FlBorderData(
                                               show: false,
@@ -712,13 +807,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             sections: [
                                               PieChartSectionData(
                                                 color: const Color(0xFF304411),
-                                                value:
-                                                    _categoryDistribution['electricity'] ??
-                                                    0,
-                                                title:
-                                                    _categoryDistribution['electricity']! >
+                                                value: _categoryDistribution[
+                                                        'electricity'] ??
+                                                    0.0,
+                                                title: (_categoryDistribution[
+                                                                'electricity'] ??
+                                                            0.0) >
                                                         0
-                                                    ? '${_categoryDistribution['electricity']!.toStringAsFixed(0)}%'
+                                                    ? '${(_categoryDistribution['electricity'] ?? 0.0).toStringAsFixed(0)}%'
                                                     : '',
                                                 radius: 50,
                                                 titleStyle: const TextStyle(
@@ -729,13 +825,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               ),
                                               PieChartSectionData(
                                                 color: const Color(0xFF48631F),
-                                                value:
-                                                    _categoryDistribution['fuel'] ??
-                                                    0,
-                                                title:
-                                                    _categoryDistribution['fuel']! >
+                                                value: _categoryDistribution[
+                                                        'fuel'] ??
+                                                    0.0,
+                                                title: (_categoryDistribution[
+                                                                'fuel'] ??
+                                                            0.0) >
                                                         0
-                                                    ? '${_categoryDistribution['fuel']!.toStringAsFixed(0)}%'
+                                                    ? '${(_categoryDistribution['fuel'] ?? 0.0).toStringAsFixed(0)}%'
                                                     : '',
                                                 radius: 50,
                                                 titleStyle: const TextStyle(
@@ -746,13 +843,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               ),
                                               PieChartSectionData(
                                                 color: const Color(0xFF304411),
-                                                value:
-                                                    _categoryDistribution['water'] ??
-                                                    0,
-                                                title:
-                                                    _categoryDistribution['water']! >
+                                                value: _categoryDistribution[
+                                                        'water'] ??
+                                                    0.0,
+                                                title: (_categoryDistribution[
+                                                                'water'] ??
+                                                            0.0) >
                                                         0
-                                                    ? '${_categoryDistribution['water']!.toStringAsFixed(0)}%'
+                                                    ? '${(_categoryDistribution['water'] ?? 0.0).toStringAsFixed(0)}%'
                                                     : '',
                                                 radius: 50,
                                                 titleStyle: const TextStyle(
@@ -763,13 +861,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               ),
                                               PieChartSectionData(
                                                 color: const Color(0xFF48631F),
-                                                value:
-                                                    _categoryDistribution['waste'] ??
-                                                    0,
-                                                title:
-                                                    _categoryDistribution['waste']! >
+                                                value: _categoryDistribution[
+                                                        'waste'] ??
+                                                    0.0,
+                                                title: (_categoryDistribution[
+                                                                'waste'] ??
+                                                            0.0) >
                                                         0
-                                                    ? '${_categoryDistribution['waste']!.toStringAsFixed(0)}%'
+                                                    ? '${(_categoryDistribution['waste'] ?? 0.0).toStringAsFixed(0)}%'
                                                     : '',
                                                 radius: 50,
                                                 titleStyle: const TextStyle(
@@ -821,7 +920,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                       'carbon_footprint_distribution',
                                       locale,
                                     ),
-                                    style: Theme.of(context).textTheme.bodySmall
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
                                         ?.copyWith(
                                           color: Colors.white.withValues(
                                             alpha: 0.7,
@@ -909,30 +1010,30 @@ class _FootprintGauge extends StatelessWidget {
                 Text(
                   tonnes.toStringAsFixed(1),
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.black
-                        : Theme.of(context).colorScheme.onSurface,
-                  ),
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.black
+                            : Theme.of(context).colorScheme.onSurface,
+                      ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   translate('tonnes_co2e', locale),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.black
-                        : Theme.of(context).colorScheme.onSurface,
-                  ),
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.black
+                            : Theme.of(context).colorScheme.onSurface,
+                      ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   translate('greenhouse_gas_emissions', locale),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.black
-                        : Theme.of(context).colorScheme.onSurface,
-                  ),
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.black
+                            : Theme.of(context).colorScheme.onSurface,
+                      ),
                 ),
               ],
             ),
@@ -997,10 +1098,14 @@ class _GradientRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GradientRingPainter oldDelegate) {
-    return progress != oldDelegate.progress ||
-        strokeWidth != oldDelegate.strokeWidth ||
-        trackColor != oldDelegate.trackColor ||
-        gradientColors != oldDelegate.gradientColors;
+    if (progress != oldDelegate.progress) return true;
+    if (strokeWidth != oldDelegate.strokeWidth) return true;
+    if (trackColor != oldDelegate.trackColor) return true;
+    if (gradientColors.length != oldDelegate.gradientColors.length) return true;
+    for (int i = 0; i < gradientColors.length; i++) {
+      if (gradientColors[i] != oldDelegate.gradientColors[i]) return true;
+    }
+    return false;
   }
 }
 

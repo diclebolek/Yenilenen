@@ -175,6 +175,7 @@ const Map<String, String> trTranslations = {
   'daily_trends': 'Günlük Trendler',
   'category_distribution': 'Kategori Dağılımı',
   'last_7_days_trend': 'Son 7 günün karbon ayak izi trendi (kg CO₂e)',
+  'no_data_available': 'Henüz veri yok',
   'carbon_footprint_distribution': 'Karbon ayak izi kategorilere göre dağılımı',
   'tonnes_co2e': 'tonnes CO₂e',
   'greenhouse_gas_emissions': 'Greenhouse Gas\nEmissions',
@@ -454,6 +455,7 @@ const Map<String, String> enTranslations = {
   'daily_trends': 'Daily Trends',
   'category_distribution': 'Category Distribution',
   'last_7_days_trend': 'Last 7 days carbon footprint trend (kg CO₂e)',
+  'no_data_available': 'No data available yet',
   'carbon_footprint_distribution':
       'Carbon footprint distribution by categories',
   'tonnes_co2e': 'tonnes CO₂e',
@@ -558,9 +560,8 @@ const Map<String, String> enTranslations = {
 
 /// Çeviri fonksiyonu
 String translate(String key, Locale locale, {Map<String, String>? params}) {
-  final translations = locale.languageCode == 'en'
-      ? enTranslations
-      : trTranslations;
+  final translations =
+      locale.languageCode == 'en' ? enTranslations : trTranslations;
   String text = translations[key] ?? key;
 
   // Parametreleri değiştir

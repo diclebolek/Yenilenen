@@ -61,13 +61,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       // Yeşil puanı dinle
       _greenScoreSubscription?.cancel();
-      _greenScoreSubscription = _firebaseService
-          .listenToGreenScore(_userId!)
-          .listen((score) {
-            if (mounted) {
-              setState(() => _greenScore = score);
-            }
-          });
+      _greenScoreSubscription =
+          _firebaseService.listenToGreenScore(_userId!).listen((score) {
+        if (mounted) {
+          setState(() => _greenScore = score);
+        }
+      });
 
       // Hedefleri yükle
       final goalsData = await _firebaseService.getGoals(_userId!);
@@ -434,9 +433,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
             Text(
               badgeTitle,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.amber.shade700,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: Colors.amber.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
@@ -489,61 +488,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   80, // Bottom nav bar için ekstra padding
             ),
             children: [
-              // Başlık bölümü
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 1,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.flag,
-                                color: isDark ? Colors.white : Colors.black,
-                                size: 28,
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                translate('carbon_footprint_goals', locale),
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            translate('goals_description', locale),
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: 0.7),
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
               // Başarı rozetleri - En üstte gösteriliyor
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
@@ -573,11 +517,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               const SizedBox(width: 8),
                               Text(
                                 translate('achievement_badges', locale),
-                                style: Theme.of(context).textTheme.titleMedium
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
                                     ?.copyWith(
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black,
+                                      color:
+                                          isDark ? Colors.white : Colors.black,
                                       fontWeight: FontWeight.bold,
                                     ),
                               ),
@@ -596,7 +541,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                 ),
                                 child: Text(
                                   '${_badges.values.where((v) => v).length}/${_badges.length}',
-                                  style: Theme.of(context).textTheme.bodySmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
                                       ?.copyWith(
                                         color: Theme.of(
                                           context,
@@ -728,11 +675,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                            color:
-                                                (isDark
-                                                        ? Colors.white
-                                                        : Colors.black)
-                                                    .withValues(alpha: 0.7),
+                                            color: (isDark
+                                                    ? Colors.white
+                                                    : Colors.black)
+                                                .withValues(alpha: 0.7),
                                           ),
                                     ),
                                   ],
@@ -775,11 +721,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                            color:
-                                                (isDark
-                                                        ? Colors.white
-                                                        : Colors.black)
-                                                    .withValues(alpha: 0.7),
+                                            color: (isDark
+                                                    ? Colors.white
+                                                    : Colors.black)
+                                                .withValues(alpha: 0.7),
                                             fontSize: 10,
                                           ),
                                     ),
@@ -799,18 +744,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                 children: [
                                   Text(
                                     translate('next_level', locale),
-                                    style: Theme.of(context).textTheme.bodySmall
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
                                         ?.copyWith(
-                                          color:
-                                              (isDark
-                                                      ? Colors.white
-                                                      : Colors.black)
-                                                  .withValues(alpha: 0.7),
+                                          color: (isDark
+                                                  ? Colors.white
+                                                  : Colors.black)
+                                              .withValues(alpha: 0.7),
                                         ),
                                   ),
                                   Text(
                                     '${100 - (_greenScore % 100)} ${translate('points_to_go', locale)}',
-                                    style: Theme.of(context).textTheme.bodySmall
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
                                         ?.copyWith(
                                           color: Theme.of(
                                             context,
@@ -877,7 +825,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           // Davranış eylemleri (puan kazandırır)
                           Text(
                             translate('earn_points', locale),
-                            style: Theme.of(context).textTheme.bodyMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
                                 ?.copyWith(
                                   color: (isDark ? Colors.white : Colors.black)
                                       .withValues(alpha: 0.8),
@@ -1005,9 +955,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     child: Text(
                       translate('no_goals', locale),
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: (isDark ? Colors.white : Colors.black)
-                            .withValues(alpha: 0.7),
-                      ),
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: 0.7),
+                          ),
                     ),
                   ),
                 )
@@ -1018,9 +968,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     child: _GoalCard(
                       goal: goal,
                       languageProvider: widget.languageProvider,
-                      onDelete: _userId != null
-                          ? () => _deleteGoal(goal.id)
-                          : null,
+                      onDelete:
+                          _userId != null ? () => _deleteGoal(goal.id) : null,
                     ),
                   ),
                 ),
@@ -1046,7 +995,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         children: [
                           Text(
                             translate('set_new_goal', locale),
-                            style: Theme.of(context).textTheme.titleMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
                                 ?.copyWith(
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
@@ -1078,7 +1029,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               padding: const EdgeInsets.only(top: 8),
                               child: Text(
                                 translate('login_required_for_goals', locale),
-                                style: Theme.of(context).textTheme.bodySmall
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
                                     ?.copyWith(
                                       color:
                                           (isDark ? Colors.white : Colors.black)
@@ -1172,20 +1125,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     labelText: translate('goal_type', locale),
                     border: const OutlineInputBorder(),
                   ),
-                  items:
-                      [
-                            'electricity_saving',
-                            'co2_reduction',
-                            'water_saving',
-                            'waste_reduction',
-                          ]
-                          .map(
-                            (type) => DropdownMenuItem(
-                              value: type,
-                              child: Text(translate(type, locale)),
-                            ),
-                          )
-                          .toList(),
+                  items: [
+                    'electricity_saving',
+                    'co2_reduction',
+                    'water_saving',
+                    'waste_reduction',
+                  ]
+                      .map(
+                        (type) => DropdownMenuItem(
+                          value: type,
+                          child: Text(translate(type, locale)),
+                        ),
+                      )
+                      .toList(),
                   onChanged: (value) {
                     if (value != null) {
                       setDialogState(() {
@@ -1367,7 +1319,9 @@ class _GoalCard extends StatelessWidget {
                         children: [
                           Text(
                             goal.title,
-                            style: Theme.of(context).textTheme.titleMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
                                 ?.copyWith(
                                   color: isDark ? Colors.white : Colors.black,
                                   fontWeight: FontWeight.bold,
@@ -1386,7 +1340,9 @@ class _GoalCard extends StatelessWidget {
                                 const SizedBox(width: 4),
                                 Text(
                                   translate('goal_completed', locale),
-                                  style: Theme.of(context).textTheme.bodySmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
                                       ?.copyWith(
                                         color: Colors.green,
                                         fontWeight: FontWeight.w600,
@@ -1404,23 +1360,23 @@ class _GoalCard extends StatelessWidget {
                       children: [
                         Text(
                           '${goal.current.toStringAsFixed(1)}/${goal.target.toStringAsFixed(1)} ${goal.unit}',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
                         ),
                         Text(
                           '${(goal.progress * 100).toStringAsFixed(0)}%',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: isCompleted
-                                    ? Colors.green
-                                    : (isDark ? Colors.white : Colors.black)
-                                          .withValues(alpha: 0.7),
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: isCompleted
+                                        ? Colors.green
+                                        : (isDark ? Colors.white : Colors.black)
+                                            .withValues(alpha: 0.7),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                       ],
                     ),
@@ -1467,13 +1423,14 @@ class _GoalCard extends StatelessWidget {
                     Text(
                       '${(goal.progress * 100).toStringAsFixed(1)}% ${translate('completed', locale)}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isCompleted
-                            ? Colors.green
-                            : (isDark ? Colors.white : Colors.black).withValues(
-                                alpha: 0.7,
-                              ),
-                        fontWeight: FontWeight.w600,
-                      ),
+                            color: isCompleted
+                                ? Colors.green
+                                : (isDark ? Colors.white : Colors.black)
+                                    .withValues(
+                                    alpha: 0.7,
+                                  ),
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     if (isCompleted)
                       Icon(Icons.celebration, color: Colors.amber, size: 18),
@@ -1573,16 +1530,17 @@ class _AchievementBadge extends StatelessWidget {
             child: Text(
               title,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: isDark
-                    ? (isUnlocked
-                          ? Colors.white
-                          : Colors.grey.withValues(alpha: 0.6))
-                    : (isUnlocked
-                          ? Colors.black
-                          : Colors.grey.withValues(alpha: 0.6)),
-                fontWeight: isUnlocked ? FontWeight.w600 : FontWeight.normal,
-                fontSize: 11,
-              ),
+                    color: isDark
+                        ? (isUnlocked
+                            ? Colors.white
+                            : Colors.grey.withValues(alpha: 0.6))
+                        : (isUnlocked
+                            ? Colors.black
+                            : Colors.grey.withValues(alpha: 0.6)),
+                    fontWeight:
+                        isUnlocked ? FontWeight.w600 : FontWeight.normal,
+                    fontSize: 11,
+                  ),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -1625,19 +1583,19 @@ class _StatCard extends StatelessWidget {
           Text(
             value,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: isDark ? Colors.white : Colors.black,
-              fontWeight: FontWeight.bold,
-            ),
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
           ),
           const SizedBox(height: 4),
           Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: (isDark ? Colors.white : Colors.black).withValues(
-                alpha: 0.7,
-              ),
-              fontSize: 11,
-            ),
+                  color: (isDark ? Colors.white : Colors.black).withValues(
+                    alpha: 0.7,
+                  ),
+                  fontSize: 11,
+                ),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -1702,20 +1660,20 @@ class _ActionChip extends StatelessWidget {
                   Text(
                     label,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
                     '+$points',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
-                    ),
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
                   ),
                 ],
               ),

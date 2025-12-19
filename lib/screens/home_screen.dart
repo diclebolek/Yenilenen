@@ -263,8 +263,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: selected
                           ? (isDark ? Colors.white : Colors.black)
                           : (isDark
-                                ? Colors.white.withValues(alpha: 0.5)
-                                : Colors.black.withValues(alpha: 0.4)),
+                              ? Colors.white.withValues(alpha: 0.5)
+                              : Colors.black.withValues(alpha: 0.4)),
                       shape: BoxShape.circle,
                     ),
                   );
@@ -284,17 +284,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     translate('business_comparison_title', locale),
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   Text(
                     translate('see_all', locale),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.6,
-                      ),
-                    ),
+                          color:
+                              (isDark ? Colors.white : Colors.black).withValues(
+                            alpha: 0.6,
+                          ),
+                        ),
                   ),
                 ],
               ),
@@ -308,17 +309,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     translate('bill_scanning_title', locale),
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   Text(
                     translate('see_all', locale),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.6,
-                      ),
-                    ),
+                          color:
+                              (isDark ? Colors.white : Colors.black).withValues(
+                            alpha: 0.6,
+                          ),
+                        ),
                   ),
                 ],
               ),
@@ -337,17 +339,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     translate('energy_tips_title', locale),
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   Text(
                     translate('see_all', locale),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.6,
-                      ),
-                    ),
+                          color:
+                              (isDark ? Colors.white : Colors.black).withValues(
+                            alpha: 0.6,
+                          ),
+                        ),
                   ),
                 ],
               ),
@@ -430,8 +433,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             decoration: BoxDecoration(
                               color: selected
                                   ? Theme.of(context).colorScheme.primary
-                                  : Theme.of(context).colorScheme.onSurface
-                                        .withValues(alpha: 0.4),
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.4),
                               shape: BoxShape.circle,
                             ),
                           );
@@ -445,20 +450,40 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    translate('weather_energy_title', locale),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        translate('weather_energy_title', locale),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      if (_currentWeather != null &&
+                          _currentWeather!['city'] != null)
+                        Text(
+                          _currentWeather!['city'] ?? 'İstanbul',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                color: (isDark ? Colors.white : Colors.black)
+                                    .withValues(
+                                  alpha: 0.7,
+                                ),
+                              ),
+                        ),
+                    ],
                   ),
                   Text(
                     translate('see_all', locale),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.6,
-                      ),
-                    ),
+                          color:
+                              (isDark ? Colors.white : Colors.black).withValues(
+                            alpha: 0.6,
+                          ),
+                        ),
                   ),
                 ],
               ),
@@ -479,8 +504,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         'title': translate('today', locale),
                         'temp':
                             '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
-                        'condition':
-                            _currentWeather?['condition'] ??
+                        'condition': _currentWeather?['condition'] ??
                             translate('sunny', locale),
                         'icon': _getWeatherIcon(
                           _currentWeather?['icon'] ?? '01d',
@@ -498,8 +522,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           'title': translate('tomorrow', locale),
                           'temp':
                               '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
-                          'condition':
-                              _weatherForecast![0]['condition'] ??
+                          'condition': _weatherForecast![0]['condition'] ??
                               translate('cloudy', locale),
                           'icon': _getWeatherIcon(
                             _weatherForecast![0]['icon'] ?? '02d',
@@ -517,8 +540,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           'title': translate('week', locale),
                           'temp':
                               '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
-                          'condition':
-                              _weatherForecast![1]['condition'] ??
+                          'condition': _weatherForecast![1]['condition'] ??
                               translate('mixed', locale),
                           'icon': _getWeatherIcon(
                             _weatherForecast![1]['icon'] ?? '03d',
@@ -581,8 +603,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   color: Colors.black.withValues(alpha: 0.4),
                                   borderRadius: BorderRadius.circular(16),
                                   border: Border.all(
-                                    color:
-                                        (Theme.of(context).brightness ==
+                                    color: (Theme.of(context).brightness ==
                                             Brightness.dark)
                                         ? Theme.of(context).colorScheme.primary
                                         : Colors.white.withValues(alpha: 0.3),
@@ -718,7 +739,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         style: Theme.of(context)
                                             .textTheme
-                                            .titleMedium
+                                            .titleLarge
                                             ?.copyWith(
                                               color: Colors.white,
                                               fontWeight: FontWeight.bold,
@@ -726,13 +747,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Wrap(
-                                        spacing: 12,
+                                        spacing: 8,
                                         runSpacing: 8,
                                         children: [
                                           _InfoChip(
                                             label: translate('city', locale),
-                                            value:
-                                                _currentWeather?['city'] ??
+                                            value: _currentWeather?['city'] ??
                                                 'İstanbul',
                                           ),
                                           _InfoChip(
@@ -905,6 +925,7 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: const BoxConstraints(maxWidth: double.infinity),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.10),
@@ -914,19 +935,25 @@ class _InfoChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.9),
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontWeight: FontWeight.w500,
+                  ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
+          Flexible(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -983,30 +1010,29 @@ class _EmissionComparisonCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       translate('emission_awareness_title', locale),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     _InfoChip(
                       label: translate('you', locale),
-                      value:
-                          '${userDailyEmissionKg.toStringAsFixed(1)} kg CO₂e/gün',
+                      value: '${userDailyEmissionKg.toStringAsFixed(1)} kg/gün',
                     ),
-                    const SizedBox(width: 10),
                     _InfoChip(
                       label: translate('national_avg', locale),
-                      value: nationalAvgKg.toStringAsFixed(1),
+                      value: '${nationalAvgKg.toStringAsFixed(1)} kg/gün',
                     ),
-                    const SizedBox(width: 10),
                     _InfoChip(
                       label: translate('global_avg', locale),
-                      value: globalAvgKg.toStringAsFixed(1),
+                      value: '${globalAvgKg.toStringAsFixed(1)} kg/gün',
                     ),
                   ],
                 ),
@@ -1016,9 +1042,9 @@ class _EmissionComparisonCard extends StatelessWidget {
                       ? '${translate('your_emission_is', locale)} $percentText ${translate('below_world_avg', locale)}'
                       : '${translate('your_emission_is', locale)} $percentText ${translate('above_world_avg', locale)}',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
               ],
             ),
@@ -1069,9 +1095,9 @@ class _EquivalentsCard extends StatelessWidget {
                     child: Text(
                       label,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1082,9 +1108,9 @@ class _EquivalentsCard extends StatelessWidget {
               Text(
                 value,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
             ],
           ),
@@ -1116,10 +1142,10 @@ class _EquivalentsCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       translate('impact_equivalents_title', locale),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                   ],
                 ),
@@ -1225,9 +1251,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 1,
                             child: Text(
                               '#',
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1237,9 +1265,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 3,
                             child: Text(
                               translate('business_name', locale),
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                             ),
@@ -1248,9 +1278,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 2,
                             child: Text(
                               translate('monthly_emission', locale),
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1260,9 +1292,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 2,
                             child: Text(
                               translate('industry_avg', locale),
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1272,9 +1306,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 2,
                             child: Text(
                               'Durum',
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1283,7 +1319,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      const Divider(color: Colors.white24),
+                      Divider(color: isDark ? Colors.white24 : Colors.black26),
                       const SizedBox(height: 8),
                       // Tablo satırları
                       ...businesses.asMap().entries.map((entry) {
@@ -1334,9 +1370,13 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 1,
                                 child: Text(
                                   '${index + 1}',
-                                  style: Theme.of(context).textTheme.bodyMedium
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
                                       ?.copyWith(
-                                        color: Colors.white,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1348,9 +1388,13 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 3,
                                 child: Text(
                                   business['name'] as String,
-                                  style: Theme.of(context).textTheme.bodyMedium
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
                                       ?.copyWith(
-                                        color: Colors.white,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1361,9 +1405,13 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 2,
                                 child: Text(
                                   '${business['emission']} ${translate('tonnes_co2e_monthly', locale)}',
-                                  style: Theme.of(context).textTheme.bodyMedium
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
                                       ?.copyWith(
-                                        color: Colors.white,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1375,11 +1423,15 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 2,
                                 child: Text(
                                   '${business['industryAvg']} ${translate('tonnes_co2e_monthly', locale)}',
-                                  style: Theme.of(context).textTheme.bodyMedium
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
                                       ?.copyWith(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.8,
-                                        ),
+                                        color: isDark
+                                            ? Colors.white
+                                                .withValues(alpha: 0.8)
+                                            : Colors.black
+                                                .withValues(alpha: 0.8),
                                       ),
                                   textAlign: TextAlign.center,
                                 ),
@@ -1393,8 +1445,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                       status == 'better'
                                           ? Icons.trending_down
                                           : status == 'worse'
-                                          ? Icons.trending_up
-                                          : Icons.trending_flat,
+                                              ? Icons.trending_up
+                                              : Icons.trending_flat,
                                       color: statusColor,
                                       size: 16,
                                     ),
@@ -1444,16 +1496,18 @@ class _BusinessComparisonTable extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     children: [
-                      // Tablo başlıkları (mobil için küçük)
+                      // Tablo başlıkları
                       Row(
                         children: [
                           Expanded(
                             flex: 1,
                             child: Text(
                               '#',
-                              style: Theme.of(context).textTheme.bodySmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1463,9 +1517,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 3,
                             child: Text(
                               translate('business_name', locale),
-                              style: Theme.of(context).textTheme.bodySmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                             ),
@@ -1474,9 +1530,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 2,
                             child: Text(
                               translate('monthly_emission', locale),
-                              style: Theme.of(context).textTheme.bodySmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1486,9 +1544,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 2,
                             child: Text(
                               translate('industry_avg', locale),
-                              style: Theme.of(context).textTheme.bodySmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1498,9 +1558,11 @@ class _BusinessComparisonTable extends StatelessWidget {
                             flex: 2,
                             child: Text(
                               'Durum',
-                              style: Theme.of(context).textTheme.bodySmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
@@ -1509,7 +1571,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      const Divider(color: Colors.white24),
+                      Divider(color: isDark ? Colors.white24 : Colors.black26),
                       const SizedBox(height: 6),
                       // Tablo satırları (mobil için küçük)
                       ...businesses.asMap().entries.map((entry) {
@@ -1560,9 +1622,13 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 1,
                                 child: Text(
                                   '${index + 1}',
-                                  style: Theme.of(context).textTheme.bodySmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
                                       ?.copyWith(
-                                        color: Colors.white,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1574,9 +1640,13 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 3,
                                 child: Text(
                                   business['name'] as String,
-                                  style: Theme.of(context).textTheme.bodySmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
                                       ?.copyWith(
-                                        color: Colors.white,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1587,9 +1657,13 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 2,
                                 child: Text(
                                   '${business['emission']} ${translate('tonnes_co2e_monthly', locale)}',
-                                  style: Theme.of(context).textTheme.bodySmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
                                       ?.copyWith(
-                                        color: Colors.white,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1601,11 +1675,15 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 flex: 2,
                                 child: Text(
                                   '${business['industryAvg']} ${translate('tonnes_co2e_monthly', locale)}',
-                                  style: Theme.of(context).textTheme.bodySmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
                                       ?.copyWith(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.8,
-                                        ),
+                                        color: isDark
+                                            ? Colors.white
+                                                .withValues(alpha: 0.8)
+                                            : Colors.black
+                                                .withValues(alpha: 0.8),
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -1622,8 +1700,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                       status == 'better'
                                           ? Icons.trending_down
                                           : status == 'worse'
-                                          ? Icons.trending_up
-                                          : Icons.trending_flat,
+                                              ? Icons.trending_up
+                                              : Icons.trending_flat,
                                       color: statusColor,
                                       size: 12,
                                     ),

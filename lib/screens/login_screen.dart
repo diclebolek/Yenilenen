@@ -106,9 +106,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 600;
-                    final double cardWidth = isWide
-                        ? 400
-                        : constraints.maxWidth - 48;
+                    final double cardWidth =
+                        isWide ? 400 : constraints.maxWidth - 48;
 
                     return SizedBox(
                       width: cardWidth,
@@ -152,10 +151,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
-                                        Icons.eco,
-                                        color: Colors.white,
-                                        size: 40,
+                                      child: ClipOval(
+                                        child: Image.asset(
+                                          'assets/images/logoCo2.png',
+                                          fit: BoxFit.cover,
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                            // Logo yüklenemezse varsayılan ikonu göster
+                                            return const Icon(
+                                              Icons.eco,
+                                              color: Colors.white,
+                                              size: 40,
+                                            );
+                                          },
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 24),
@@ -370,9 +379,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                       width: double.infinity,
                                       height: 50,
                                       child: ElevatedButton(
-                                        onPressed: _isLoading
-                                            ? null
-                                            : _handleLogin,
+                                        onPressed:
+                                            _isLoading ? null : _handleLogin,
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Theme.of(
                                             context,
@@ -392,12 +400,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                             ? const SizedBox(
                                                 width: 20,
                                                 height: 20,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                   valueColor:
                                                       AlwaysStoppedAnimation<
-                                                        Color
-                                                      >(Colors.white),
+                                                          Color>(Colors.white),
                                                 ),
                                               )
                                             : Text(
@@ -434,8 +442,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                         try {
                                           await FirebaseAuthService.instance
                                               .sendPasswordResetEmail(
-                                                _emailController.text.trim(),
-                                              );
+                                            _emailController.text.trim(),
+                                          );
                                           if (mounted) {
                                             ScaffoldMessenger.of(
                                               this.context,
@@ -521,38 +529,38 @@ class _LoginScreenState extends State<LoginScreen> {
                                                 MaterialPageRoute(
                                                   builder: (context) =>
                                                       RegisterScreen(
-                                                        languageProvider: widget
-                                                            .languageProvider,
-                                                        onRegisterSuccess: () {
-                                                          Navigator.of(
-                                                            context,
-                                                          ).pop();
-                                                          ScaffoldMessenger.of(
-                                                            context,
-                                                          ).showSnackBar(
-                                                            SnackBar(
-                                                              content: Text(
-                                                                'Kayıt başarılı! Giriş yapabilirsiniz.',
-                                                              ),
-                                                              backgroundColor:
-                                                                  Colors.green,
-                                                              duration:
-                                                                  const Duration(
-                                                                    seconds: 3,
-                                                                  ),
-                                                            ),
-                                                          );
-                                                        },
-                                                      ),
+                                                    languageProvider:
+                                                        widget.languageProvider,
+                                                    onRegisterSuccess: () {
+                                                      Navigator.of(
+                                                        context,
+                                                      ).pop();
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            'Kayıt başarılı! Giriş yapabilirsiniz.',
+                                                          ),
+                                                          backgroundColor:
+                                                              Colors.green,
+                                                          duration:
+                                                              const Duration(
+                                                            seconds: 3,
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
                                                 ),
                                               );
                                             },
                                             style: TextButton.styleFrom(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 4,
-                                                  ),
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
                                             ),
                                             child: Text(
                                               translate(

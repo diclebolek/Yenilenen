@@ -88,10 +88,9 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                 widget.languageProvider?.currentLocale ?? const Locale('tr'),
               ),
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: isDark ? Colors.white : Colors.black,
-                fontWeight: FontWeight.bold,
-                fontSize: titleFontSize,
-              ),
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
             Text(
               translate(
@@ -99,11 +98,11 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                 widget.languageProvider?.currentLocale ?? const Locale('tr'),
               ),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: (isDark ? Colors.white : Colors.black).withValues(
-                  alpha: 0.6,
-                ),
-                fontSize: buttonFontSize,
-              ),
+                    color: (isDark ? Colors.white : Colors.black).withValues(
+                      alpha: 0.6,
+                    ),
+                    fontSize: buttonFontSize,
+                  ),
             ),
           ],
         ),
@@ -172,15 +171,15 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                                         fit: BoxFit.contain,
                                         errorBuilder:
                                             (context, error, stackTrace) {
-                                              // Logo yüklenemezse ikon göster
-                                              return Icon(
-                                                slide.icon,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
-                                                size: isMobile ? 16 : 20,
-                                              );
-                                            },
+                                          // Logo yüklenemezse ikon göster
+                                          return Icon(
+                                            slide.icon,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                            size: isMobile ? 16 : 20,
+                                          );
+                                        },
                                       ),
                                     ),
                                   ),
@@ -224,7 +223,9 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
                                       const Locale('tr'),
                                 ),
                                 textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.labelMedium
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
                                     ?.copyWith(
                                       color: const Color(0xFF304411),
                                       fontWeight: FontWeight.w600,

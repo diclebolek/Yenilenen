@@ -54,8 +54,8 @@ class FirebaseRealtimeService {
 
       // Geçmiş verileri de kaydet (tarih bazlı)
       final dateKey = DateTime.now().toIso8601String().split(
-        'T',
-      )[0]; // YYYY-MM-DD
+            'T',
+          )[0]; // YYYY-MM-DD
       await _databaseRef
           .child('esp8266_data')
           .child(deviceId)
@@ -90,53 +90,62 @@ class FirebaseRealtimeService {
           .child('latest')
           .onValue
           .map((event) {
-            if (event.snapshot.value == null) {
-              return null;
-            }
+        if (event.snapshot.value == null) {
+          return null;
+        }
 
-            final data = Map<String, dynamic>.from(
-              event.snapshot.value as Map<Object?, Object?>,
+        final data = Map<String, dynamic>.from(
+          event.snapshot.value as Map<Object?, Object?>,
+        );
+
+        // created_at parse et veya timestamp kullan
+        DateTime createdAt;
+        if (data['created_at'] != null &&
+            data['created_at'].toString().isNotEmpty &&
+            data['created_at'] != '') {
+          try {
+            createdAt = DateTime.parse(data['created_at']);
+          } catch (e) {
+            // Parse hatası varsa timestamp kullan
+            final timestamp =
+                data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
+            createdAt = DateTime.fromMillisecondsSinceEpoch(
+              timestamp is int
+                  ? timestamp
+                  : int.tryParse(timestamp.toString()) ??
+                      DateTime.now().millisecondsSinceEpoch,
             );
+          }
+        } else {
+          // created_at yoksa timestamp kullan
+          final timestamp =
+              data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
+          createdAt = DateTime.fromMillisecondsSinceEpoch(
+            timestamp is int
+                ? timestamp
+                : int.tryParse(timestamp.toString()) ??
+                    DateTime.now().millisecondsSinceEpoch,
+          );
+        }
 
-            // created_at parse et veya timestamp kullan
-            DateTime createdAt;
-            if (data['created_at'] != null &&
-                data['created_at'].toString().isNotEmpty &&
-                data['created_at'] != '') {
-              try {
-                createdAt = DateTime.parse(data['created_at']);
-              } catch (e) {
-                // Parse hatası varsa timestamp kullan
-                final timestamp =
-                    data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
-                createdAt = DateTime.fromMillisecondsSinceEpoch(
-                  timestamp is int
-                      ? timestamp
-                      : int.tryParse(timestamp.toString()) ??
-                            DateTime.now().millisecondsSinceEpoch,
-                );
-              }
-            } else {
-              // created_at yoksa timestamp kullan
-              final timestamp =
-                  data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
-              createdAt = DateTime.fromMillisecondsSinceEpoch(
-                timestamp is int
-                    ? timestamp
-                    : int.tryParse(timestamp.toString()) ??
-                          DateTime.now().millisecondsSinceEpoch,
-              );
-            }
+        // Su verisi: water_flow_liters varsa onu kullan (litre -> m³), yoksa water kullan
+        // Eğer water zaten m³ ise direkt kullan, değilse litre olarak kabul et
+        // Not: Firebase'de water_flow_liters litre cinsinden, water ise m³ cinsinden kaydedilmiş olabilir
+        final waterCubicMeters = data['water_flow_liters'] != null &&
+                (data['water_flow_liters'] as num).toDouble() > 0
+            ? (data['water_flow_liters'] as num).toDouble() *
+                0.001 // Litre'yi m³'e çevir
+            : (data['water'] ?? 0.0).toDouble(); // Zaten m³ ise direkt kullan
 
-            return ConsumptionEntry(
-              electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
-              waterCubicMeters: (data['water'] ?? 0.0).toDouble(),
-              fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0)
-                  .toDouble(), // Gaz (CO2 ppm) değeri
-              wasteKg: (data['waste'] ?? 0.0).toDouble(),
-              createdAt: createdAt,
-            );
-          });
+        return ConsumptionEntry(
+          electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
+          waterCubicMeters: waterCubicMeters,
+          fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0)
+              .toDouble(), // Gaz (CO2 ppm) değeri
+          wasteKg: (data['waste'] ?? 0.0).toDouble(),
+          createdAt: createdAt,
+        );
+      });
     } catch (e, st) {
       dev.log(
         'Firebase dinleme hatası: $e',
@@ -239,16 +248,47 @@ class FirebaseRealtimeService {
               data as Map<Object?, Object?>,
             );
 
+            // Su verisi: water_flow_liters varsa onu kullan (litre -> m³), yoksa water kullan
+            final waterCubicMeters = entryData['water_flow_liters'] != null &&
+                    (entryData['water_flow_liters'] as num).toDouble() > 0
+                ? (entryData['water_flow_liters'] as num).toDouble() *
+                    0.001 // Litre'yi m³'e çevir
+                : (entryData['water'] ?? 0.0)
+                    .toDouble(); // Zaten m³ ise direkt kullan
+
+            // Tarih oluştur: created_at varsa ve boş değilse parse et, yoksa timestamp kullan
+            DateTime createdAt;
+            if (entryData['created_at'] != null &&
+                entryData['created_at'].toString().isNotEmpty &&
+                entryData['created_at'] != '') {
+              try {
+                createdAt = DateTime.parse(entryData['created_at']);
+              } catch (e) {
+                // Parse hatası varsa timestamp veya tarih anahtarından oluştur
+                final timestampValue = entryData['timestamp'] ?? timestamp;
+                createdAt = timestampValue is int
+                    ? DateTime.fromMillisecondsSinceEpoch(timestampValue)
+                    : DateTime.tryParse(dateKey) ?? DateTime.now();
+              }
+            } else {
+              // created_at yoksa timestamp veya tarih anahtarından oluştur
+              final timestampValue = entryData['timestamp'] ?? timestamp;
+              if (timestampValue is int) {
+                createdAt = DateTime.fromMillisecondsSinceEpoch(timestampValue);
+              } else {
+                // Tarih anahtarından oluştur (YYYY-MM-DD formatında)
+                createdAt = DateTime.tryParse(dateKey) ?? DateTime.now();
+              }
+            }
+
             entries.add(
               ConsumptionEntry(
                 electricityKwh: (entryData['electricity'] ?? 0.0).toDouble(),
-                waterCubicMeters: (entryData['water'] ?? 0.0).toDouble(),
+                waterCubicMeters: waterCubicMeters,
                 fuelLiters: (entryData['fuel'] ?? entryData['co2_ppm'] ?? 0.0)
                     .toDouble(), // Gaz (CO2 ppm) değeri
                 wasteKg: (entryData['waste'] ?? 0.0).toDouble(),
-                createdAt: entryData['created_at'] != null
-                    ? DateTime.parse(entryData['created_at'])
-                    : DateTime.now(),
+                createdAt: createdAt,
               ),
             );
           });
@@ -268,6 +308,76 @@ class FirebaseRealtimeService {
         stackTrace: st,
       );
       return [];
+    }
+  }
+
+  /// Latest verisini ConsumptionEntry olarak getir
+  Future<ConsumptionEntry?> getLatestData(String deviceId) async {
+    try {
+      final snapshot = await _databaseRef
+          .child('esp8266_data')
+          .child(deviceId)
+          .child('latest')
+          .get();
+
+      if (snapshot.value == null) {
+        return null;
+      }
+
+      final data = Map<String, dynamic>.from(
+        snapshot.value as Map<Object?, Object?>,
+      );
+
+      // Tarih oluştur
+      DateTime createdAt;
+      if (data['created_at'] != null &&
+          data['created_at'].toString().isNotEmpty &&
+          data['created_at'] != '') {
+        try {
+          createdAt = DateTime.parse(data['created_at']);
+        } catch (e) {
+          final timestamp =
+              data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
+          createdAt = DateTime.fromMillisecondsSinceEpoch(
+            timestamp is int
+                ? timestamp
+                : int.tryParse(timestamp.toString()) ??
+                    DateTime.now().millisecondsSinceEpoch,
+          );
+        }
+      } else {
+        final timestamp =
+            data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
+        createdAt = DateTime.fromMillisecondsSinceEpoch(
+          timestamp is int
+              ? timestamp
+              : int.tryParse(timestamp.toString()) ??
+                  DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+
+      // Su verisi
+      final waterCubicMeters = data['water_flow_liters'] != null &&
+              (data['water_flow_liters'] as num).toDouble() > 0
+          ? (data['water_flow_liters'] as num).toDouble() * 0.001
+          : (data['water'] ?? 0.0).toDouble();
+
+      return ConsumptionEntry(
+        electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
+        waterCubicMeters: waterCubicMeters,
+        fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0).toDouble(),
+        wasteKg: (data['waste'] ?? 0.0).toDouble(),
+        createdAt: createdAt,
+      );
+    } catch (e, st) {
+      dev.log(
+        'Firebase latest veri hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return null;
     }
   }
 
@@ -332,11 +442,11 @@ class FirebaseRealtimeService {
           .child('green_score')
           .onValue
           .map((event) {
-            if (event.snapshot.value == null) {
-              return 0;
-            }
-            return (event.snapshot.value as num).toInt();
-          });
+        if (event.snapshot.value == null) {
+          return 0;
+        }
+        return (event.snapshot.value as num).toInt();
+      });
     } catch (e, st) {
       dev.log(
         'Firebase yeşil puan dinleme hatası: $e',
@@ -377,11 +487,8 @@ class FirebaseRealtimeService {
   /// Hedefleri getir
   Future<List<Map<String, dynamic>>> getGoals(String userId) async {
     try {
-      final snapshot = await _databaseRef
-          .child('users')
-          .child(userId)
-          .child('goals')
-          .get();
+      final snapshot =
+          await _databaseRef.child('users').child(userId).child('goals').get();
 
       if (snapshot.value == null) {
         return [];
@@ -417,21 +524,21 @@ class FirebaseRealtimeService {
           .child('goals')
           .onValue
           .map((event) {
-            if (event.snapshot.value == null) {
-              return <Map<String, dynamic>>[];
-            }
+        if (event.snapshot.value == null) {
+          return <Map<String, dynamic>>[];
+        }
 
-            final data = Map<String, dynamic>.from(
-              event.snapshot.value as Map<Object?, Object?>,
-            );
+        final data = Map<String, dynamic>.from(
+          event.snapshot.value as Map<Object?, Object?>,
+        );
 
-            return data.values
-                .map(
-                  (goal) =>
-                      Map<String, dynamic>.from(goal as Map<Object?, Object?>),
-                )
-                .toList();
-          });
+        return data.values
+            .map(
+              (goal) =>
+                  Map<String, dynamic>.from(goal as Map<Object?, Object?>),
+            )
+            .toList();
+      });
     } catch (e, st) {
       dev.log(
         'Firebase hedef dinleme hatası: $e',
@@ -482,11 +589,8 @@ class FirebaseRealtimeService {
   /// Rozetleri getir
   Future<Map<String, bool>> getBadges(String userId) async {
     try {
-      final snapshot = await _databaseRef
-          .child('users')
-          .child(userId)
-          .child('badges')
-          .get();
+      final snapshot =
+          await _databaseRef.child('users').child(userId).child('badges').get();
 
       if (snapshot.value == null) {
         return {
@@ -526,20 +630,20 @@ class FirebaseRealtimeService {
           .child('badges')
           .onValue
           .map((event) {
-            if (event.snapshot.value == null) {
-              return {
-                'environment_friendly': false,
-                'energy_saving': false,
-                'water_protector': false,
-                'goal_master': false,
-                'eco_warrior': false,
-              };
-            }
+        if (event.snapshot.value == null) {
+          return {
+            'environment_friendly': false,
+            'energy_saving': false,
+            'water_protector': false,
+            'goal_master': false,
+            'eco_warrior': false,
+          };
+        }
 
-            return Map<String, bool>.from(
-              event.snapshot.value as Map<Object?, Object?>,
-            );
-          });
+        return Map<String, bool>.from(
+          event.snapshot.value as Map<Object?, Object?>,
+        );
+      });
     } catch (e, st) {
       dev.log(
         'Firebase rozet dinleme hatası: $e',

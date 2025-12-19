@@ -17,11 +17,15 @@ class AppBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isReportsPage = selectedIndex == 1; // Raporlar sayfası index 1
 
-    // Seçili olmayan ikonlar için tema rengi (arka plana uygun)
+    // Seçili olmayan ikonlar için renk belirleme
+    // Açık modda ve raporlar sayfasındayken beyaz, diğer durumlarda tema rengi
     final unselectedColor = isDark
         ? colorScheme.onSurface.withValues(alpha: 0.6)
-        : colorScheme.onSurface.withValues(alpha: 0.7);
+        : isReportsPage
+            ? Colors.white.withValues(alpha: 0.85) // Raporlar sayfasında beyaz
+            : colorScheme.onSurface.withValues(alpha: 0.7);
 
     // Alt gezinme çubuğunu blur ve saydam yapmak için BackdropFilter ile sarıyoruz
     // ve ikon/etiket renklerini temadaki birincil (yeşil) renge bağlıyoruz.

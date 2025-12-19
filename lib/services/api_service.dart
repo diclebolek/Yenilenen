@@ -22,19 +22,23 @@ class ApiService {
     bool saveToFirebase = true,
   }) async {
     try {
-      final response = await http
-          .get(
-            Uri.parse('$espBaseUrl/api/consumption'),
-            headers: {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 10));
+      final response = await http.get(
+        Uri.parse('$espBaseUrl/api/consumption'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
+        // Su verisi: ESP'den water_flow_liters geliyorsa onu kullan, yoksa water kullan
+        // water_flow_liters litre cinsinden, m³'e çevir (1 litre = 0.001 m³)
+        final waterLiters =
+            (data['water_flow_liters'] ?? data['water'] ?? 0.0).toDouble();
+        final waterCubicMeters = waterLiters * 0.001; // Litre'yi m³'e çevir
+
         final consumption = ConsumptionEntry(
           electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
-          waterCubicMeters: (data['water'] ?? 0.0).toDouble(),
+          waterCubicMeters: waterCubicMeters,
           fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0)
               .toDouble(), // Gaz (CO2 ppm) değeri
           wasteKg: (data['waste'] ?? 0.0).toDouble(),

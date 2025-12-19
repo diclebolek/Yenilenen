@@ -34,21 +34,18 @@ void main() async {
 
   // PostgreSQL bağlantısını asenkron başlat (uygulama başlangıcını geciktirmemek için)
   // Timeout ile hızlı başlatma
-  PostgresService.instance
-      .connect()
-      .timeout(
-        const Duration(seconds: 3),
-        onTimeout: () {
-          debugPrint(
-            'PostgreSQL bağlantısı zaman aşımına uğradı (devam ediliyor)',
-          );
-          return;
-        },
-      )
-      .catchError((e) {
-        debugPrint('PostgreSQL bağlantı hatası: $e');
-        // Uygulama yine de çalışır, sadece veritabanı işlemleri başarısız olur
-      });
+  PostgresService.instance.connect().timeout(
+    const Duration(seconds: 3),
+    onTimeout: () {
+      debugPrint(
+        'PostgreSQL bağlantısı zaman aşımına uğradı (devam ediliyor)',
+      );
+      return;
+    },
+  ).catchError((e) {
+    debugPrint('PostgreSQL bağlantı hatası: $e');
+    // Uygulama yine de çalışır, sadece veritabanı işlemleri başarısız olur
+  });
 
   runApp(const CarbonFootprintApp());
 }
@@ -258,11 +255,26 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
                       extendBody: true,
                       extendBodyBehindAppBar: true,
                       appBar: AppBar(
-                        title: Text(
-                          translate(
-                            'app_title',
-                            languageProvider.currentLocale,
-                          ),
+                        title: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Image.asset(
+                              'assets/images/logoCo2.png',
+                              height: 48,
+                              width: 48,
+                              errorBuilder: (context, error, stackTrace) {
+                                // Logo yüklenemezse boş widget göster
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              translate(
+                                'app_title',
+                                languageProvider.currentLocale,
+                              ),
+                            ),
+                          ],
                         ),
                         backgroundColor: Colors.transparent,
                         surfaceTintColor: Colors.transparent,
