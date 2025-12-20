@@ -8,6 +8,7 @@ import '../widgets/bill_scanner.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../services/weather_service.dart';
+import '../services/api_service.dart';
 
 /// Home screen showing title, tips, and weather placeholder.
 class HomeScreen extends StatefulWidget {
@@ -47,6 +48,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _airQuality;
   double? _carbonIntensity;
   bool _isLoadingWeather = true;
+
+  // Shelly Plug S için eklenen değişkenler
+  final ApiService _apiService = ApiService();
+  final String _shellyDeviceId = 'shelly_plug_001';
 
   @override
   void initState() {
@@ -138,6 +143,56 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Hava durumu verilerini yükle
     _loadWeatherData();
+
+    // Shelly'yi başlat (IP ADRESİNİZİ BURAYA YAZIN!)
+    _initializeShelly();
+  }
+
+  /// Shelly Plug S'yi başlat
+  Future<void> _initializeShelly() async {
+    // ⚠️ KENDİ IP ADRESİNİZİ YAZIN!
+    _apiService.initializeShelly(
+      deviceIp: '10.55.13.119', // 👈 Shelly cihazınızın IP adresi
+      deviceId: _shellyDeviceId,
+    );
+
+    // Bağlantı kontrolü ve ilk veriyi çek
+    try {
+      debugPrint('Shelly bağlantısı kontrol ediliyor...');
+      // Bağlantı kontrolünü atla, direkt veri çekmeyi dene
+      // (Bazı durumlarda checkConnection başarısız olabilir ama veri çekilebilir)
+      try {
+        debugPrint('Shelly verisi çekiliyor...');
+        await _apiService.getShellyData(saveToFirebase: true);
+        debugPrint('Shelly verisi başarıyla alındı!');
+      } catch (dataError) {
+        // Veri çekme başarısız, bağlantı kontrolü yap
+        debugPrint('Veri çekme başarısız, bağlantı kontrol ediliyor...');
+        final connected = await _apiService.checkShellyConnection();
+        if (!connected) {
+          debugPrint('Shelly cihazına bağlanılamadı. Lütfen kontrol edin:');
+          debugPrint('1. IP adresi doğru mu? (10.55.13.119)');
+          debugPrint('2. Cihaz aynı WiFi ağında mı?');
+          debugPrint('3. Cihaz çalışıyor mu?');
+          debugPrint('4. WiFi API açık mı?');
+        } else {
+          debugPrint(
+              'Bağlantı başarılı ama veri çekilemedi. Tekrar denenecek...');
+        }
+      }
+    } catch (e) {
+      // Hata olsa bile devam et (cihaz daha sonra bağlanabilir)
+      debugPrint('Shelly bağlantı hatası: $e');
+      debugPrint('Hata türü: ${e.runtimeType}');
+      if (e.toString().contains('TimeoutException')) {
+        debugPrint('Zaman aşımı hatası! Olası nedenler:');
+        debugPrint('- Cihaz aynı ağda değil');
+        debugPrint('- IP adresi yanlış');
+        debugPrint('- Cihaz çalışmıyor');
+        debugPrint('- WiFi API kapalı');
+      }
+      debugPrint('Not: Widget otomatik olarak veri çekmeyi deneyecek...');
+    }
   }
 
   /// Hava durumu verilerini yükle

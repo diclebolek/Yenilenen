@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 import '../models/consumption_entry.dart';
+import '../models/shelly_data.dart';
 import 'blockchain_service.dart';
 import 'firebase_realtime_service.dart';
+import 'shelly_service.dart';
 
 /// API servisi - ESP modülü, blockchain ve Firebase entegrasyonu
 class ApiService {
@@ -14,6 +16,9 @@ class ApiService {
   final BlockchainService _blockchainService = BlockchainService();
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
+
+  // Shelly Plug S servisi (opsiyonel, IP adresi ile başlatılabilir)
+  ShellyService? _shellyService;
 
   ApiService();
 
@@ -215,6 +220,169 @@ class ApiService {
       deviceId: deviceId,
       startDate: startDate,
       endDate: endDate,
+    );
+  }
+
+  // ========== SHELLY PLUG S ENTEGRASYONU ==========
+
+  /// Shelly Plug S servisini başlat
+  /// deviceIp: Shelly cihazının IP adresi (örn: '192.168.1.100')
+  /// deviceId: Cihaz ID'si (opsiyonel, IP kullanılabilir)
+  void initializeShelly({
+    required String deviceIp,
+    String? deviceId,
+  }) {
+    _shellyService = ShellyService(
+      deviceIp: deviceIp,
+      deviceId: deviceId,
+    );
+    dev.log(
+      'Shelly servisi başlatıldı: $deviceIp',
+      name: 'ApiService',
+    );
+  }
+
+  /// Shelly Plug S'den güç tüketimi verilerini al
+  /// HTTP API üzerinden anlık veri çeker
+  Future<ShellyData> getShellyData({
+    bool saveToFirebase = true,
+  }) async {
+    if (_shellyService == null) {
+      throw Exception(
+        'Shelly servisi başlatılmamış. initializeShelly() çağrılmalı.',
+      );
+    }
+
+    try {
+      final shellyData = await _shellyService!.getStatus();
+
+      // Firebase'e kaydet (opsiyonel)
+      if (saveToFirebase) {
+        try {
+          await _firebaseService.saveShellyData(
+            deviceId: shellyData.deviceId,
+            shellyData: shellyData,
+          );
+        } catch (e) {
+          dev.log(
+            'Firebase Shelly kayıt hatası (devam ediliyor): $e',
+            name: 'ApiService',
+          );
+          // Firebase hatası olsa bile veriyi döndür
+        }
+      }
+
+      return shellyData;
+    } catch (e, st) {
+      dev.log(
+        'Shelly veri alma hatası: $e',
+        name: 'ApiService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
+  }
+
+  /// Shelly Plug S'yi aç/kapat
+  /// turn: 'on' veya 'off'
+  Future<bool> setShellyRelayState({required String turn}) async {
+    if (_shellyService == null) {
+      throw Exception(
+        'Shelly servisi başlatılmamış. initializeShelly() çağrılmalı.',
+      );
+    }
+
+    try {
+      return await _shellyService!.setRelayState(turn: turn);
+    } catch (e, st) {
+      dev.log(
+        'Shelly relay kontrol hatası: $e',
+        name: 'ApiService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
+  }
+
+  /// Shelly WebSocket bağlantısını başlat
+  /// Gerçek zamanlı veri akışı için
+  Future<void> connectShellyWebSocket() async {
+    if (_shellyService == null) {
+      throw Exception(
+        'Shelly servisi başlatılmamış. initializeShelly() çağrılmalı.',
+      );
+    }
+
+    try {
+      await _shellyService!.connectWebSocket();
+    } catch (e, st) {
+      dev.log(
+        'Shelly WebSocket bağlantı hatası: $e',
+        name: 'ApiService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
+  }
+
+  /// Shelly WebSocket bağlantısını kapat
+  Future<void> disconnectShellyWebSocket() async {
+    if (_shellyService != null) {
+      await _shellyService!.disconnectWebSocket();
+    }
+  }
+
+  /// Shelly WebSocket üzerinden gerçek zamanlı veri stream'i
+  /// StreamBuilder ile kullanılabilir
+  Stream<ShellyData>? getShellyRealtimeData() {
+    if (_shellyService == null) {
+      return null;
+    }
+    return _shellyService!.realtimeData;
+  }
+
+  /// Shelly bağlantı durumunu kontrol et
+  Future<bool> checkShellyConnection() async {
+    if (_shellyService == null) {
+      return false;
+    }
+    return await _shellyService!.checkConnection();
+  }
+
+  /// Firebase'den Shelly real-time veri dinle
+  /// Stream döndürür, widget'ta StreamBuilder ile kullanılabilir
+  Stream<ShellyData?> listenToFirebaseShellyData(String deviceId) {
+    return _firebaseService.listenToShellyData(deviceId);
+  }
+
+  /// Firebase'den Shelly geçmiş verileri getir
+  Future<List<ShellyData>> getFirebaseShellyHistory({
+    required String deviceId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    return await _firebaseService.getShellyHistory(
+      deviceId: deviceId,
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  /// Shelly verilerini ConsumptionEntry'ye dönüştür
+  /// Mevcut hesaplama sistemine entegre etmek için
+  ConsumptionEntry shellyDataToConsumptionEntry(ShellyData shellyData) {
+    return ConsumptionEntry(
+      electricityKwh: shellyData.energyKwh,
+      waterCubicMeters: 0.0, // Shelly'de su verisi yok
+      fuelLiters: 0.0, // Shelly'de yakıt verisi yok
+      wasteKg: 0.0, // Shelly'de atık verisi yok
+      createdAt: shellyData.timestamp,
     );
   }
 }

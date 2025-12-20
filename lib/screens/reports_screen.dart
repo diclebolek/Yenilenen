@@ -5,9 +5,11 @@ import 'package:fl_chart/fl_chart.dart';
 
 import '../widgets/consumption_form.dart';
 import '../widgets/realtime_esp_data_widget.dart';
+import '../widgets/realtime_shelly_data_widget.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../services/firebase_realtime_service.dart';
+import '../services/api_service.dart';
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 
@@ -36,6 +38,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   };
   bool _isLoadingTrends = false;
   StreamSubscription<ConsumptionEntry?>? _espDataSubscription;
+  final ApiService _apiService = ApiService();
+  final String _shellyDeviceId = 'shelly_plug_001';
 
   @override
   void initState() {
@@ -43,6 +47,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _loadTrendData();
     // ESP verilerini real-time dinle ve otomatik güncelle
     _listenToEspData();
+    // Shelly'yi başlat
+    _initializeShelly();
+  }
+
+  Future<void> _initializeShelly() async {
+    _apiService.initializeShelly(
+      deviceIp: '10.55.13.119',
+      deviceId: _shellyDeviceId,
+    );
+    try {
+      await _apiService.getShellyData(saveToFirebase: true);
+    } catch (e) {
+      // Hata olsa bile devam et
+      debugPrint('Shelly bağlantı hatası: $e');
+    }
   }
 
   @override
@@ -457,7 +476,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               ),
                             ),
                           // ESP8266 Anlık Veriler - Raspberry Pi butonuna basıldığında göster
-                          if (_selectedMode == _InputMode.raspberry)
+                          if (_selectedMode == _InputMode.raspberry) ...[
                             ClipRRect(
                               borderRadius: BorderRadius.circular(16),
                               child: BackdropFilter(
@@ -475,6 +494,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                               ),
                             ),
+                            const SizedBox(height: 16),
+                            // Shelly Plug S Anlık Veriler - ESP'nin altında
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: BackdropFilter(
+                                filter:
+                                    ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.1),
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color:
+                                            Colors.black.withValues(alpha: 0.5),
+                                        blurRadius: 20,
+                                        spreadRadius: 2,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: RealtimeShellyDataWidget(
+                                      apiService: _apiService,
+                                      deviceId: _shellyDeviceId,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 16),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(16),

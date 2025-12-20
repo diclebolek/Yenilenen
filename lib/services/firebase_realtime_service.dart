@@ -1,6 +1,7 @@
 import 'dart:developer' as dev;
 import 'package:firebase_database/firebase_database.dart';
 import '../models/consumption_entry.dart';
+import '../models/shelly_data.dart';
 
 /// Firebase Realtime Database servisi - ESP8266 verilerini real-time senkronize eder
 class FirebaseRealtimeService {
@@ -741,6 +742,222 @@ class FirebaseRealtimeService {
         stackTrace: st,
       );
       rethrow;
+    }
+  }
+
+  /// Shelly Plug S verilerini Firebase'e kaydet
+  /// Path: /shelly_data/{deviceId}/latest
+  Future<void> saveShellyData({
+    required String deviceId,
+    required ShellyData shellyData,
+  }) async {
+    try {
+      final data = shellyData.toMap();
+
+      // Latest veriyi kaydet
+      await _databaseRef
+          .child('shelly_data')
+          .child(deviceId)
+          .child('latest')
+          .set(data);
+
+      // Geçmiş verileri de kaydet (tarih bazlı)
+      final dateKey =
+          DateTime.now().toIso8601String().split('T')[0]; // YYYY-MM-DD
+      await _databaseRef
+          .child('shelly_data')
+          .child(deviceId)
+          .child('history')
+          .child(dateKey)
+          .child(shellyData.timestamp.millisecondsSinceEpoch.toString())
+          .set(data);
+
+      dev.log(
+        'Shelly verisi Firebase\'e kaydedildi: $deviceId',
+        name: 'FirebaseRealtimeService',
+      );
+    } catch (e, st) {
+      dev.log(
+        'Firebase Shelly kayıt hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
+  }
+
+  /// Real-time dinleme - Shelly verilerini anlık olarak dinle
+  /// Stream döndürür, widget'ta StreamBuilder ile kullanılabilir
+  Stream<ShellyData?> listenToShellyData(String deviceId) {
+    try {
+      return _databaseRef
+          .child('shelly_data')
+          .child(deviceId)
+          .child('latest')
+          .onValue
+          .map((event) {
+        if (event.snapshot.value == null) {
+          return null;
+        }
+
+        final data = Map<String, dynamic>.from(
+          event.snapshot.value as Map<Object?, Object?>,
+        );
+
+        return ShellyData.fromMap(data);
+      });
+    } catch (e, st) {
+      dev.log(
+        'Firebase Shelly dinleme hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return Stream.value(null);
+    }
+  }
+
+  /// Shelly durum bilgisini kaydet
+  Future<void> saveShellyStatus({
+    required String deviceId,
+    required Map<String, dynamic> status,
+  }) async {
+    try {
+      await _databaseRef.child('shelly_status').child(deviceId).set({
+        ...status,
+        'last_update': DateTime.now().toIso8601String(),
+      });
+
+      dev.log(
+        'Shelly durumu Firebase\'e kaydedildi: $deviceId',
+        name: 'FirebaseRealtimeService',
+      );
+    } catch (e, st) {
+      dev.log(
+        'Firebase Shelly durum kayıt hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  /// Shelly durumunu real-time dinle
+  Stream<Map<String, dynamic>?> listenToShellyStatus(String deviceId) {
+    try {
+      return _databaseRef.child('shelly_status').child(deviceId).onValue.map((
+        event,
+      ) {
+        if (event.snapshot.value == null) {
+          return null;
+        }
+
+        return Map<String, dynamic>.from(
+          event.snapshot.value as Map<Object?, Object?>,
+        );
+      });
+    } catch (e, st) {
+      dev.log(
+        'Firebase Shelly durum dinleme hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return Stream.value(null);
+    }
+  }
+
+  /// Belirli bir tarih aralığındaki Shelly geçmiş verilerini getir
+  Future<List<ShellyData>> getShellyHistory({
+    required String deviceId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      final startKey = startDate.toIso8601String().split('T')[0];
+      final endKey = endDate.toIso8601String().split('T')[0];
+
+      final snapshot = await _databaseRef
+          .child('shelly_data')
+          .child(deviceId)
+          .child('history')
+          .get();
+
+      if (snapshot.value == null) {
+        return [];
+      }
+
+      final historyData = Map<String, dynamic>.from(
+        snapshot.value as Map<Object?, Object?>,
+      );
+
+      final List<ShellyData> entries = [];
+
+      historyData.forEach((dateKey, timestamps) {
+        if (dateKey.compareTo(startKey) >= 0 &&
+            dateKey.compareTo(endKey) <= 0) {
+          final timestampMap = Map<String, dynamic>.from(
+            timestamps as Map<Object?, Object?>,
+          );
+
+          timestampMap.forEach((timestamp, data) {
+            final entryData = Map<String, dynamic>.from(
+              data as Map<Object?, Object?>,
+            );
+
+            entries.add(ShellyData.fromMap(entryData));
+          });
+        }
+      });
+
+      // Tarihe göre sırala
+      entries.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+      return entries;
+    } catch (e, st) {
+      dev.log(
+        'Firebase Shelly geçmiş veri hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return [];
+    }
+  }
+
+  /// Latest Shelly verisini getir
+  Future<ShellyData?> getLatestShellyData(String deviceId) async {
+    try {
+      final snapshot = await _databaseRef
+          .child('shelly_data')
+          .child(deviceId)
+          .child('latest')
+          .get();
+
+      if (snapshot.value == null) {
+        return null;
+      }
+
+      final data = Map<String, dynamic>.from(
+        snapshot.value as Map<Object?, Object?>,
+      );
+
+      return ShellyData.fromMap(data);
+    } catch (e, st) {
+      dev.log(
+        'Firebase latest Shelly veri hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return null;
     }
   }
 }

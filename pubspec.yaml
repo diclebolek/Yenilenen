@@ -23,6 +23,8 @@ dependencies:
 
   # HTTP & Networking
   http: ^1.1.2
+  web_socket_channel: ^2.4.0
+  connectivity_plus: ^6.0.5
 
   # Image Processing
   image_picker: ^1.0.7
