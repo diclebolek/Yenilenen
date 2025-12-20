@@ -191,9 +191,14 @@ const Map<String, String> trTranslations = {
   'manual_entry': 'Manuel Giriş',
   'raspberry_pi': 'Raspberry Pi (yakında)',
   'calculated_daily_emission': 'Hesaplanan Günlük Emisyon',
-  'daily_trends': 'Günlük Trendler',
+  'daily_trends': 'Kişisel Günlük Trendler',
+  'personal_trend': 'Kişisel',
+  'global_trend': 'Dünya Geneli',
   'category_distribution': 'Kategori Dağılımı',
-  'last_7_days_trend': 'Son 7 günün karbon ayak izi trendi (kg CO₂e)',
+  'last_7_days_trend':
+      'Kişisel verilerinize göre son 7 günün karbon ayak izi trendi (kg CO₂e)',
+  'global_trend_description':
+      'Dünya geneli son 7 yılın yıllık CO₂ emisyon trendi (normalize edilmiş)',
   'no_data_available': 'Henüz veri yok',
   'carbon_footprint_distribution': 'Karbon ayak izi kategorilere göre dağılımı',
   'tonnes_co2e': 'tonnes CO₂e',
@@ -493,9 +498,14 @@ const Map<String, String> enTranslations = {
   'manual_entry': 'Manual Entry',
   'raspberry_pi': 'Raspberry Pi (coming soon)',
   'calculated_daily_emission': 'Calculated Daily Emission',
-  'daily_trends': 'Daily Trends',
+  'daily_trends': 'Personal Daily Trends',
+  'personal_trend': 'Personal',
+  'global_trend': 'Global',
   'category_distribution': 'Category Distribution',
-  'last_7_days_trend': 'Last 7 days carbon footprint trend (kg CO₂e)',
+  'last_7_days_trend':
+      'Your personal data: Last 7 days carbon footprint trend (kg CO₂e)',
+  'global_trend_description':
+      'Global annual CO₂ emissions trend for last 7 years (normalized)',
   'no_data_available': 'No data available yet',
   'carbon_footprint_distribution':
       'Carbon footprint distribution by categories',

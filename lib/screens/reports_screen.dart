@@ -10,7 +10,9 @@ import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/api_service.dart';
+import '../services/global_carbon_service.dart';
 import '../models/consumption_entry.dart';
+import '../models/shelly_data.dart';
 import '../algorithms/calculation.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -40,15 +42,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
   StreamSubscription<ConsumptionEntry?>? _espDataSubscription;
   final ApiService _apiService = ApiService();
   final String _shellyDeviceId = 'shelly_plug_001';
+  final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
+  bool _showGlobalTrend = false; // Kişisel mi dünya geneli mi?
+  List<double> _globalDailyTrends = [0, 0, 0, 0, 0, 0, 0];
 
   @override
   void initState() {
     super.initState();
     _loadTrendData();
+    _loadGlobalTrendData();
     // ESP verilerini real-time dinle ve otomatik güncelle
     _listenToEspData();
     // Shelly'yi başlat
     _initializeShelly();
+  }
+
+  /// Dünya geneli trend verilerini yükle
+  Future<void> _loadGlobalTrendData() async {
+    try {
+      final globalTrends = await _globalCarbonService.getGlobalDailyTrend();
+      if (mounted) {
+        setState(() {
+          _globalDailyTrends = globalTrends;
+        });
+      }
+    } catch (e) {
+      debugPrint('Dünya geneli trend yükleme hatası: $e');
+    }
   }
 
   Future<void> _initializeShelly() async {
@@ -86,6 +106,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   /// Son 7 günün verilerini Firebase'den çek ve grafik için hazırla
+  /// Hem ESP hem de Shelly verilerini birleştirir
   Future<void> _loadTrendData() async {
     if (!mounted) return; // Widget dispose edilmişse işlemi durdur
     setState(() => _isLoadingTrends = true);
@@ -94,8 +115,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final startDate = now.subtract(const Duration(days: 7));
       final endDate = now;
 
-      // Firebase'den geçmiş verileri çek - timeout ile
-      final historyData = await _firebaseService
+      // Firebase'den ESP geçmiş verileri çek - timeout ile
+      final espHistoryData = await _firebaseService
           .getHistoryData(
         deviceId: 'esp8266_001', // ESP8266 cihaz ID'si
         startDate: startDate,
@@ -109,25 +130,89 @@ class _ReportsScreenState extends State<ReportsScreen> {
         },
       );
 
+      // Firebase'den Shelly geçmiş verileri çek - timeout ile
+      List<ConsumptionEntry> shellyHistoryData = [];
+      try {
+        final shellyDataList = await _apiService
+            .getFirebaseShellyHistory(
+              deviceId: _shellyDeviceId,
+              startDate: startDate,
+              endDate: endDate,
+            )
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => <ShellyData>[],
+            );
+
+        // Shelly verilerini ConsumptionEntry'ye dönüştür
+        shellyHistoryData = shellyDataList
+            .map((shellyData) =>
+                _apiService.shellyDataToConsumptionEntry(shellyData))
+            .toList();
+      } catch (e) {
+        debugPrint('Shelly geçmiş veri hatası: $e');
+        // Shelly verisi alınamazsa devam et
+      }
+
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
-      // Eğer history'de veri yoksa, latest verisini de kontrol et
+      // ESP ve Shelly verilerini birleştir
+      List<ConsumptionEntry> historyData = [
+        ...espHistoryData,
+        ...shellyHistoryData
+      ];
+
+      // Eğer history'de veri yoksa, latest verilerini de kontrol et
       if (historyData.isEmpty) {
         try {
-          // Latest verisini al
-          final latestEntry =
+          // ESP latest verisini al
+          final espLatestEntry =
               await _firebaseService.getLatestData('esp8266_001');
 
-          if (latestEntry != null && mounted) {
-            // Latest verisini bugün olarak ekle
+          // Shelly latest verisini al
+          ConsumptionEntry? shellyLatestEntry;
+          try {
+            final latestShellyData =
+                await _firebaseService.getLatestShellyData(_shellyDeviceId);
+            if (latestShellyData != null) {
+              shellyLatestEntry =
+                  _apiService.shellyDataToConsumptionEntry(latestShellyData);
+            }
+          } catch (e) {
+            debugPrint('Shelly latest veri hatası: $e');
+          }
+
+          if (espLatestEntry != null && mounted) {
+            // ESP latest verisini bugün olarak ekle
             historyData.add(ConsumptionEntry(
-              electricityKwh: latestEntry.electricityKwh,
-              waterCubicMeters: latestEntry.waterCubicMeters,
-              fuelLiters: latestEntry.fuelLiters,
-              wasteKg: latestEntry.wasteKg,
+              electricityKwh: espLatestEntry.electricityKwh,
+              waterCubicMeters: espLatestEntry.waterCubicMeters,
+              fuelLiters: espLatestEntry.fuelLiters,
+              wasteKg: espLatestEntry.wasteKg,
               createdAt: DateTime.now(), // Bugün olarak işaretle
             ));
-          } else {
+          }
+
+          // Shelly latest verisini de ekle (elektrik verisini birleştir)
+          if (shellyLatestEntry != null && mounted) {
+            // Eğer ESP verisi varsa, elektrik verilerini topla
+            if (historyData.isNotEmpty) {
+              final lastEntry = historyData.last;
+              historyData[historyData.length - 1] = ConsumptionEntry(
+                electricityKwh:
+                    lastEntry.electricityKwh + shellyLatestEntry.electricityKwh,
+                waterCubicMeters: lastEntry.waterCubicMeters,
+                fuelLiters: lastEntry.fuelLiters,
+                wasteKg: lastEntry.wasteKg,
+                createdAt: lastEntry.createdAt,
+              );
+            } else {
+              // Sadece Shelly verisi varsa
+              historyData.add(shellyLatestEntry);
+            }
+          }
+
+          if (historyData.isEmpty) {
             // Veri yoksa, varsayılan değerleri kullan
             if (mounted) {
               setState(() {
@@ -149,8 +234,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       }
 
-      // Günlere göre grupla ve toplam emisyonu hesapla
-      final Map<int, List<ConsumptionEntry>> dailyData = {};
+      // Günlere göre grupla ve verileri birleştir
+      final Map<int, ConsumptionEntry> dailyData = {};
       for (var entry in historyData) {
         // Tarih farkını hesapla (mutlak değer)
         final difference = now.difference(entry.createdAt);
@@ -158,15 +243,40 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
         // Son 7 gün içindeki verileri al (0-6 gün önce)
         if (dayIndex >= 0 && dayIndex < 7) {
-          dailyData.putIfAbsent(dayIndex, () => []).add(entry);
+          if (dailyData.containsKey(dayIndex)) {
+            // Aynı günde veri varsa, verileri birleştir
+            final existing = dailyData[dayIndex]!;
+            dailyData[dayIndex] = ConsumptionEntry(
+              electricityKwh: existing.electricityKwh + entry.electricityKwh,
+              waterCubicMeters:
+                  existing.waterCubicMeters + entry.waterCubicMeters,
+              fuelLiters: existing.fuelLiters + entry.fuelLiters,
+              wasteKg: existing.wasteKg + entry.wasteKg,
+              createdAt: existing.createdAt, // İlk verinin tarihini kullan
+            );
+          } else {
+            // İlk veri, direkt ekle
+            dailyData[dayIndex] = entry;
+          }
         }
       }
 
       // Eğer hiç veri yoksa, latest verisini kullan (bugün için)
       if (dailyData.isEmpty && historyData.isNotEmpty) {
-        // En son veriyi bugün olarak ekle
-        final latestEntry = historyData.last;
-        dailyData.putIfAbsent(0, () => []).add(latestEntry);
+        // Tüm verileri birleştir (bugün için)
+        ConsumptionEntry combined = historyData.first;
+        for (int i = 1; i < historyData.length; i++) {
+          final entry = historyData[i];
+          combined = ConsumptionEntry(
+            electricityKwh: combined.electricityKwh + entry.electricityKwh,
+            waterCubicMeters:
+                combined.waterCubicMeters + entry.waterCubicMeters,
+            fuelLiters: combined.fuelLiters + entry.fuelLiters,
+            wasteKg: combined.wasteKg + entry.wasteKg,
+            createdAt: DateTime.now(), // Bugün olarak işaretle
+          );
+        }
+        dailyData[0] = combined;
       }
 
       // Her gün için toplam emisyonu hesapla (günlük trend grafiği için)
@@ -178,21 +288,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
       for (int i = 6; i >= 0; i--) {
         // En eski günden en yeni güne (Pazartesi'den Pazar'a)
         if (dailyData.containsKey(i)) {
-          double dayEmission = 0;
-          for (var entry in dailyData[i]!) {
-            final emission = Calculation.calculateDailyEmission(entry);
-            dayEmission += emission;
+          final entry = dailyData[i]!;
+          final emission = Calculation.calculateDailyEmission(entry);
+          emissions.add(emission);
 
-            // Kategori dağılımı için sadece bugünün (i == 0) verilerini topla
-            if (i == 0) {
-              totalElectricity +=
-                  entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
-              totalGas += entry.fuelLiters * Calculation.factorFuelKgPerLiter;
-              totalWater +=
-                  entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
-            }
+          // Kategori dağılımı için sadece bugünün (i == 0) verilerini topla
+          if (i == 0) {
+            totalElectricity +=
+                entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
+            totalGas += entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+            totalWater +=
+                entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
           }
-          emissions.add(dayEmission);
         } else {
           emissions.add(0.0);
         }
@@ -206,9 +313,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       // Bugünün toplam emisyonunu hesapla (gauge için)
       double todayTotalEmission = 0.0;
       if (dailyData.containsKey(0)) {
-        for (var entry in dailyData[0]!) {
-          todayTotalEmission += Calculation.calculateDailyEmission(entry);
-        }
+        todayTotalEmission = Calculation.calculateDailyEmission(dailyData[0]!);
       }
 
       if (totalEmission > 0) {
@@ -544,12 +649,48 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        translate('daily_trends', locale),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium
-                                            ?.copyWith(color: Colors.white),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            translate('daily_trends', locale),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium
+                                                ?.copyWith(color: Colors.white),
+                                          ),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                _showGlobalTrend
+                                                    ? translate(
+                                                        'global_trend', locale)
+                                                    : translate(
+                                                        'personal_trend',
+                                                        locale),
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: Colors.white
+                                                          .withValues(
+                                                              alpha: 0.7),
+                                                    ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Switch(
+                                                value: _showGlobalTrend,
+                                                onChanged: (value) {
+                                                  setState(() {
+                                                    _showGlobalTrend = value;
+                                                  });
+                                                },
+                                                activeColor: Colors.green,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 16),
                                       // Çizgi grafiği
@@ -561,8 +702,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     CircularProgressIndicator(),
                                               ),
                                             )
-                                          : _dailyEmissions.isEmpty ||
-                                                  _dailyEmissions
+                                          : (_showGlobalTrend
+                                                          ? _globalDailyTrends
+                                                          : _dailyEmissions)
+                                                      .isEmpty ||
+                                                  (_showGlobalTrend
+                                                          ? _globalDailyTrends
+                                                          : _dailyEmissions)
                                                       .every((e) => e == 0)
                                               ? SizedBox(
                                                   height: 200,
@@ -583,317 +729,405 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     ),
                                                   ),
                                                 )
-                                              : SizedBox(
-                                                  height: 200,
-                                                  child: LineChart(
-                                                    LineChartData(
-                                                      gridData: FlGridData(
-                                                        show: true,
-                                                        drawVerticalLine: true,
-                                                        horizontalInterval: 1,
-                                                        verticalInterval: 1,
-                                                        getDrawingHorizontalLine:
-                                                            (value) {
-                                                          return FlLine(
-                                                            color: Colors.white
-                                                                .withValues(
-                                                              alpha: 0.1,
-                                                            ),
-                                                            strokeWidth: 1,
-                                                          );
-                                                        },
-                                                        getDrawingVerticalLine:
-                                                            (value) {
-                                                          return FlLine(
-                                                            color: Colors.white
-                                                                .withValues(
-                                                              alpha: 0.1,
-                                                            ),
-                                                            strokeWidth: 1,
-                                                          );
-                                                        },
-                                                      ),
-                                                      titlesData: FlTitlesData(
-                                                        show: true,
-                                                        rightTitles:
-                                                            const AxisTitles(
-                                                          sideTitles:
-                                                              SideTitles(
-                                                            showTitles: false,
-                                                          ),
-                                                        ),
-                                                        topTitles:
-                                                            const AxisTitles(
-                                                          sideTitles:
-                                                              SideTitles(
-                                                            showTitles: false,
-                                                          ),
-                                                        ),
-                                                        bottomTitles:
-                                                            AxisTitles(
-                                                          sideTitles:
-                                                              SideTitles(
-                                                            showTitles: true,
-                                                            reservedSize: 30,
-                                                            interval: 1,
-                                                            getTitlesWidget: (
-                                                              double value,
-                                                              TitleMeta meta,
-                                                            ) {
-                                                              const style =
-                                                                  TextStyle(
+                                              : Builder(
+                                                  builder: (context) {
+                                                    // Toggle'a göre veri seç
+                                                    final currentData =
+                                                        _showGlobalTrend
+                                                            ? _globalDailyTrends
+                                                            : _dailyEmissions;
+
+                                                    // Dünya geneli veriler çok büyük, normalize et
+                                                    // Kişisel verilerle karşılaştırılabilir hale getir
+                                                    List<double> normalizedData;
+
+                                                    if (_showGlobalTrend) {
+                                                      // Dünya geneli verileri normalize et
+                                                      // Ortalama kişi başı günlük emisyon: ~4.5 kg
+                                                      // Dünya nüfusu: ~8 milyar
+                                                      // Toplam: ~36 milyar kg/gün
+                                                      // Bu değerleri kişisel verilerle karşılaştırmak için
+                                                      // milyar kg cinsinden gösterelim veya normalize edelim
+                                                      final maxValue =
+                                                          currentData.reduce((a,
+                                                                  b) =>
+                                                              a > b ? a : b);
+                                                      // Eğer çok büyükse (milyar kg), normalize et
+                                                      if (maxValue > 1000000) {
+                                                        // Milyar kg cinsinden göster
+                                                        normalizedData =
+                                                            currentData
+                                                                .map((e) =>
+                                                                    e /
+                                                                    1000000000)
+                                                                .toList();
+                                                      } else {
+                                                        normalizedData =
+                                                            currentData;
+                                                      }
+                                                    } else {
+                                                      normalizedData =
+                                                          currentData;
+                                                    }
+
+                                                    final maxY = normalizedData
+                                                                .isEmpty ||
+                                                            normalizedData
+                                                                .every((e) =>
+                                                                    e == 0)
+                                                        ? 10
+                                                        : (normalizedData.reduce(
+                                                                    (a, b) => a >
+                                                                            b
+                                                                        ? a
+                                                                        : b) *
+                                                                1.2)
+                                                            .clamp(
+                                                                1.0,
+                                                                double
+                                                                    .infinity);
+
+                                                    return SizedBox(
+                                                      height: 200,
+                                                      child: LineChart(
+                                                        LineChartData(
+                                                          gridData: FlGridData(
+                                                            show: true,
+                                                            drawVerticalLine:
+                                                                true,
+                                                            horizontalInterval:
+                                                                maxY / 5,
+                                                            verticalInterval: 1,
+                                                            getDrawingHorizontalLine:
+                                                                (value) {
+                                                              return FlLine(
                                                                 color: Colors
-                                                                    .white,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                                fontSize: 12,
+                                                                    .white
+                                                                    .withValues(
+                                                                  alpha: 0.1,
+                                                                ),
+                                                                strokeWidth: 1,
                                                               );
-                                                              Widget text;
-                                                              switch (value
-                                                                  .toInt()) {
-                                                                case 0:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'mon',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                case 1:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'tue',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                case 2:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'wed',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                case 3:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'thu',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                case 4:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'fri',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                case 5:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'sat',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                case 6:
-                                                                  text = Text(
-                                                                    translate(
-                                                                      'sun',
-                                                                      locale,
-                                                                    ),
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                                default:
-                                                                  text =
-                                                                      const Text(
-                                                                    '',
-                                                                    style:
-                                                                        style,
-                                                                  );
-                                                                  break;
-                                                              }
-                                                              return SideTitleWidget(
-                                                                axisSide: meta
-                                                                    .axisSide,
-                                                                space: 8,
-                                                                child: text,
+                                                            },
+                                                            getDrawingVerticalLine:
+                                                                (value) {
+                                                              return FlLine(
+                                                                color: Colors
+                                                                    .white
+                                                                    .withValues(
+                                                                  alpha: 0.1,
+                                                                ),
+                                                                strokeWidth: 1,
                                                               );
                                                             },
                                                           ),
-                                                        ),
-                                                        leftTitles: AxisTitles(
-                                                          sideTitles:
-                                                              SideTitles(
-                                                            showTitles: true,
-                                                            interval:
-                                                                20, // Her 20 birimde bir sayı göster
-                                                            getTitlesWidget: (
-                                                              double value,
-                                                              TitleMeta meta,
-                                                            ) {
-                                                              return Padding(
-                                                                padding:
-                                                                    const EdgeInsets
-                                                                        .only(
-                                                                        right:
-                                                                            8),
-                                                                child: Text(
-                                                                  '${value.toInt()}',
-                                                                  style:
-                                                                      const TextStyle(
+                                                          titlesData:
+                                                              FlTitlesData(
+                                                            show: true,
+                                                            rightTitles:
+                                                                const AxisTitles(
+                                                              sideTitles:
+                                                                  SideTitles(
+                                                                showTitles:
+                                                                    false,
+                                                              ),
+                                                            ),
+                                                            topTitles:
+                                                                const AxisTitles(
+                                                              sideTitles:
+                                                                  SideTitles(
+                                                                showTitles:
+                                                                    false,
+                                                              ),
+                                                            ),
+                                                            bottomTitles:
+                                                                AxisTitles(
+                                                              sideTitles:
+                                                                  SideTitles(
+                                                                showTitles:
+                                                                    true,
+                                                                reservedSize:
+                                                                    30,
+                                                                interval: 1,
+                                                                getTitlesWidget:
+                                                                    (
+                                                                  double value,
+                                                                  TitleMeta
+                                                                      meta,
+                                                                ) {
+                                                                  const style =
+                                                                      TextStyle(
                                                                     color: Colors
                                                                         .white,
                                                                     fontWeight:
                                                                         FontWeight
                                                                             .bold,
                                                                     fontSize:
-                                                                        16,
-                                                                    shadows: [
-                                                                      Shadow(
+                                                                        12,
+                                                                  );
+                                                                  Widget text;
+                                                                  switch (value
+                                                                      .toInt()) {
+                                                                    case 0:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'mon',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    case 1:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'tue',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    case 2:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'wed',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    case 3:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'thu',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    case 4:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'fri',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    case 5:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'sat',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    case 6:
+                                                                      text =
+                                                                          Text(
+                                                                        translate(
+                                                                          'sun',
+                                                                          locale,
+                                                                        ),
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                    default:
+                                                                      text =
+                                                                          const Text(
+                                                                        '',
+                                                                        style:
+                                                                            style,
+                                                                      );
+                                                                      break;
+                                                                  }
+                                                                  return SideTitleWidget(
+                                                                    axisSide: meta
+                                                                        .axisSide,
+                                                                    space: 8,
+                                                                    child: text,
+                                                                  );
+                                                                },
+                                                              ),
+                                                            ),
+                                                            leftTitles:
+                                                                AxisTitles(
+                                                              sideTitles:
+                                                                  SideTitles(
+                                                                showTitles:
+                                                                    true,
+                                                                interval:
+                                                                    maxY / 5,
+                                                                getTitlesWidget:
+                                                                    (
+                                                                  double value,
+                                                                  TitleMeta
+                                                                      meta,
+                                                                ) {
+                                                                  String label;
+                                                                  if (_showGlobalTrend &&
+                                                                      maxY >
+                                                                          1000) {
+                                                                    // Milyar kg cinsinden göster
+                                                                    label =
+                                                                        '${(value / 1000000000).toStringAsFixed(1)}B';
+                                                                  } else {
+                                                                    label =
+                                                                        '${value.toInt()}';
+                                                                  }
+                                                                  return Padding(
+                                                                    padding: const EdgeInsets
+                                                                        .only(
+                                                                        right:
+                                                                            8),
+                                                                    child: Text(
+                                                                      label,
+                                                                      style:
+                                                                          const TextStyle(
                                                                         color: Colors
-                                                                            .black,
-                                                                        blurRadius:
-                                                                            3,
-                                                                        offset: Offset(
-                                                                            1,
-                                                                            1),
+                                                                            .white,
+                                                                        fontWeight:
+                                                                            FontWeight.bold,
+                                                                        fontSize:
+                                                                            12,
+                                                                        shadows: [
+                                                                          Shadow(
+                                                                            color:
+                                                                                Colors.black,
+                                                                            blurRadius:
+                                                                                3,
+                                                                            offset:
+                                                                                Offset(1, 1),
+                                                                          ),
+                                                                        ],
                                                                       ),
-                                                                    ],
-                                                                  ),
-                                                                  textAlign:
-                                                                      TextAlign
-                                                                          .right,
-                                                                ),
-                                                              );
-                                                            },
-                                                            reservedSize: 50,
+                                                                      textAlign:
+                                                                          TextAlign
+                                                                              .right,
+                                                                    ),
+                                                                  );
+                                                                },
+                                                                reservedSize:
+                                                                    50,
+                                                              ),
+                                                            ),
                                                           ),
-                                                        ),
-                                                      ),
-                                                      borderData: FlBorderData(
-                                                        show: true,
-                                                        border: Border.all(
-                                                          color: Colors.white
-                                                              .withValues(
-                                                                  alpha: 0.2),
-                                                        ),
-                                                      ),
-                                                      minX: 0,
-                                                      maxX: 6,
-                                                      minY: 0,
-                                                      maxY: _dailyEmissions
-                                                                  .isEmpty ||
-                                                              _dailyEmissions
-                                                                  .every((e) =>
-                                                                      e == 0)
-                                                          ? 10
-                                                          : (_dailyEmissions
-                                                                      .reduce(
-                                                                    (a, b) =>
-                                                                        a > b
-                                                                            ? a
-                                                                            : b,
-                                                                  ) *
-                                                                  1.2)
-                                                              .clamp(
-                                                                  1.0, 100.0),
-                                                      lineBarsData: [
-                                                        LineChartBarData(
-                                                          spots: List.generate(
-                                                            7,
-                                                            (index) => FlSpot(
-                                                              index.toDouble(),
-                                                              _dailyEmissions
-                                                                          .isNotEmpty &&
-                                                                      index <
-                                                                          _dailyEmissions
-                                                                              .length
-                                                                  ? _dailyEmissions[
-                                                                          index]
-                                                                      .clamp(
+                                                          borderData:
+                                                              FlBorderData(
+                                                            show: true,
+                                                            border: Border.all(
+                                                              color: Colors
+                                                                  .white
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.2),
+                                                            ),
+                                                          ),
+                                                          minX: 0,
+                                                          maxX: 6,
+                                                          minY: 0,
+                                                          maxY: maxY.toDouble(),
+                                                          lineBarsData: [
+                                                            LineChartBarData(
+                                                              spots:
+                                                                  List.generate(
+                                                                7,
+                                                                (index) =>
+                                                                    FlSpot(
+                                                                  index
+                                                                      .toDouble(),
+                                                                  normalizedData
+                                                                              .isNotEmpty &&
+                                                                          index <
+                                                                              normalizedData
+                                                                                  .length
+                                                                      ? normalizedData[index].clamp(
                                                                           0.0,
-                                                                          100.0)
-                                                                  : 0.0,
-                                                            ),
-                                                          ),
-                                                          isCurved: true,
-                                                          gradient:
-                                                              const LinearGradient(
-                                                            colors: [
-                                                              Color(0xFF304411),
-                                                              Color(0xFF48631F),
-                                                            ],
-                                                          ),
-                                                          barWidth: 3,
-                                                          isStrokeCapRound:
-                                                              true,
-                                                          dotData: FlDotData(
-                                                            show: true,
-                                                            getDotPainter: (
-                                                              spot,
-                                                              percent,
-                                                              barData,
-                                                              index,
-                                                            ) {
-                                                              return FlDotCirclePainter(
-                                                                radius: 4,
-                                                                color:
+                                                                          double
+                                                                              .infinity)
+                                                                      : 0.0,
+                                                                ),
+                                                              ),
+                                                              isCurved: true,
+                                                              gradient:
+                                                                  const LinearGradient(
+                                                                colors: [
+                                                                  Color(
+                                                                      0xFF304411),
+                                                                  Color(
+                                                                      0xFF48631F),
+                                                                ],
+                                                              ),
+                                                              barWidth: 3,
+                                                              isStrokeCapRound:
+                                                                  true,
+                                                              dotData:
+                                                                  FlDotData(
+                                                                show: true,
+                                                                getDotPainter: (
+                                                                  spot,
+                                                                  percent,
+                                                                  barData,
+                                                                  index,
+                                                                ) {
+                                                                  return FlDotCirclePainter(
+                                                                    radius: 4,
+                                                                    color:
+                                                                        const Color(
+                                                                      0xFF304411,
+                                                                    ),
+                                                                    strokeWidth:
+                                                                        2,
+                                                                    strokeColor:
+                                                                        Colors
+                                                                            .white,
+                                                                  );
+                                                                },
+                                                              ),
+                                                              belowBarData:
+                                                                  BarAreaData(
+                                                                show: true,
+                                                                gradient:
+                                                                    LinearGradient(
+                                                                  colors: [
                                                                     const Color(
-                                                                  0xFF304411,
+                                                                      0xFF304411,
+                                                                    ).withValues(
+                                                                      alpha:
+                                                                          0.3,
+                                                                    ),
+                                                                    const Color(
+                                                                      0xFF48631F,
+                                                                    ).withValues(
+                                                                      alpha:
+                                                                          0.1,
+                                                                    ),
+                                                                  ],
+                                                                  begin: Alignment
+                                                                      .topCenter,
+                                                                  end: Alignment
+                                                                      .bottomCenter,
                                                                 ),
-                                                                strokeWidth: 2,
-                                                                strokeColor:
-                                                                    Colors
-                                                                        .white,
-                                                              );
-                                                            },
-                                                          ),
-                                                          belowBarData:
-                                                              BarAreaData(
-                                                            show: true,
-                                                            gradient:
-                                                                LinearGradient(
-                                                              colors: [
-                                                                const Color(
-                                                                  0xFF304411,
-                                                                ).withValues(
-                                                                  alpha: 0.3,
-                                                                ),
-                                                                const Color(
-                                                                  0xFF48631F,
-                                                                ).withValues(
-                                                                  alpha: 0.1,
-                                                                ),
-                                                              ],
-                                                              begin: Alignment
-                                                                  .topCenter,
-                                                              end: Alignment
-                                                                  .bottomCenter,
+                                                              ),
                                                             ),
-                                                          ),
+                                                          ],
                                                         ),
-                                                      ],
-                                                    ),
-                                                  ),
+                                                      ),
+                                                    );
+                                                  },
                                                 ),
                                       const SizedBox(height: 16),
                                       // Yenile butonu
@@ -902,7 +1136,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             MainAxisAlignment.end,
                                         children: [
                                           TextButton.icon(
-                                            onPressed: _loadTrendData,
+                                            onPressed: () {
+                                              if (_showGlobalTrend) {
+                                                _loadGlobalTrendData();
+                                              } else {
+                                                _loadTrendData();
+                                              }
+                                            },
                                             icon: const Icon(
                                               Icons.refresh,
                                               size: 18,
@@ -918,7 +1158,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        translate('last_7_days_trend', locale),
+                                        _showGlobalTrend
+                                            ? translate(
+                                                'global_trend_description',
+                                                locale)
+                                            : translate(
+                                                'last_7_days_trend', locale),
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
