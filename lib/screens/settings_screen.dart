@@ -13,6 +13,7 @@ class SettingsScreen extends StatefulWidget {
     this.fontScale = 1.0,
     this.onFontScaleChanged,
     this.onLogout,
+    this.onNavigationRequested,
   });
 
   final bool isDarkMode;
@@ -22,6 +23,7 @@ class SettingsScreen extends StatefulWidget {
   final double fontScale;
   final void Function(double scale)? onFontScaleChanged;
   final VoidCallback? onLogout;
+  final void Function(int index)? onNavigationRequested;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -126,7 +128,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onPressed: () {
                               final locale =
                                   widget.languageProvider?.currentLocale ??
-                                  const Locale('tr');
+                                      const Locale('tr');
                               Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (context) => ProfileSettingsScreen(
@@ -148,6 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       );
                                     },
                                     languageProvider: widget.languageProvider,
+                                    onNavigationRequested:
+                                        widget.onNavigationRequested,
                                   ),
                                 ),
                               );
@@ -227,7 +231,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Text(
                                 '${(widget.fontScale * 100).round()}%',
-                                style: Theme.of(context).textTheme.bodyMedium
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
                                     ?.copyWith(fontWeight: FontWeight.bold),
                               ),
                             ],
@@ -240,9 +246,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ? () {
                                         final newScale =
                                             (widget.fontScale - 0.1).clamp(
-                                              0.8,
-                                              1.5,
-                                            );
+                                          0.8,
+                                          1.5,
+                                        );
                                         widget.onFontScaleChanged?.call(
                                           newScale,
                                         );
@@ -271,9 +277,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ? () {
                                         final newScale =
                                             (widget.fontScale + 0.1).clamp(
-                                              0.8,
-                                              1.5,
-                                            );
+                                          0.8,
+                                          1.5,
+                                        );
                                         widget.onFontScaleChanged?.call(
                                           newScale,
                                         );
@@ -325,8 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'weekly_reports',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -337,8 +342,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'weekly_reports_desc',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -370,8 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'monthly_reports',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -382,8 +385,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'monthly_reports_desc',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -415,8 +417,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'goal_reminders',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -427,8 +428,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'goal_reminders_desc',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -460,8 +460,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'energy_tips_notifications',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
@@ -472,8 +471,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       translate(
                                         'energy_tips_desc',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),

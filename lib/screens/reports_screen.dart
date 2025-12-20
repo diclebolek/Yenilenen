@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:ui' show ImageFilter;
 import 'package:fl_chart/fl_chart.dart';
@@ -34,11 +35,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
     'waste': 0.0,
   };
   bool _isLoadingTrends = false;
+  StreamSubscription<ConsumptionEntry?>? _espDataSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadTrendData();
+    // ESP verilerini real-time dinle ve otomatik güncelle
+    _listenToEspData();
+  }
+
+  @override
+  void dispose() {
+    _espDataSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// ESP verilerini real-time dinle ve emisyonu otomatik hesapla
+  void _listenToEspData() {
+    _espDataSubscription?.cancel(); // Önceki subscription'ı iptal et
+    _espDataSubscription =
+        _firebaseService.listenToEsp8266Data('esp8266_001').listen((entry) {
+      if (entry != null && mounted) {
+        // ESP'den gelen verilerle emisyonu hesapla
+        final emission = Calculation.calculateDailyEmission(entry);
+        setState(() {
+          _lastCalculatedKgCo2e = emission;
+        });
+      }
+    });
   }
 
   /// Son 7 günün verilerini Firebase'den çek ve grafik için hazırla
@@ -159,6 +184,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
+      // Bugünün toplam emisyonunu hesapla (gauge için)
+      double todayTotalEmission = 0.0;
+      if (dailyData.containsKey(0)) {
+        for (var entry in dailyData[0]!) {
+          todayTotalEmission += Calculation.calculateDailyEmission(entry);
+        }
+      }
+
       if (totalEmission > 0) {
         // Yüzdeleri hesapla
         double electricityPercent = (totalElectricity / totalEmission * 100);
@@ -171,18 +204,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
         double nonZeroTotal = 0;
         int zeroCount = 0;
 
-        if (electricityPercent == 0)
+        if (electricityPercent == 0) {
           zeroCount++;
-        else
+        } else {
           nonZeroTotal += electricityPercent;
-        if (waterPercent == 0)
+        }
+        if (waterPercent == 0) {
           zeroCount++;
-        else
+        } else {
           nonZeroTotal += waterPercent;
-        if (gasPercent == 0)
+        }
+        if (gasPercent == 0) {
           zeroCount++;
-        else
+        } else {
           nonZeroTotal += gasPercent;
+        }
 
         if (zeroCount > 0 && nonZeroTotal > 0) {
           // Sıfır olan kategorilere minimum %2 ver
@@ -217,6 +253,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             'water': waterPercent,
             'waste': 0.0,
           };
+          // ESP verilerinden hesaplanan bugünün toplam emisyonunu gauge'a aktar
+          _lastCalculatedKgCo2e =
+              todayTotalEmission > 0 ? todayTotalEmission : null;
           _isLoadingTrends = false;
         });
       } else {
@@ -229,6 +268,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             'water': 33.34,
             'waste': 0.0,
           };
+          // Veri yoksa bugünün emisyonunu da sıfırla
+          _lastCalculatedKgCo2e =
+              todayTotalEmission > 0 ? todayTotalEmission : null;
           _isLoadingTrends = false;
         });
       }
@@ -285,709 +327,721 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: DefaultTextStyle.merge(
                   // Varsayılan Text rengi de beyaz
                   style: const TextStyle(color: Colors.white),
-                  child: ListView(
-                    padding: listViewPadding, // Üst padding azaltıldı
-                    children: [
-                      // Üst alan: artık arka plan tüm sayfada, burada görsel yer tutucu ve ölçerin konumlandırılması var
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          SizedBox(height: headerHeight),
-                          // Position gauge higher up - widget'ı yukarı taşımak için
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: -(gaugeSize /
-                                3), // Daha az overlap - widget daha yukarıda
-                            child: Center(
-                              child: _FootprintGauge(
-                                kgCo2e: _lastCalculatedKgCo2e,
-                                size: gaugeSize,
-                                languageProvider: widget.languageProvider,
-                              ),
-                            ),
-                          ),
-                        ],
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: isWide ? 900 : double.infinity,
                       ),
-                      SizedBox(
-                        height: gaugeSize / 3 + 16,
-                      ), // Daha az boşluk - widget yukarıda olduğu için
-                      // Mode selector buttons
-                      Row(
+                      child: ListView(
+                        padding: listViewPadding, // Üst padding azaltıldı
                         children: [
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: () => setState(
-                                () => _selectedMode = _InputMode.manual,
-                              ),
-                              style: ButtonStyle(
-                                minimumSize: const WidgetStatePropertyAll(
-                                  Size.fromHeight(48),
-                                ),
-                                shape: WidgetStatePropertyAll(
-                                  StadiumBorder(
-                                    side: BorderSide(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
+                          // Üst alan: artık arka plan tüm sayfada, burada görsel yer tutucu ve ölçerin konumlandırılması var
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              SizedBox(height: headerHeight),
+                              // Position gauge higher up - widget'ı yukarı taşımak için
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: -(gaugeSize /
+                                    3), // Daha az overlap - widget daha yukarıda
+                                child: Center(
+                                  child: _FootprintGauge(
+                                    kgCo2e: _lastCalculatedKgCo2e,
+                                    size: gaugeSize,
+                                    languageProvider: widget.languageProvider,
                                   ),
                                 ),
                               ),
-                              icon: const Icon(Icons.edit_note),
-                              label: Text(translate('manual_entry', locale)),
-                            ),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => setState(
-                                () => _selectedMode =
-                                    _selectedMode == _InputMode.raspberry
-                                        ? _InputMode.none
-                                        : _InputMode.raspberry,
-                              ),
-                              style: ButtonStyle(
-                                minimumSize: const WidgetStatePropertyAll(
-                                  Size.fromHeight(48),
-                                ),
-                                foregroundColor: const WidgetStatePropertyAll(
-                                  Colors.white,
-                                ),
-                                backgroundColor:
-                                    _selectedMode == _InputMode.raspberry
-                                        ? WidgetStatePropertyAll(
-                                            Theme.of(context)
-                                                .colorScheme
-                                                .primary
-                                                .withValues(alpha: 0.3),
-                                          )
-                                        : null,
-                                shape: WidgetStatePropertyAll(
-                                  StadiumBorder(
-                                    side: BorderSide(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
+                          SizedBox(
+                            height: gaugeSize / 3 + 16,
+                          ), // Daha az boşluk - widget yukarıda olduğu için
+                          // Mode selector buttons
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () => setState(
+                                    () => _selectedMode = _InputMode.manual,
                                   ),
-                                ),
-                              ),
-                              icon: const Icon(Icons.sensors),
-                              label: const Text('ESP8266'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      // Manual Data Input - cam efekti (blur) + yarı saydam siyah zemin
-                      if (_selectedMode == _InputMode.manual)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.28),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: ConsumptionForm(
-                                  onCalculated: (valueKgCo2e) {
-                                    setState(
-                                      () => _lastCalculatedKgCo2e = valueKgCo2e,
-                                    );
-                                  },
-                                  languageProvider: widget.languageProvider,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      // ESP8266 Anlık Veriler - Raspberry Pi butonuna basıldığında göster
-                      if (_selectedMode == _InputMode.raspberry)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.28),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: RealtimeEspDataWidget(),
-                              ),
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                      if (_lastCalculatedKgCo2e != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.28),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      translate(
-                                        'calculated_daily_emission',
-                                        locale,
+                                  style: ButtonStyle(
+                                    minimumSize: const WidgetStatePropertyAll(
+                                      Size.fromHeight(48),
+                                    ),
+                                    shape: WidgetStatePropertyAll(
+                                      StadiumBorder(
+                                        side: BorderSide(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
                                       ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
                                     ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      '${(_lastCalculatedKgCo2e ?? 0).toStringAsFixed(2)} kg CO₂e',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .headlineSmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                          ),
+                                  ),
+                                  icon: const Icon(Icons.edit_note),
+                                  label:
+                                      Text(translate('manual_entry', locale)),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => setState(
+                                    () => _selectedMode =
+                                        _selectedMode == _InputMode.raspberry
+                                            ? _InputMode.none
+                                            : _InputMode.raspberry,
+                                  ),
+                                  style: ButtonStyle(
+                                    minimumSize: const WidgetStatePropertyAll(
+                                      Size.fromHeight(48),
                                     ),
-                                  ],
+                                    foregroundColor:
+                                        const WidgetStatePropertyAll(
+                                      Colors.white,
+                                    ),
+                                    backgroundColor:
+                                        _selectedMode == _InputMode.raspberry
+                                            ? WidgetStatePropertyAll(
+                                                Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
+                                                    .withValues(alpha: 0.3),
+                                              )
+                                            : null,
+                                    shape: WidgetStatePropertyAll(
+                                      StadiumBorder(
+                                        side: BorderSide(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.sensors),
+                                  label: const Text('ESP8266'),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Manual Data Input - cam efekti (blur) + yarı saydam siyah zemin
+                          if (_selectedMode == _InputMode.manual)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: BackdropFilter(
+                                filter:
+                                    ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: ConsumptionForm(
+                                      onCalculated: (valueKgCo2e) {
+                                        setState(
+                                          () => _lastCalculatedKgCo2e =
+                                              valueKgCo2e,
+                                        );
+                                      },
+                                      languageProvider: widget.languageProvider,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                      const SizedBox(height: 16),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                          child: Container(
-                            color: Colors.black.withValues(alpha: 0.28),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    translate('daily_trends', locale),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(color: Colors.white),
+                          // ESP8266 Anlık Veriler - Raspberry Pi butonuna basıldığında göster
+                          if (_selectedMode == _InputMode.raspberry)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: BackdropFilter(
+                                filter:
+                                    ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
-                                  const SizedBox(height: 16),
-                                  // Çizgi grafiği
-                                  _isLoadingTrends
-                                      ? const SizedBox(
-                                          height: 200,
-                                          child: Center(
-                                            child: CircularProgressIndicator(),
-                                          ),
-                                        )
-                                      : _dailyEmissions.isEmpty ||
-                                              _dailyEmissions
-                                                  .every((e) => e == 0)
-                                          ? SizedBox(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: RealtimeEspDataWidget(),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 16),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                              child: Container(
+                                color: Colors.black.withValues(alpha: 0.28),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate('daily_trends', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(color: Colors.white),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      // Çizgi grafiği
+                                      _isLoadingTrends
+                                          ? const SizedBox(
                                               height: 200,
                                               child: Center(
-                                                child: Text(
-                                                  translate('no_data_available',
-                                                      locale),
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .bodyMedium
-                                                      ?.copyWith(
-                                                        color: Colors.white
-                                                            .withValues(
-                                                          alpha: 0.7,
-                                                        ),
-                                                      ),
-                                                ),
+                                                child:
+                                                    CircularProgressIndicator(),
                                               ),
                                             )
-                                          : SizedBox(
-                                              height: 200,
-                                              child: LineChart(
-                                                LineChartData(
-                                                  gridData: FlGridData(
-                                                    show: true,
-                                                    drawVerticalLine: true,
-                                                    horizontalInterval: 1,
-                                                    verticalInterval: 1,
-                                                    getDrawingHorizontalLine:
-                                                        (value) {
-                                                      return FlLine(
-                                                        color: Colors.white
-                                                            .withValues(
-                                                          alpha: 0.1,
-                                                        ),
-                                                        strokeWidth: 1,
-                                                      );
-                                                    },
-                                                    getDrawingVerticalLine:
-                                                        (value) {
-                                                      return FlLine(
-                                                        color: Colors.white
-                                                            .withValues(
-                                                          alpha: 0.1,
-                                                        ),
-                                                        strokeWidth: 1,
-                                                      );
-                                                    },
+                                          : _dailyEmissions.isEmpty ||
+                                                  _dailyEmissions
+                                                      .every((e) => e == 0)
+                                              ? SizedBox(
+                                                  height: 200,
+                                                  child: Center(
+                                                    child: Text(
+                                                      translate(
+                                                          'no_data_available',
+                                                          locale),
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodyMedium
+                                                          ?.copyWith(
+                                                            color: Colors.white
+                                                                .withValues(
+                                                              alpha: 0.7,
+                                                            ),
+                                                          ),
+                                                    ),
                                                   ),
-                                                  titlesData: FlTitlesData(
-                                                    show: true,
-                                                    rightTitles:
-                                                        const AxisTitles(
-                                                      sideTitles: SideTitles(
-                                                        showTitles: false,
-                                                      ),
-                                                    ),
-                                                    topTitles: const AxisTitles(
-                                                      sideTitles: SideTitles(
-                                                        showTitles: false,
-                                                      ),
-                                                    ),
-                                                    bottomTitles: AxisTitles(
-                                                      sideTitles: SideTitles(
-                                                        showTitles: true,
-                                                        reservedSize: 30,
-                                                        interval: 1,
-                                                        getTitlesWidget: (
-                                                          double value,
-                                                          TitleMeta meta,
-                                                        ) {
-                                                          const style =
-                                                              TextStyle(
-                                                            color: Colors.white,
-                                                            fontWeight:
-                                                                FontWeight.bold,
-                                                            fontSize: 12,
+                                                )
+                                              : SizedBox(
+                                                  height: 200,
+                                                  child: LineChart(
+                                                    LineChartData(
+                                                      gridData: FlGridData(
+                                                        show: true,
+                                                        drawVerticalLine: true,
+                                                        horizontalInterval: 1,
+                                                        verticalInterval: 1,
+                                                        getDrawingHorizontalLine:
+                                                            (value) {
+                                                          return FlLine(
+                                                            color: Colors.white
+                                                                .withValues(
+                                                              alpha: 0.1,
+                                                            ),
+                                                            strokeWidth: 1,
                                                           );
-                                                          Widget text;
-                                                          switch (
-                                                              value.toInt()) {
-                                                            case 0:
-                                                              text = Text(
-                                                                translate(
-                                                                  'mon',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            case 1:
-                                                              text = Text(
-                                                                translate(
-                                                                  'tue',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            case 2:
-                                                              text = Text(
-                                                                translate(
-                                                                  'wed',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            case 3:
-                                                              text = Text(
-                                                                translate(
-                                                                  'thu',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            case 4:
-                                                              text = Text(
-                                                                translate(
-                                                                  'fri',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            case 5:
-                                                              text = Text(
-                                                                translate(
-                                                                  'sat',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            case 6:
-                                                              text = Text(
-                                                                translate(
-                                                                  'sun',
-                                                                  locale,
-                                                                ),
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                            default:
-                                                              text = const Text(
-                                                                '',
-                                                                style: style,
-                                                              );
-                                                              break;
-                                                          }
-                                                          return SideTitleWidget(
-                                                            axisSide:
-                                                                meta.axisSide,
-                                                            space: 8,
-                                                            child: text,
+                                                        },
+                                                        getDrawingVerticalLine:
+                                                            (value) {
+                                                          return FlLine(
+                                                            color: Colors.white
+                                                                .withValues(
+                                                              alpha: 0.1,
+                                                            ),
+                                                            strokeWidth: 1,
                                                           );
                                                         },
                                                       ),
-                                                    ),
-                                                    leftTitles: AxisTitles(
-                                                      sideTitles: SideTitles(
-                                                        showTitles: true,
-                                                        interval:
-                                                            20, // Her 20 birimde bir sayı göster
-                                                        getTitlesWidget: (
-                                                          double value,
-                                                          TitleMeta meta,
-                                                        ) {
-                                                          return Padding(
-                                                            padding:
-                                                                const EdgeInsets
-                                                                    .only(
-                                                                    right: 8),
-                                                            child: Text(
-                                                              '${value.toInt()}',
-                                                              style:
-                                                                  const TextStyle(
+                                                      titlesData: FlTitlesData(
+                                                        show: true,
+                                                        rightTitles:
+                                                            const AxisTitles(
+                                                          sideTitles:
+                                                              SideTitles(
+                                                            showTitles: false,
+                                                          ),
+                                                        ),
+                                                        topTitles:
+                                                            const AxisTitles(
+                                                          sideTitles:
+                                                              SideTitles(
+                                                            showTitles: false,
+                                                          ),
+                                                        ),
+                                                        bottomTitles:
+                                                            AxisTitles(
+                                                          sideTitles:
+                                                              SideTitles(
+                                                            showTitles: true,
+                                                            reservedSize: 30,
+                                                            interval: 1,
+                                                            getTitlesWidget: (
+                                                              double value,
+                                                              TitleMeta meta,
+                                                            ) {
+                                                              const style =
+                                                                  TextStyle(
                                                                 color: Colors
                                                                     .white,
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .bold,
-                                                                fontSize: 16,
-                                                                shadows: [
-                                                                  Shadow(
+                                                                fontSize: 12,
+                                                              );
+                                                              Widget text;
+                                                              switch (value
+                                                                  .toInt()) {
+                                                                case 0:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'mon',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                case 1:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'tue',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                case 2:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'wed',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                case 3:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'thu',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                case 4:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'fri',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                case 5:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'sat',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                case 6:
+                                                                  text = Text(
+                                                                    translate(
+                                                                      'sun',
+                                                                      locale,
+                                                                    ),
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                                default:
+                                                                  text =
+                                                                      const Text(
+                                                                    '',
+                                                                    style:
+                                                                        style,
+                                                                  );
+                                                                  break;
+                                                              }
+                                                              return SideTitleWidget(
+                                                                axisSide: meta
+                                                                    .axisSide,
+                                                                space: 8,
+                                                                child: text,
+                                                              );
+                                                            },
+                                                          ),
+                                                        ),
+                                                        leftTitles: AxisTitles(
+                                                          sideTitles:
+                                                              SideTitles(
+                                                            showTitles: true,
+                                                            interval:
+                                                                20, // Her 20 birimde bir sayı göster
+                                                            getTitlesWidget: (
+                                                              double value,
+                                                              TitleMeta meta,
+                                                            ) {
+                                                              return Padding(
+                                                                padding:
+                                                                    const EdgeInsets
+                                                                        .only(
+                                                                        right:
+                                                                            8),
+                                                                child: Text(
+                                                                  '${value.toInt()}',
+                                                                  style:
+                                                                      const TextStyle(
                                                                     color: Colors
-                                                                        .black,
-                                                                    blurRadius:
-                                                                        3,
-                                                                    offset:
-                                                                        Offset(
+                                                                        .white,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold,
+                                                                    fontSize:
+                                                                        16,
+                                                                    shadows: [
+                                                                      Shadow(
+                                                                        color: Colors
+                                                                            .black,
+                                                                        blurRadius:
+                                                                            3,
+                                                                        offset: Offset(
                                                                             1,
                                                                             1),
+                                                                      ),
+                                                                    ],
                                                                   ),
-                                                                ],
-                                                              ),
-                                                              textAlign:
-                                                                  TextAlign
-                                                                      .right,
-                                                            ),
-                                                          );
-                                                        },
-                                                        reservedSize: 50,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  borderData: FlBorderData(
-                                                    show: true,
-                                                    border: Border.all(
-                                                      color: Colors.white
-                                                          .withValues(
-                                                              alpha: 0.2),
-                                                    ),
-                                                  ),
-                                                  minX: 0,
-                                                  maxX: 6,
-                                                  minY: 0,
-                                                  maxY: _dailyEmissions
-                                                              .isEmpty ||
-                                                          _dailyEmissions.every(
-                                                              (e) => e == 0)
-                                                      ? 10
-                                                      : (_dailyEmissions.reduce(
-                                                                (a, b) => a > b
-                                                                    ? a
-                                                                    : b,
-                                                              ) *
-                                                              1.2)
-                                                          .clamp(1.0, 100.0),
-                                                  lineBarsData: [
-                                                    LineChartBarData(
-                                                      spots: List.generate(
-                                                        7,
-                                                        (index) => FlSpot(
-                                                          index.toDouble(),
-                                                          _dailyEmissions
-                                                                      .isNotEmpty &&
-                                                                  index <
-                                                                      _dailyEmissions
-                                                                          .length
-                                                              ? _dailyEmissions[
-                                                                      index]
-                                                                  .clamp(0.0,
-                                                                      100.0)
-                                                              : 0.0,
+                                                                  textAlign:
+                                                                      TextAlign
+                                                                          .right,
+                                                                ),
+                                                              );
+                                                            },
+                                                            reservedSize: 50,
+                                                          ),
                                                         ),
                                                       ),
-                                                      isCurved: true,
-                                                      gradient: LinearGradient(
-                                                        colors: [
-                                                          const Color(
-                                                              0xFF304411),
-                                                          const Color(
-                                                              0xFF48631F),
-                                                        ],
-                                                      ),
-                                                      barWidth: 3,
-                                                      isStrokeCapRound: true,
-                                                      dotData: FlDotData(
+                                                      borderData: FlBorderData(
                                                         show: true,
-                                                        getDotPainter: (
-                                                          spot,
-                                                          percent,
-                                                          barData,
-                                                          index,
-                                                        ) {
-                                                          return FlDotCirclePainter(
-                                                            radius: 4,
-                                                            color: const Color(
-                                                              0xFF304411,
-                                                            ),
-                                                            strokeWidth: 2,
-                                                            strokeColor:
-                                                                Colors.white,
-                                                          );
-                                                        },
-                                                      ),
-                                                      belowBarData: BarAreaData(
-                                                        show: true,
-                                                        gradient:
-                                                            LinearGradient(
-                                                          colors: [
-                                                            const Color(
-                                                              0xFF304411,
-                                                            ).withValues(
-                                                              alpha: 0.3,
-                                                            ),
-                                                            const Color(
-                                                              0xFF48631F,
-                                                            ).withValues(
-                                                              alpha: 0.1,
-                                                            ),
-                                                          ],
-                                                          begin: Alignment
-                                                              .topCenter,
-                                                          end: Alignment
-                                                              .bottomCenter,
+                                                        border: Border.all(
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                  alpha: 0.2),
                                                         ),
                                                       ),
+                                                      minX: 0,
+                                                      maxX: 6,
+                                                      minY: 0,
+                                                      maxY: _dailyEmissions
+                                                                  .isEmpty ||
+                                                              _dailyEmissions
+                                                                  .every((e) =>
+                                                                      e == 0)
+                                                          ? 10
+                                                          : (_dailyEmissions
+                                                                      .reduce(
+                                                                    (a, b) =>
+                                                                        a > b
+                                                                            ? a
+                                                                            : b,
+                                                                  ) *
+                                                                  1.2)
+                                                              .clamp(
+                                                                  1.0, 100.0),
+                                                      lineBarsData: [
+                                                        LineChartBarData(
+                                                          spots: List.generate(
+                                                            7,
+                                                            (index) => FlSpot(
+                                                              index.toDouble(),
+                                                              _dailyEmissions
+                                                                          .isNotEmpty &&
+                                                                      index <
+                                                                          _dailyEmissions
+                                                                              .length
+                                                                  ? _dailyEmissions[
+                                                                          index]
+                                                                      .clamp(
+                                                                          0.0,
+                                                                          100.0)
+                                                                  : 0.0,
+                                                            ),
+                                                          ),
+                                                          isCurved: true,
+                                                          gradient:
+                                                              const LinearGradient(
+                                                            colors: [
+                                                              Color(0xFF304411),
+                                                              Color(0xFF48631F),
+                                                            ],
+                                                          ),
+                                                          barWidth: 3,
+                                                          isStrokeCapRound:
+                                                              true,
+                                                          dotData: FlDotData(
+                                                            show: true,
+                                                            getDotPainter: (
+                                                              spot,
+                                                              percent,
+                                                              barData,
+                                                              index,
+                                                            ) {
+                                                              return FlDotCirclePainter(
+                                                                radius: 4,
+                                                                color:
+                                                                    const Color(
+                                                                  0xFF304411,
+                                                                ),
+                                                                strokeWidth: 2,
+                                                                strokeColor:
+                                                                    Colors
+                                                                        .white,
+                                                              );
+                                                            },
+                                                          ),
+                                                          belowBarData:
+                                                              BarAreaData(
+                                                            show: true,
+                                                            gradient:
+                                                                LinearGradient(
+                                                              colors: [
+                                                                const Color(
+                                                                  0xFF304411,
+                                                                ).withValues(
+                                                                  alpha: 0.3,
+                                                                ),
+                                                                const Color(
+                                                                  0xFF48631F,
+                                                                ).withValues(
+                                                                  alpha: 0.1,
+                                                                ),
+                                                              ],
+                                                              begin: Alignment
+                                                                  .topCenter,
+                                                              end: Alignment
+                                                                  .bottomCenter,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ),
-                                                  ],
+                                                  ),
                                                 ),
+                                      const SizedBox(height: 16),
+                                      // Yenile butonu
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          TextButton.icon(
+                                            onPressed: _loadTrendData,
+                                            icon: const Icon(
+                                              Icons.refresh,
+                                              size: 18,
+                                            ),
+                                            label: Text(
+                                              translate('refresh', locale),
+                                            ),
+                                            style: TextButton.styleFrom(
+                                              foregroundColor: Colors.white70,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        translate('last_7_days_trend', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.7,
                                               ),
                                             ),
-                                  const SizedBox(height: 16),
-                                  // Yenile butonu
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      TextButton.icon(
-                                        onPressed: _loadTrendData,
-                                        icon: const Icon(
-                                          Icons.refresh,
-                                          size: 18,
-                                        ),
-                                        label: Text(
-                                          translate('refresh', locale),
-                                        ),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white70,
-                                        ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    translate('last_7_days_trend', locale),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.7,
-                                          ),
-                                        ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                          child: Container(
-                            color: Colors.black.withValues(alpha: 0.28),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    translate('category_distribution', locale),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(color: Colors.white),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
+                          const SizedBox(height: 12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                              child: Container(
+                                color: Colors.black.withValues(alpha: 0.28),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      // Pasta grafiği
-                                      SizedBox(
-                                        width: 180,
-                                        height: 180,
-                                        child: PieChart(
-                                          PieChartData(
-                                            pieTouchData: PieTouchData(
-                                              touchCallback: (
-                                                FlTouchEvent event,
-                                                pieTouchResponse,
-                                              ) {
-                                                // Dokunma etkileşimi
-                                              },
-                                            ),
-                                            borderData: FlBorderData(
-                                              show: false,
-                                            ),
-                                            sectionsSpace: 2,
-                                            centerSpaceRadius: 40,
-                                            sections: [
-                                              // Elektrik - Turuncu
-                                              PieChartSectionData(
-                                                color: Colors.orange,
-                                                value: _categoryDistribution[
-                                                        'electricity'] ??
-                                                    0.0,
-                                                title: (_categoryDistribution[
-                                                                'electricity'] ??
-                                                            0.0) >
-                                                        0
-                                                    ? '${(_categoryDistribution['electricity'] ?? 0.0).toStringAsFixed(0)}%'
-                                                    : '',
-                                                radius: 50,
-                                                titleStyle: const TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
+                                      Text(
+                                        translate(
+                                            'category_distribution', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge
+                                            ?.copyWith(color: Colors.white),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Row(
+                                        children: [
+                                          // Pasta grafiği
+                                          SizedBox(
+                                            width: 180,
+                                            height: 180,
+                                            child: PieChart(
+                                              PieChartData(
+                                                pieTouchData: PieTouchData(
+                                                  touchCallback: (
+                                                    FlTouchEvent event,
+                                                    pieTouchResponse,
+                                                  ) {
+                                                    // Dokunma etkileşimi
+                                                  },
                                                 ),
-                                              ),
-                                              // Su - Mavi
-                                              PieChartSectionData(
-                                                color: Colors.blue,
-                                                value: _categoryDistribution[
-                                                        'water'] ??
-                                                    0.0,
-                                                title: (_categoryDistribution[
+                                                borderData: FlBorderData(
+                                                  show: false,
+                                                ),
+                                                sectionsSpace: 2,
+                                                centerSpaceRadius: 40,
+                                                sections: [
+                                                  // Elektrik - Turuncu
+                                                  PieChartSectionData(
+                                                    color: Colors.orange,
+                                                    value: _categoryDistribution[
+                                                            'electricity'] ??
+                                                        0.0,
+                                                    title: (_categoryDistribution[
+                                                                    'electricity'] ??
+                                                                0.0) >
+                                                            0
+                                                        ? '${(_categoryDistribution['electricity'] ?? 0.0).toStringAsFixed(0)}%'
+                                                        : '',
+                                                    radius: 50,
+                                                    titleStyle: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                  // Su - Mavi
+                                                  PieChartSectionData(
+                                                    color: Colors.blue,
+                                                    value:
+                                                        _categoryDistribution[
                                                                 'water'] ??
-                                                            0.0) >
-                                                        0
-                                                    ? '${(_categoryDistribution['water'] ?? 0.0).toStringAsFixed(0)}%'
-                                                    : '',
-                                                radius: 50,
-                                                titleStyle: const TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                              // Gaz - Beyaz/Açık Gri
-                                              PieChartSectionData(
-                                                color: Colors.grey.shade300,
-                                                value: _categoryDistribution[
-                                                        'gas'] ??
-                                                    0.0,
-                                                title: (_categoryDistribution[
+                                                            0.0,
+                                                    title: (_categoryDistribution[
+                                                                    'water'] ??
+                                                                0.0) >
+                                                            0
+                                                        ? '${(_categoryDistribution['water'] ?? 0.0).toStringAsFixed(0)}%'
+                                                        : '',
+                                                    radius: 50,
+                                                    titleStyle: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                  // Gaz - Beyaz/Açık Gri
+                                                  PieChartSectionData(
+                                                    color: Colors.grey.shade300,
+                                                    value:
+                                                        _categoryDistribution[
                                                                 'gas'] ??
-                                                            0.0) >
-                                                        0
-                                                    ? '${(_categoryDistribution['gas'] ?? 0.0).toStringAsFixed(0)}%'
-                                                    : '',
-                                                radius: 50,
-                                                titleStyle: const TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.black87,
-                                                ),
+                                                            0.0,
+                                                    title: (_categoryDistribution[
+                                                                    'gas'] ??
+                                                                0.0) >
+                                                            0
+                                                        ? '${(_categoryDistribution['gas'] ?? 0.0).toStringAsFixed(0)}%'
+                                                        : '',
+                                                    radius: 50,
+                                                    titleStyle: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                            ],
+                                            ),
                                           ),
-                                        ),
+                                          const SizedBox(width: 16),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                _LegendDot(
+                                                  label: translate(
+                                                    'electricity',
+                                                    locale,
+                                                  ),
+                                                  color: Colors.orange,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                _LegendDot(
+                                                  label: translate(
+                                                      'water', locale),
+                                                  color: Colors.blue,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                _LegendDot(
+                                                  label: translate(
+                                                      'gas_label', locale),
+                                                  color: Colors.grey.shade300,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            _LegendDot(
-                                              label: translate(
-                                                'electricity',
-                                                locale,
-                                              ),
-                                              color: Colors.orange,
-                                            ),
-                                            const SizedBox(height: 8),
-                                            _LegendDot(
-                                              label: translate('water', locale),
-                                              color: Colors.blue,
-                                            ),
-                                            const SizedBox(height: 8),
-                                            _LegendDot(
-                                              label: translate(
-                                                  'gas_label', locale),
-                                              color: Colors.grey.shade300,
-                                            ),
-                                          ],
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        translate(
+                                          'carbon_footprint_distribution',
+                                          locale,
                                         ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                            ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    translate(
-                                      'carbon_footprint_distribution',
-                                      locale,
-                                    ),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.7,
-                                          ),
-                                        ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               );
@@ -1112,7 +1166,7 @@ class _GradientRingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final Rect rect = Offset.zero & size;
-    final double startAngle = -3.1415926535 / 2; // top
+    const double startAngle = -3.1415926535 / 2; // top
     final double sweepAngle = 2 * 3.1415926535 * progress;
 
     // Track

@@ -10,6 +10,7 @@ import 'screens/home_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/goals_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/splash_screen.dart';
 import 'widgets/app_nav.dart';
 import 'providers/language_provider.dart';
 import 'localization/translations.dart';
@@ -65,6 +66,7 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
   int _selectedIndex = 0;
   final LanguageProvider _languageProvider = LanguageProvider();
   bool _isLoggedIn = false; // Login durumu
+  bool _showSplash = true; // Splash screen gösterimi
 
   // Font scale ayarı - global olarak tutulacak
   double _fontScale = 1.0;
@@ -92,6 +94,12 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
   void _handleLogout() {
     setState(() {
       _isLoggedIn = false;
+    });
+  }
+
+  void _handleSplashComplete() {
+    setState(() {
+      _showSplash = false;
     });
   }
 
@@ -158,6 +166,14 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
                       fontScale: _fontScale,
                       onFontScaleChanged: _updateFontScale,
                       onLogout: _handleLogout,
+                      onNavigationRequested: (index) {
+                        // Dialog'u kapat
+                        Navigator.of(navContext).pop();
+                        // Seçili index'i güncelle
+                        setState(() {
+                          _selectedIndex = index;
+                        });
+                      },
                     ),
                   ),
                 ),
@@ -202,6 +218,11 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
           fontScale: _fontScale,
           onFontScaleChanged: _updateFontScale,
           onLogout: _handleLogout,
+          onNavigationRequested: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
         ),
     ];
 
@@ -250,141 +271,249 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
               data: MediaQuery.of(
                 context,
               ).copyWith(textScaler: TextScaler.linear(_fontScale)),
-              child: _isLoggedIn
-                  ? Scaffold(
-                      extendBody: true,
-                      extendBodyBehindAppBar: true,
-                      appBar: AppBar(
-                        titleSpacing: 0,
-                        leadingWidth: 0,
-                        title: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: [
-                            Transform.rotate(
-                              angle: 1.5708, // 90 derece (pi/2)
-                              child: Image.asset(
-                                'assets/images/logoCo2.png',
-                                height: 90,
-                                width: 90,
-                                errorBuilder: (context, error, stackTrace) {
-                                  // Logo yüklenemezse boş widget göster
-                                  return const SizedBox.shrink();
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Image.asset(
-                              'assets/images/navbarbaslik.png',
-                              height: 40,
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                // Resim yüklenemezse text göster
-                                return Text(
-                                  translate(
-                                    'app_title',
-                                    languageProvider.currentLocale,
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                        backgroundColor: Colors.transparent,
-                        surfaceTintColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        // Küçük/orta ekranlarda (telefon/tablet ve dar web) gizle; geniş ekranlarda göster
-                        actions: !isCompactLayout
-                            ? [
-                                TextButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedIndex = 0; // Anasayfa
-                                    });
-                                  },
-                                  child: Text(
-                                    translate(
-                                      'home',
-                                      languageProvider.currentLocale,
-                                    ),
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedIndex = 1; // Raporlar
-                                    });
-                                  },
-                                  child: Text(
-                                    translate(
-                                      'reports',
-                                      languageProvider.currentLocale,
-                                    ),
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedIndex = 2; // Hedefler
-                                    });
-                                  },
-                                  child: Text(
-                                    translate(
-                                      'goals',
-                                      languageProvider.currentLocale,
-                                    ),
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed:
-                                      _openSettingsSheet, // Web'de sağ panel olarak aç
-                                  child: Text(
-                                    translate(
-                                      'settings',
-                                      languageProvider.currentLocale,
-                                    ),
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                              ]
-                            : null,
-                        flexibleSpace: Builder(
-                          builder: (context) {
-                            final isDark =
-                                Theme.of(context).brightness == Brightness.dark;
-                            final primaryColor = isDark
-                                ? const Color(0xFF304411) // Koyu modda
-                                : const Color(0xFF48631F); // Açık modda
-                            return Container(color: primaryColor);
-                          },
-                        ),
-                        elevation: 0,
-                      ),
-                      body: SafeArea(
-                        bottom: false,
-                        child: pages[_selectedIndex],
-                      ),
-                      // Küçük/orta ekranlarda bottom navbar göster (telefon + tablet + dar web)
-                      bottomNavigationBar: isCompactLayout
-                          ? AppBottomNav(
-                              selectedIndex: _selectedIndex,
-                              onDestinationSelected: _onItemTapped,
-                              destinations: destinations,
-                            )
-                          : null,
-                    )
-                  : LoginScreen(
+              child: _showSplash
+                  ? SplashScreen(
                       languageProvider: _languageProvider,
                       onLoginSuccess: _handleLoginSuccess,
-                    ),
+                      isLoggedIn: _isLoggedIn,
+                      onSplashComplete: _handleSplashComplete,
+                    )
+                  : (_isLoggedIn
+                      ? Scaffold(
+                          extendBody: true,
+                          extendBodyBehindAppBar: true,
+                          appBar: AppBar(
+                            titleSpacing: 0,
+                            leadingWidth: 0,
+                            title: isCompactLayout
+                                ? Image.asset(
+                                    'assets/images/navbarbaslik.png',
+                                    height: 32,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      // Resim yüklenemezse text göster
+                                      return Text(
+                                        translate(
+                                          'app_title',
+                                          languageProvider.currentLocale,
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.start,
+                                    children: [
+                                      Transform.rotate(
+                                        angle: 1.5708, // 90 derece (pi/2)
+                                        child: Image.asset(
+                                          'assets/images/logoCo2.png',
+                                          height: 110,
+                                          width: 110,
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                            // Logo yüklenemezse boş widget göster
+                                            return const SizedBox.shrink();
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Image.asset(
+                                        'assets/images/navbarbaslik.png',
+                                        height: 40,
+                                        fit: BoxFit.contain,
+                                        errorBuilder:
+                                            (context, error, stackTrace) {
+                                          // Resim yüklenemezse text göster
+                                          return Text(
+                                            translate(
+                                              'app_title',
+                                              languageProvider.currentLocale,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                            backgroundColor: Colors.transparent,
+                            surfaceTintColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            // Küçük/orta ekranlarda (telefon/tablet ve dar web) logo sağda, geniş ekranlarda navigation butonları
+                            actions: (isCompactLayout
+                                ? [
+                                    // Mobilde: logo sağda - en sağa yanaştır
+                                    Padding(
+                                      padding: EdgeInsets.zero,
+                                      child: Transform.rotate(
+                                        angle: 1.5708, // 90 derece (pi/2)
+                                        child: Image.asset(
+                                          'assets/images/logoCo2.png',
+                                          height: 180,
+                                          width: 180,
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                            return const SizedBox.shrink();
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ]
+                                : [
+                                    _NavBarButton(
+                                      label: translate(
+                                        'home',
+                                        languageProvider.currentLocale,
+                                      ),
+                                      isSelected: _selectedIndex == 0,
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedIndex = 0; // Anasayfa
+                                        });
+                                      },
+                                    ),
+                                    _NavBarButton(
+                                      label: translate(
+                                        'reports',
+                                        languageProvider.currentLocale,
+                                      ),
+                                      isSelected: _selectedIndex == 1,
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedIndex = 1; // Raporlar
+                                        });
+                                      },
+                                    ),
+                                    _NavBarButton(
+                                      label: translate(
+                                        'goals',
+                                        languageProvider.currentLocale,
+                                      ),
+                                      isSelected: _selectedIndex == 2,
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedIndex = 2; // Hedefler
+                                        });
+                                      },
+                                    ),
+                                    TextButton(
+                                      onPressed:
+                                          _openSettingsSheet, // Web'de sağ panel olarak aç
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                        backgroundColor: Colors.transparent,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        translate(
+                                          'settings',
+                                          languageProvider.currentLocale,
+                                        ),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.normal,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ]),
+                            flexibleSpace: Builder(
+                              builder: (context) {
+                                final isDark = Theme.of(context).brightness ==
+                                    Brightness.dark;
+                                final primaryColor = isDark
+                                    ? const Color(0xFF304411) // Koyu modda
+                                    : const Color(0xFF48631F); // Açık modda
+                                return Container(color: primaryColor);
+                              },
+                            ),
+                            elevation: 0,
+                          ),
+                          body: SafeArea(
+                            bottom: false,
+                            child: pages[_selectedIndex],
+                          ),
+                          // Küçük/orta ekranlarda bottom navbar göster (telefon + tablet + dar web)
+                          bottomNavigationBar: isCompactLayout
+                              ? AppBottomNav(
+                                  selectedIndex: _selectedIndex,
+                                  onDestinationSelected: _onItemTapped,
+                                  destinations: destinations,
+                                )
+                              : null,
+                        )
+                      : LoginScreen(
+                          languageProvider: _languageProvider,
+                          onLoginSuccess: _handleLoginSuccess,
+                        )),
             ),
           );
         },
       ),
+    );
+  }
+}
+
+// Modern navbar butonu - altında ince çizgi ile seçili durumu gösterir
+class _NavBarButton extends StatelessWidget {
+  const _NavBarButton({
+    required this.label,
+    required this.isSelected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        TextButton(
+          onPressed: onPressed,
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.transparent,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.normal,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        // Alt çizgi - seçili olduğunda görünür
+        if (isSelected)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              height: 2,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

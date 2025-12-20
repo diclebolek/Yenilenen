@@ -439,12 +439,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ScaffoldMessenger.of(
                                             context,
                                           ).showSnackBar(
-                                            SnackBar(
+                                            const SnackBar(
                                               content: Text(
                                                 'Lütfen önce e-posta adresinizi girin',
                                               ),
                                               backgroundColor: Colors.orange,
-                                              duration: const Duration(
+                                              duration: Duration(
                                                 seconds: 2,
                                               ),
                                             ),
@@ -461,12 +461,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                             ScaffoldMessenger.of(
                                               this.context,
                                             ).showSnackBar(
-                                              SnackBar(
+                                              const SnackBar(
                                                 content: Text(
                                                   'Şifre sıfırlama e-postası gönderildi. Lütfen e-posta kutunuzu kontrol edin.',
                                                 ),
                                                 backgroundColor: Colors.green,
-                                                duration: const Duration(
+                                                duration: Duration(
                                                   seconds: 4,
                                                 ),
                                               ),
@@ -517,7 +517,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 8),
 
                                     // Register link - Daha görünür hale getirildi
                                     Padding(
@@ -551,14 +551,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                                       ScaffoldMessenger.of(
                                                         context,
                                                       ).showSnackBar(
-                                                        SnackBar(
+                                                        const SnackBar(
                                                           content: Text(
                                                             'Kayıt başarılı! Giriş yapabilirsiniz.',
                                                           ),
                                                           backgroundColor:
                                                               Colors.green,
-                                                          duration:
-                                                              const Duration(
+                                                          duration: Duration(
                                                             seconds: 3,
                                                           ),
                                                         ),

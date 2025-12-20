@@ -24,6 +24,19 @@ const Map<String, String> trTranslations = {
   'logistics_tip': 'Sevkiyatları birleştirerek yolculukları azaltın.',
   'logistics_details':
       'Rotalama ve konsolidasyon yakıt tüketimini ve emisyonları belirgin şekilde azaltabilir.',
+  'water_saving_tip':
+      'Sızıntıları kontrol edin ve su kullanımını optimize edin.',
+  'water_saving_details':
+      'Damlayan musluklar günde 20 litre su israf edebilir. Düşük akışlı armatürler kullanarak %30\'a kadar tasarruf sağlayabilirsiniz.',
+  'waste_reduction_tip':
+      'Geri dönüşümü artırın ve tek kullanımlık ürünlerden kaçının.',
+  'waste_reduction_details':
+      'Atıkların %60\'ı geri dönüştürülebilir. Kompostlama ve kaynak ayrıştırma ile karbon ayak izinizi önemli ölçüde azaltabilirsiniz.',
+  'transportation': 'Ulaşım',
+  'transportation_tip':
+      'Toplu taşıma kullanın ve araç paylaşımını tercih edin.',
+  'transportation_details':
+      'Toplu taşıma kullanmak kişi başına emisyonları %45\'e kadar azaltabilir. Yürüme ve bisiklet kullanımı sıfır emisyon sağlar.',
   'tree_donation': 'Ağaç Bağışı Yap',
   'greenpeace_turkey': 'Greenpeace Türkiye',
   'akut_foundation': 'AKUT Vakfı',
@@ -62,6 +75,12 @@ const Map<String, String> trTranslations = {
       'AKUT Vakfı\nİklim değişikliği ve afetler ilişkisi: bilinç ve hazırlık.',
   'cevko_title':
       'ÇEVKO Vakfı\nGeri dönüşüm bilinci ve kaynakların verimli kullanımı.',
+  'docev_title':
+      'DOÇEV - Doğa ve Çevre Vakfı\nDoğal dengeyi ve çevresel değerleri koruyan, ağaçlandırma ve çevre eğitimi faaliyetleri yürüten vakıf.',
+  'docev_foundation': 'DOÇEV Vakfı',
+  'cekul_title':
+      'ÇEKÜL Vakfı\nDoğa ve kültürle varız. Doğal, tarihsel ve kültürel varlıklarımızı korumak için çalışan vakıf.',
+  'cekul_foundation': 'ÇEKÜL Vakfı',
 
   // Bill Scanner
   'manual_entry_title': 'Manuel Veri Girişi',
@@ -136,20 +155,20 @@ const Map<String, String> trTranslations = {
   'solar_ideal': 'Güneş panelleri için ideal gün',
   'natural_light_decrease': 'Doğal ışık azalacak',
   'hvac_usage_increase': 'HVAC kullanımı artabilir',
-  'climate_realtime_title': 'Gerçek Zamanlı İklim Verileri',
+  'climate_realtime_title': 'GERÇEK ZAMANLI İKLİM VERİLERİ',
   'climate_data_source_hint': 'Veriler ücretsiz API\'lerden alınmaktadır',
   'city': 'Şehir',
   'temperature': 'Sıcaklık',
   'aqi': 'Hava Kalitesi',
   'carbon_intensity': 'Karbon Yoğunluğu',
-  'emission_awareness_title': 'Emisyon Farkındalığı',
+  'emission_awareness_title': 'EMİSYON FARKINDALIĞI',
   'you': 'Siz',
   'national_avg': 'Ulusal Ortalama',
   'global_avg': 'Küresel Ortalama',
   'your_emission_is': 'Emisyonunuz',
   'below_world_avg': 'dünya ortalamasının altında',
   'above_world_avg': 'dünya ortalamasının üstünde',
-  'impact_equivalents_title': 'Etki Eşdeğerleri',
+  'impact_equivalents_title': 'ETKİ EŞDEĞERLERİ',
   'trees_equivalent': 'Ağaç Eşdeğeri',
   'car_km_equivalent': 'Araç Km Eşdeğeri',
   'flight_km_equivalent': 'Uçuş Km Eşdeğeri',
@@ -230,6 +249,12 @@ const Map<String, String> trTranslations = {
   'completed_goals': 'Tamamlanan',
   'badges_earned': 'Rozet',
   'earn_points': 'Puan Kazan',
+  'green_score': 'Yeşil Skor',
+  'virtual_tree': 'sanal ağaç',
+  'achievement_badges_info':
+      'Başarı rozetleri, çevre dostu davranışlarınız ve hedeflerinize ulaşmanız için verilen ödüllerdir. Her rozet farklı bir başarıyı temsil eder.',
+  'green_score_info':
+      'Yeşil Skor, çevre dostu aktiviteleriniz ve hedeflerinize ulaşmanız sonucu kazandığınız puanlardır. Daha fazla puan kazanarak rozetler açabilir ve seviye atlayabilirsiniz.',
 
   // Login Screen
   'welcome_back': 'Tekrar Hoş Geldiniz',
@@ -303,6 +328,16 @@ const Map<String, String> enTranslations = {
   'logistics_tip': 'Reduce trips by consolidating shipments.',
   'logistics_details':
       'Routing and consolidation can significantly reduce fuel consumption and emissions.',
+  'water_saving_tip': 'Check for leaks and optimize water usage.',
+  'water_saving_details':
+      'Dripping taps can waste 20 liters of water per day. Using low-flow fixtures can save up to 30%.',
+  'waste_reduction_tip': 'Increase recycling and avoid single-use products.',
+  'waste_reduction_details':
+      '60% of waste is recyclable. Composting and source separation can significantly reduce your carbon footprint.',
+  'transportation': 'Transportation',
+  'transportation_tip': 'Use public transport and prefer car sharing.',
+  'transportation_details':
+      'Using public transport can reduce per-person emissions by up to 45%. Walking and cycling produce zero emissions.',
   'tree_donation': 'Make Tree Donation',
   'greenpeace_turkey': 'Greenpeace Turkey',
   'akut_foundation': 'AKUT Foundation',
@@ -341,6 +376,12 @@ const Map<String, String> enTranslations = {
       'AKUT Foundation\nClimate change and disasters relationship: awareness and preparedness.',
   'cevko_title':
       'ÇEVKO Foundation\nRecycling awareness and efficient use of resources.',
+  'docev_title':
+      'DOÇEV - Nature and Environment Foundation\nA foundation that protects natural balance and environmental values, conducts afforestation and environmental education activities.',
+  'docev_foundation': 'DOÇEV Foundation',
+  'cekul_title':
+      'ÇEKÜL Foundation\nWe exist with nature and culture. A foundation working to protect our natural, historical and cultural assets.',
+  'cekul_foundation': 'ÇEKÜL Foundation',
 
   // Bill Scanner
   'manual_entry_title': 'Manual Data Entry',
@@ -416,20 +457,20 @@ const Map<String, String> enTranslations = {
   'solar_ideal': 'Ideal day for solar panels',
   'natural_light_decrease': 'Natural light will decrease',
   'hvac_usage_increase': 'HVAC usage may increase',
-  'climate_realtime_title': 'Real-time Climate Data',
+  'climate_realtime_title': 'REAL-TIME CLIMATE DATA',
   'climate_data_source_hint': 'Data retrieved from free APIs',
   'city': 'City',
   'temperature': 'Temperature',
   'aqi': 'Air Quality',
   'carbon_intensity': 'Carbon Intensity',
-  'emission_awareness_title': 'Emission Awareness',
+  'emission_awareness_title': 'EMISSION AWARENESS',
   'you': 'You',
   'national_avg': 'National Avg',
   'global_avg': 'Global Avg',
   'your_emission_is': 'Your emission is',
   'below_world_avg': 'below world average',
   'above_world_avg': 'above world average',
-  'impact_equivalents_title': 'Impact Equivalents',
+  'impact_equivalents_title': 'IMPACT EQUIVALENTS',
   'trees_equivalent': 'Trees Equivalent',
   'car_km_equivalent': 'Car Km Equivalent',
   'flight_km_equivalent': 'Flight Km Equivalent',
@@ -510,6 +551,12 @@ const Map<String, String> enTranslations = {
   'completed_goals': 'Completed',
   'badges_earned': 'Badges',
   'earn_points': 'Earn Points',
+  'green_score': 'Green Score',
+  'virtual_tree': 'virtual tree',
+  'achievement_badges_info':
+      'Achievement badges are rewards given for your environmentally friendly behaviors and reaching your goals. Each badge represents a different achievement.',
+  'green_score_info':
+      'Green Score is the points you earn as a result of your environmentally friendly activities and reaching your goals. You can unlock badges and level up by earning more points.',
 
   // Login Screen
   'welcome_back': 'Welcome Back',

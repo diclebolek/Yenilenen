@@ -164,7 +164,7 @@ class _BillScannerCardState extends State<BillScannerCard> {
           inputImage = InputImage.fromBytes(
             bytes: bytes,
             metadata: InputImageMetadata(
-              size: Size(800, 600), // Varsayılan boyut
+              size: const Size(800, 600), // Varsayılan boyut
               rotation: InputImageRotation.rotation0deg,
               format: InputImageFormat.bgra8888,
               bytesPerRow: 4 * 800,
@@ -175,8 +175,8 @@ class _BillScannerCardState extends State<BillScannerCard> {
           inputImage = InputImage.fromFilePath(image.path);
         }
 
-        final RecognizedText recognizedText = await _textRecognizer!
-            .processImage(inputImage);
+        final RecognizedText recognizedText =
+            await _textRecognizer!.processImage(inputImage);
 
         // Akıllı parsing ile fatura verilerini çıkar
         final billData = _parseBillText(recognizedText.text);
@@ -334,14 +334,16 @@ class _BillScannerCardState extends State<BillScannerCard> {
         builder: (context, constraints) {
           final bool isWide =
               constraints.maxWidth >= 900; // Web/geniş ekran tespiti
-          // Görselin kırpılmadan görünmesi için contain ve daha yüksek kart
-          final double cardHeight = isWide ? 300 : 230;
+          // Web'de görseli daha büyük göstermek için yüksekliği artır
+          final double cardHeight = isWide ? 400 : 230;
           return Container(
             height: cardHeight,
             decoration: BoxDecoration(
-              image: const DecorationImage(
-                image: AssetImage('assets/images/foto_yükleme.png'),
-                fit: BoxFit.contain, // tamamı görünsün
+              image: DecorationImage(
+                image: const AssetImage('assets/images/foto_yükleme.png'),
+                fit: isWide
+                    ? BoxFit.cover
+                    : BoxFit.contain, // Web'de cover, mobilde contain
                 alignment: Alignment.center,
               ),
             ),
@@ -375,7 +377,9 @@ class _BillScannerCardState extends State<BillScannerCard> {
                                     const Locale('tr'),
                               ),
                               textAlign: TextAlign.right,
-                              style: Theme.of(context).textTheme.bodyMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
                                   ?.copyWith(
                                     color: Colors.white.withValues(alpha: 0.9),
                                   ),
@@ -392,11 +396,11 @@ class _BillScannerCardState extends State<BillScannerCard> {
                                         strokeWidth: 2,
                                         valueColor:
                                             AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
+                                          Colors.white,
+                                        ),
                                       ),
                                     )
-                                  : Icon(
+                                  : const Icon(
                                       kIsWeb
                                           ? Icons.photo_library
                                           : Icons.camera_alt,
@@ -405,23 +409,20 @@ class _BillScannerCardState extends State<BillScannerCard> {
                                 _isScanning
                                     ? translate(
                                         'processing',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       )
                                     : translate(
                                         'scan_bill',
-                                        widget
-                                                .languageProvider
+                                        widget.languageProvider
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
                               ),
                               style: ElevatedButton.styleFrom(
                                 // Buton rengi: AppBar ile aynı yeşil (tema parlaklığına göre)
-                                backgroundColor:
-                                    Theme.of(context).brightness ==
+                                backgroundColor: Theme.of(context).brightness ==
                                         Brightness.dark
                                     ? const Color(0xFF304411)
                                     : const Color(0xFF48631F),

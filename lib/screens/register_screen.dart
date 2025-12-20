@@ -72,10 +72,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (_selectedSektorId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Lütfen bir sektör seçin'),
           backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
+          duration: Duration(seconds: 3),
         ),
       );
       return;
@@ -108,10 +108,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Kayıt başarılı! Giriş yapabilirsiniz.'),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
+            duration: Duration(seconds: 3),
           ),
         );
 
@@ -153,7 +153,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Kayıt Ol'),
+        title: const Text('Kayıt Ol'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
@@ -174,9 +174,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 600;
-                    final double cardWidth = isWide
-                        ? 500
-                        : constraints.maxWidth - 48;
+                    final double cardWidth =
+                        isWide ? 500 : constraints.maxWidth - 48;
 
                     return SizedBox(
                       width: cardWidth,
@@ -653,9 +652,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                       width: double.infinity,
                                       height: 50,
                                       child: ElevatedButton(
-                                        onPressed: _isLoading
-                                            ? null
-                                            : _handleRegister,
+                                        onPressed:
+                                            _isLoading ? null : _handleRegister,
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Theme.of(
                                             context,
@@ -675,12 +673,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                             ? const SizedBox(
                                                 width: 20,
                                                 height: 20,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                   valueColor:
                                                       AlwaysStoppedAnimation<
-                                                        Color
-                                                      >(Colors.white),
+                                                          Color>(Colors.white),
                                                 ),
                                               )
                                             : const Text(

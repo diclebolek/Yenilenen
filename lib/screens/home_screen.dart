@@ -28,6 +28,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final PageController _tipsController;
+  PageController? _tipsControllerWeb; // Web için ayrı controller
   late final PageController _heroController;
   double _currentPage = 0;
   double _heroCurrentPage = 0;
@@ -55,10 +56,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Listener'ları oluştur ve sakla
     _tipsListener = () {
-      final newPage = _tipsController.page ?? 0;
+      // Hem mobil hem web controller için sayfa değişikliğini kontrol et
+      double? newPage;
+      // Önce web controller'ı kontrol et (varsa)
+      if (_tipsControllerWeb != null) {
+        try {
+          final webPage = _tipsControllerWeb!.page;
+          if (webPage != null) {
+            newPage = webPage;
+          }
+        } catch (e) {
+          // Web controller henüz hazır değilse mobil controller'ı kullan
+        }
+      }
+      // Web controller yoksa veya sayfa alınamazsa mobil controller'ı kullan
+      newPage ??= _tipsController.page ?? 0;
       if ((newPage - _currentPage).abs() > 0.01) {
         setState(() {
-          _currentPage = newPage;
+          _currentPage = newPage!;
         });
       }
     };
@@ -89,16 +104,36 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     // İpuçları kartlarını belirli aralıklarla otomatik kaydır
-    _autoScrollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _autoScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      final int current = (_tipsController.page ?? 0).round();
-      const int tipsCount = 3; // tips listesinde 3 kart var
-      final int next = (current + 1) % tipsCount;
+      final locale =
+          widget.languageProvider?.currentLocale ?? const Locale('tr');
+      final int tipsCount =
+          _getTips(locale).length; // tips listesindeki kart sayısı
+
+      // Mobil controller için
+      final int currentMobile = (_tipsController.page ?? 0).round();
+      final int nextMobile = (currentMobile + 1) % tipsCount;
       _tipsController.animateToPage(
-        next,
-        duration: const Duration(milliseconds: 450),
-        curve: Curves.easeOutCubic,
+        nextMobile,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
       );
+
+      // Web controller için (varsa)
+      if (_tipsControllerWeb != null) {
+        try {
+          final int currentWeb = (_tipsControllerWeb!.page ?? 0).round();
+          final int nextWeb = (currentWeb + 1) % tipsCount;
+          _tipsControllerWeb!.animateToPage(
+            nextWeb,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        } catch (e) {
+          // Controller henüz hazır değilse hata verme
+        }
+      }
     });
 
     // Hava durumu verilerini yükle
@@ -110,12 +145,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoadingWeather = true);
 
     try {
-      // İstanbul için hava durumu verilerini çek
-      final weather = await _weatherService.getWeatherData('Istanbul,TR');
-      final forecast = await _weatherService.getWeatherForecast('Istanbul,TR');
+      // Sakarya için hava durumu verilerini çek
+      final weather = await _weatherService.getWeatherData('Sakarya,TR');
+      final forecast = await _weatherService.getWeatherForecast('Sakarya,TR');
       final aqi = await _weatherService.getAirQuality(
-        'Istanbul',
-        'Istanbul',
+        'Sakarya',
+        'Sakarya',
         'Turkey',
       );
       final carbonIntensity = await _weatherService.getCarbonIntensity('TR');
@@ -143,40 +178,82 @@ class _HomeScreenState extends State<HomeScreen> {
     _tipsController.removeListener(_tipsListener);
     _heroController.removeListener(_heroListener);
     _tipsController.dispose();
+    _tipsControllerWeb?.removeListener(_tipsListener);
+    _tipsControllerWeb?.dispose();
     _heroController.dispose();
     super.dispose();
   }
 
-  // Tips widget'larını cache'le (locale değişmediği sürece yeniden oluşturma)
-  List<Widget>? _cachedTips;
+  // Tips verilerini cache'le (locale değişmediği sürece yeniden oluşturma)
+  List<Map<String, String>>? _cachedTipsData;
   Locale? _cachedLocale;
 
-  List<Widget> _getTips(Locale locale) {
-    if (_cachedTips != null && _cachedLocale == locale) {
-      return _cachedTips!;
+  List<Map<String, String>> _getTipsData(Locale locale) {
+    if (_cachedTipsData != null && _cachedLocale == locale) {
+      return _cachedTipsData!;
     }
     _cachedLocale = locale;
-    _cachedTips = [
-      InfoFlipCard(
-        frontTitle: translate('lighting', locale),
-        frontSummary: translate('lighting_tip', locale),
-        backDetails: translate('lighting_details', locale),
-        languageProvider: widget.languageProvider,
-      ),
-      InfoFlipCard(
-        frontTitle: translate('hvac', locale),
-        frontSummary: translate('hvac_tip', locale),
-        backDetails: translate('hvac_details', locale),
-        languageProvider: widget.languageProvider,
-      ),
-      InfoFlipCard(
-        frontTitle: translate('logistics', locale),
-        frontSummary: translate('logistics_tip', locale),
-        backDetails: translate('logistics_details', locale),
-        languageProvider: widget.languageProvider,
-      ),
+    _cachedTipsData = [
+      {
+        'title': translate('water_saving', locale),
+        'summary': translate('water_saving_tip', locale),
+        'details': translate('water_saving_details', locale),
+      },
+      {
+        'title': translate('hvac', locale),
+        'summary': translate('hvac_tip', locale),
+        'details': translate('hvac_details', locale),
+      },
+      {
+        'title': translate('logistics', locale),
+        'summary': translate('logistics_tip', locale),
+        'details': translate('logistics_details', locale),
+      },
+      {
+        'title': translate('lighting', locale),
+        'summary': translate('lighting_tip', locale),
+        'details': translate('lighting_details', locale),
+      },
+      {
+        'title': translate('waste_reduction', locale),
+        'summary': translate('waste_reduction_tip', locale),
+        'details': translate('waste_reduction_details', locale),
+      },
+      {
+        'title': translate('transportation', locale),
+        'summary': translate('transportation_tip', locale),
+        'details': translate('transportation_details', locale),
+      },
     ];
-    return _cachedTips!;
+    return _cachedTipsData!;
+  }
+
+  /// Seçili duruma göre InfoFlipCard widget'ı oluştur
+  Widget _buildTipCard(int index, bool isSelected, Locale locale) {
+    final tipsData = _getTipsData(locale);
+    if (index >= 0 && index < tipsData.length) {
+      final data = tipsData[index];
+      return InfoFlipCard(
+        frontTitle: data['title']!,
+        frontSummary: data['summary']!,
+        backDetails: data['details']!,
+        languageProvider: widget.languageProvider,
+        isSelected: isSelected,
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  List<Widget> _getTips(Locale locale) {
+    final tipsData = _getTipsData(locale);
+    return tipsData.map((data) {
+      return InfoFlipCard(
+        frontTitle: data['title']!,
+        frontSummary: data['summary']!,
+        backDetails: data['details']!,
+        languageProvider: widget.languageProvider,
+      );
+    }).toList();
   }
 
   @override
@@ -209,8 +286,10 @@ class _HomeScreenState extends State<HomeScreen> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final bool isWide = constraints.maxWidth >= 900;
-                  // Web/geniş ekranda görselin rahat sığması için yüksekliği artır
-                  final double heroHeight = isWide ? 360 : 200;
+                  // Web/geniş ekranda ekran yüksekliğinde, mobilde 200
+                  final double screenHeight =
+                      MediaQuery.of(context).size.height;
+                  final double heroHeight = isWide ? screenHeight * 0.8 : 200;
                   return SizedBox(
                     height: heroHeight,
                     child: PageView.builder(
@@ -223,25 +302,39 @@ class _HomeScreenState extends State<HomeScreen> {
                           'assets/images/herosectionafis3.jpg',
                         ];
                         return Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 8),
+                          margin: isWide
+                              ? EdgeInsets.zero
+                              : const EdgeInsets.symmetric(horizontal: 8),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                            borderRadius: isWide
+                                ? BorderRadius.zero
+                                : BorderRadius.circular(12),
+                            boxShadow: isWide
+                                ? null
+                                : [
+                                    BoxShadow(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
                           ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.asset(
-                              images[index],
-                              fit: isWide ? BoxFit.contain : BoxFit.cover,
-                              width: double.infinity,
-                            ),
-                          ),
+                          child: isWide
+                              ? Image.asset(
+                                  images[index],
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                )
+                              : ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.asset(
+                                    images[index],
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                  ),
+                                ),
                         );
                       },
                     ),
@@ -276,7 +369,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 imageAssetPath: 'assets/images/olive-drab_small.webp',
                 languageProvider: widget.languageProvider,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               // İşletme karşılaştırma tablosu
               Text(
                 translate('business_comparison_title', locale),
@@ -287,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               _BusinessComparisonTable(locale: locale, isDark: isDark),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               // Fatura tarama başlığı
               Text(
                 translate('bill_scanning_title', locale),
@@ -303,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onCalculated: (value) =>
                     setState(() => _dailyEmissionKg = value),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               // GNÇ tarzında başlık
               Text(
                 translate('energy_tips_title', locale),
@@ -317,38 +410,109 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context, constraints) {
                   final bool isWide = constraints.maxWidth >= 900;
                   if (isWide) {
-                    // Geniş ekran: kartları ortala ve sabit genişlik ver
-                    return Center(
-                      child: Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: tips
-                            .map(
-                              (w) => SizedBox(
-                                width: 300,
-                                height: 190,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                  ),
-                                  child: w,
+                    // Geniş ekran: horizontal slider, tek satırda kaydırılabilir
+                    // Web'de daha fazla kart görünmesi için viewportFraction daha küçük (0.3)
+                    _tipsControllerWeb ??= PageController(viewportFraction: 0.3)
+                      ..addListener(_tipsListener);
+                    return Column(
+                      children: [
+                        SizedBox(
+                          height: 210,
+                          child: PageView.builder(
+                            controller: _tipsControllerWeb,
+                            allowImplicitScrolling: true,
+                            physics: const ClampingScrollPhysics(),
+                            itemCount: tips.length,
+                            padEnds: false,
+                            clipBehavior: Clip.none,
+                            itemBuilder: (context, index) {
+                              final distance = (_currentPage - index).abs();
+                              final isSelected = distance == 0;
+                              final scale = isSelected
+                                  ? 1.1
+                                  : (1 - (distance * 0.15)).clamp(0.85, 1.0);
+                              final opacity = isSelected ? 1.0 : 0.35;
+                              final height = isSelected ? 230.0 : 170.0;
+
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOutCubic,
+                                height: height,
+                                margin: EdgeInsets.symmetric(
+                                  horizontal: isSelected ? 4 : 8,
+                                  vertical: isSelected ? 0 : 20,
                                 ),
+                                decoration: isSelected
+                                    ? BoxDecoration(
+                                        borderRadius: BorderRadius.circular(16),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.4),
+                                            blurRadius: 20,
+                                            spreadRadius: 2,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      )
+                                    : null,
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 300),
+                                  opacity: opacity,
+                                  child: AnimatedScale(
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeOutCubic,
+                                    scale: scale,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                      ),
+                                      child: _buildTipCard(
+                                          index, isSelected, locale),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Üç nokta indicator
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(tips.length, (i) {
+                            final selected = (_currentPage.round() == i);
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: selected ? 12 : 8,
+                              height: selected ? 12 : 8,
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.4),
+                                shape: BoxShape.circle,
                               ),
-                            )
-                            .toList(),
-                      ),
+                            );
+                          }),
+                        ),
+                      ],
                     );
                   }
                   // Mobil/tablet: mevcut PageView
                   return Column(
                     children: [
                       SizedBox(
-                        height: 190,
+                        height: 210, // Seçili kart için daha fazla alan
                         child: PageView.builder(
                           controller: _tipsController,
                           allowImplicitScrolling: true,
-                          physics: const BouncingScrollPhysics(),
+                          physics: const PageScrollPhysics(),
                           itemCount: tips.length,
                           padEnds: false,
                           clipBehavior: Clip.none,
@@ -359,26 +523,30 @@ class _HomeScreenState extends State<HomeScreen> {
                               1.0,
                             );
                             final isSelected = distance == 0;
-                            final opacity = isSelected ? 1.0 : 0.6;
-                            final height = isSelected ? 190.0 : 150.0;
+                            final opacity = isSelected ? 1.0 : 0.35;
+                            final height = isSelected
+                                ? 210.0
+                                : 150.0; // Seçili kart daha büyük
 
                             return AnimatedContainer(
-                              duration: const Duration(milliseconds: 220),
+                              duration: const Duration(milliseconds: 150),
                               height: height,
                               child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 220),
+                                duration: const Duration(milliseconds: 150),
                                 opacity: opacity,
                                 child: AnimatedScale(
-                                  duration: const Duration(milliseconds: 220),
+                                  duration: const Duration(milliseconds: 150),
                                   scale: scale,
-                                  child: tips[index],
+                                  child:
+                                      _buildTipCard(index, isSelected, locale),
                                 ),
                               ),
                             );
                           },
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
+                      // Üç nokta indicator
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(tips.length, (i) {
@@ -386,8 +554,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           return AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
                             margin: const EdgeInsets.symmetric(horizontal: 4),
-                            width: selected ? 10 : 8,
-                            height: selected ? 10 : 8,
+                            width: selected ? 12 : 8,
+                            height: selected ? 12 : 8,
                             decoration: BoxDecoration(
                               color: selected
                                   ? Theme.of(context).colorScheme.primary
@@ -405,236 +573,343 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               const SizedBox(height: 24),
-              // Hava durumu bölümü başlığı
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    translate('weather_energy_title', locale),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  if (_currentWeather != null &&
-                      _currentWeather!['city'] != null)
-                    Text(
-                      _currentWeather!['city'] ?? 'İstanbul',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: (isDark ? Colors.white : Colors.black)
-                                .withValues(
-                              alpha: 0.7,
-                            ),
-                          ),
+              // Hava durumu bölümü başlığı ve şehir adı - Konteynır dışında
+              Text(
+                translate('weather_energy_title', locale),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
                     ),
-                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _currentWeather != null && _currentWeather!['city'] != null
+                    ? _currentWeather!['city']
+                    : 'Sakarya',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
               ),
               const SizedBox(height: 16),
-              // Hava durumu kartları
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final double screenWidth = constraints.maxWidth;
-                  final double cardHeight = screenWidth > 600 ? 160 : 140;
-                  final double cardWidth = screenWidth > 600 ? 180 : 160;
-
-                  // Gerçek hava durumu verilerini kullan veya placeholder
-                  final List<Map<String, dynamic>> weatherCards;
-                  if (_weatherForecast != null &&
-                      _weatherForecast!.isNotEmpty) {
-                    weatherCards = [
-                      {
-                        'title': translate('today', locale),
-                        'temp':
-                            '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
-                        'condition': _currentWeather?['condition'] ??
-                            translate('sunny', locale),
-                        'icon': _getWeatherIcon(
-                          _currentWeather?['icon'] ?? '01d',
-                        ),
-                        'tip': _getWeatherTip(
-                          _currentWeather?['condition'] ?? 'Clear',
-                          locale,
-                        ),
-                        'color': _getWeatherColor(
-                          _currentWeather?['icon'] ?? '01d',
-                        ),
-                      },
-                      if (_weatherForecast!.isNotEmpty)
-                        {
-                          'title': translate('tomorrow', locale),
-                          'temp':
-                              '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
-                          'condition': _weatherForecast![0]['condition'] ??
-                              translate('cloudy', locale),
-                          'icon': _getWeatherIcon(
-                            _weatherForecast![0]['icon'] ?? '02d',
-                          ),
-                          'tip': _getWeatherTip(
-                            _weatherForecast![0]['condition'] ?? 'Clouds',
-                            locale,
-                          ),
-                          'color': _getWeatherColor(
-                            _weatherForecast![0]['icon'] ?? '02d',
-                          ),
-                        },
-                      if (_weatherForecast!.length > 1)
-                        {
-                          'title': translate('week', locale),
-                          'temp':
-                              '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
-                          'condition': _weatherForecast![1]['condition'] ??
-                              translate('mixed', locale),
-                          'icon': _getWeatherIcon(
-                            _weatherForecast![1]['icon'] ?? '03d',
-                          ),
-                          'tip': _getWeatherTip(
-                            _weatherForecast![1]['condition'] ?? 'Clouds',
-                            locale,
-                          ),
-                          'color': _getWeatherColor(
-                            _weatherForecast![1]['icon'] ?? '03d',
-                          ),
-                        },
-                    ];
-                  } else {
-                    // Placeholder veriler
-                    weatherCards = [
-                      {
-                        'title': translate('today', locale),
-                        'temp': '24°C',
-                        'condition': translate('sunny', locale),
-                        'icon': Icons.wb_sunny,
-                        'tip': translate('solar_ideal', locale),
-                        'color': Colors.orange,
-                      },
-                      {
-                        'title': translate('tomorrow', locale),
-                        'temp': '18°C',
-                        'condition': translate('cloudy', locale),
-                        'icon': Icons.cloud,
-                        'tip': translate('natural_light_decrease', locale),
-                        'color': Colors.blue,
-                      },
-                      {
-                        'title': translate('week', locale),
-                        'temp': '22°C',
-                        'condition': translate('mixed', locale),
-                        'icon': Icons.wb_cloudy,
-                        'tip': translate('hvac_usage_increase', locale),
-                        'color': Colors.green,
-                      },
-                    ];
-                  }
-
-                  return SizedBox(
-                    height: cardHeight,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: weatherCards.length,
-                      itemBuilder: (context, index) {
-                        final card = weatherCards[index];
-                        return Container(
-                          width: cardWidth,
-                          margin: const EdgeInsets.only(right: 12),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.4),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: (Theme.of(context).brightness ==
-                                            Brightness.dark)
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.white.withValues(alpha: 0.3),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(
-                                                card['icon'] as IconData,
-                                                color: card['color'] as Color,
-                                                size: 20,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  card['title'] as String,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleSmall
-                                                      ?.copyWith(
-                                                        color: Colors.white,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            card['temp'] as String,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .headlineSmall
-                                                ?.copyWith(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                          ),
-                                          Text(
-                                            card['condition'] as String,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.8),
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                      Text(
-                                        card['tip'] as String,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: card['color'] as Color,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+              // Hava durumu bölümü - Konteynır
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: isDark
+                          ? null
+                          : LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.2),
+                                Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.1),
+                              ],
                             ),
-                          ),
-                        );
-                      },
+                      color:
+                          isDark ? Colors.black.withValues(alpha: 0.4) : null,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: (Theme.of(context).brightness == Brightness.dark)
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.primary,
+                        width: isDark ? 1 : 2,
+                      ),
                     ),
-                  );
-                },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Hava durumu kartları
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final double screenWidth = constraints.maxWidth;
+                              final double cardHeight =
+                                  screenWidth > 600 ? 160 : 140;
+                              final double cardWidth =
+                                  screenWidth > 600 ? 180 : 160;
+
+                              // Gerçek hava durumu verilerini kullan veya placeholder
+                              final List<Map<String, dynamic>> weatherCards;
+                              if (_weatherForecast != null &&
+                                  _weatherForecast!.isNotEmpty) {
+                                weatherCards = [
+                                  {
+                                    'title': translate('today', locale),
+                                    'temp':
+                                        '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
+                                    'condition':
+                                        _currentWeather?['condition'] ??
+                                            translate('sunny', locale),
+                                    'icon': _getWeatherIcon(
+                                      _currentWeather?['icon'] ?? '01d',
+                                    ),
+                                    'tip': _getWeatherTip(
+                                      _currentWeather?['condition'] ?? 'Clear',
+                                      locale,
+                                    ),
+                                    'color': _getWeatherColor(
+                                      _currentWeather?['icon'] ?? '01d',
+                                    ),
+                                  },
+                                  if (_weatherForecast!.isNotEmpty)
+                                    {
+                                      'title': translate('tomorrow', locale),
+                                      'temp':
+                                          '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
+                                      'condition': _weatherForecast![0]
+                                              ['condition'] ??
+                                          translate('cloudy', locale),
+                                      'icon': _getWeatherIcon(
+                                        _weatherForecast![0]['icon'] ?? '02d',
+                                      ),
+                                      'tip': _getWeatherTip(
+                                        _weatherForecast![0]['condition'] ??
+                                            'Clouds',
+                                        locale,
+                                      ),
+                                      'color': _getWeatherColor(
+                                        _weatherForecast![0]['icon'] ?? '02d',
+                                      ),
+                                    },
+                                  if (_weatherForecast!.length > 1)
+                                    {
+                                      'title': translate('week', locale),
+                                      'temp':
+                                          '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
+                                      'condition': _weatherForecast![1]
+                                              ['condition'] ??
+                                          translate('mixed', locale),
+                                      'icon': _getWeatherIcon(
+                                        _weatherForecast![1]['icon'] ?? '03d',
+                                      ),
+                                      'tip': _getWeatherTip(
+                                        _weatherForecast![1]['condition'] ??
+                                            'Clouds',
+                                        locale,
+                                      ),
+                                      'color': _getWeatherColor(
+                                        _weatherForecast![1]['icon'] ?? '03d',
+                                      ),
+                                    },
+                                ];
+                              } else {
+                                // Placeholder veriler
+                                weatherCards = [
+                                  {
+                                    'title': translate('today', locale),
+                                    'temp': '24°C',
+                                    'condition': translate('sunny', locale),
+                                    'icon': Icons.wb_sunny,
+                                    'tip': translate('solar_ideal', locale),
+                                    'color': Colors.orange,
+                                  },
+                                  {
+                                    'title': translate('tomorrow', locale),
+                                    'temp': '18°C',
+                                    'condition': translate('cloudy', locale),
+                                    'icon': Icons.cloud,
+                                    'tip': translate(
+                                        'natural_light_decrease', locale),
+                                    'color': Colors.blue,
+                                  },
+                                  {
+                                    'title': translate('week', locale),
+                                    'temp': '22°C',
+                                    'condition': translate('mixed', locale),
+                                    'icon': Icons.wb_cloudy,
+                                    'tip': translate(
+                                        'hvac_usage_increase', locale),
+                                    'color': Colors.green,
+                                  },
+                                ];
+                              }
+
+                              return SizedBox(
+                                height: cardHeight,
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: weatherCards.length,
+                                  itemBuilder: (context, index) {
+                                    final card = weatherCards[index];
+                                    return Container(
+                                      width: cardWidth,
+                                      margin: const EdgeInsets.only(right: 12),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: BackdropFilter(
+                                          filter: ImageFilter.blur(
+                                              sigmaX: 25, sigmaY: 25),
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              gradient: isDark
+                                                  ? null
+                                                  : LinearGradient(
+                                                      begin: Alignment.topLeft,
+                                                      end:
+                                                          Alignment.bottomRight,
+                                                      colors: [
+                                                        Theme.of(
+                                                          context,
+                                                        )
+                                                            .colorScheme
+                                                            .primary
+                                                            .withValues(
+                                                                alpha: 0.2),
+                                                        Theme.of(
+                                                          context,
+                                                        )
+                                                            .colorScheme
+                                                            .primary
+                                                            .withValues(
+                                                                alpha: 0.1),
+                                                      ],
+                                                    ),
+                                              color: isDark
+                                                  ? Colors.black
+                                                      .withValues(alpha: 0.4)
+                                                  : null,
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              border: Border.all(
+                                                color: (Theme.of(context)
+                                                            .brightness ==
+                                                        Brightness.dark)
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .primary
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .primary,
+                                                width: isDark ? 1 : 2,
+                                              ),
+                                            ),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(12),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Row(
+                                                        children: [
+                                                          Icon(
+                                                            card['icon']
+                                                                as IconData,
+                                                            color: card['color']
+                                                                as Color,
+                                                            size: 20,
+                                                          ),
+                                                          const SizedBox(
+                                                              width: 8),
+                                                          Expanded(
+                                                            child: Text(
+                                                              card['title']
+                                                                  as String,
+                                                              style: Theme.of(
+                                                                      context)
+                                                                  .textTheme
+                                                                  .titleSmall
+                                                                  ?.copyWith(
+                                                                    color: isDark
+                                                                        ? Colors
+                                                                            .white
+                                                                        : Colors
+                                                                            .black,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      const SizedBox(height: 6),
+                                                      Text(
+                                                        card['temp'] as String,
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .headlineSmall
+                                                            ?.copyWith(
+                                                              color: isDark
+                                                                  ? Colors.white
+                                                                  : Colors
+                                                                      .black,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                            ),
+                                                      ),
+                                                      Text(
+                                                        card['condition']
+                                                            as String,
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .bodySmall
+                                                            ?.copyWith(
+                                                              color: isDark
+                                                                  ? Colors.white
+                                                                      .withValues(
+                                                                          alpha:
+                                                                              0.8)
+                                                                  : Colors.black
+                                                                      .withValues(
+                                                                          alpha:
+                                                                              0.8),
+                                                            ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  Text(
+                                                    card['tip'] as String,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: card['color']
+                                                              as Color,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               // Gerçek zamanlı iklim verileri
               Text(
                 translate('climate_realtime_title', locale),
@@ -650,11 +925,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.4),
+                      gradient: isDark
+                          ? null
+                          : LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.2),
+                                Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.1),
+                              ],
+                            ),
+                      color:
+                          isDark ? Colors.black.withValues(alpha: 0.4) : null,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        width: 1,
+                        color: (Theme.of(context).brightness == Brightness.dark)
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.primary,
+                        width: isDark ? 1 : 2,
                       ),
                     ),
                     child: Padding(
@@ -671,67 +963,161 @@ class _HomeScreenState extends State<HomeScreen> {
                           : Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const SizedBox(height: 0),
+                                // Şehir bilgisi - daha belirgin
                                 Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Icon(
-                                      Icons.public,
-                                      color: Colors.tealAccent,
-                                      size: 24,
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.tealAccent
+                                                .withValues(alpha: 0.2),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: const Icon(
+                                            Icons.location_city,
+                                            color: Colors.tealAccent,
+                                            size: 24,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              translate('city', locale),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: isDark
+                                                        ? Colors.white
+                                                            .withValues(
+                                                                alpha: 0.7)
+                                                        : Colors.black,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Sakarya',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium
+                                                  ?.copyWith(
+                                                    color: isDark
+                                                        ? Colors.white
+                                                        : Colors.black,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(width: 8),
-                                    _InfoChip(
-                                      label: translate('city', locale),
-                                      value: _currentWeather?['city'] ??
-                                          'İstanbul',
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.refresh,
+                                        color: Colors.white70,
+                                        size: 20,
+                                      ),
+                                      onPressed: _loadWeatherData,
+                                      tooltip: translate('refresh', locale),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor:
+                                            Colors.white.withValues(alpha: 0.1),
+                                        padding: const EdgeInsets.all(8),
+                                      ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    _InfoChip(
-                                      label: translate(
-                                        'temperature',
-                                        locale,
-                                      ),
-                                      value: _currentWeather != null
-                                          ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
-                                          : '24°C',
-                                    ),
-                                    _InfoChip(
-                                      label: translate('aqi', locale),
-                                      value: _airQuality != null
-                                          ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
-                                          : '78 (Orta)',
-                                    ),
-                                    _InfoChip(
-                                      label: translate(
-                                        'carbon_intensity',
-                                        locale,
-                                      ),
-                                      value: _carbonIntensity != null
-                                          ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
-                                          : '420 gCO₂/kWh',
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: IconButton(
-                                    icon: const Icon(
-                                      Icons.refresh,
-                                      color: Colors.white70,
-                                      size: 18,
-                                    ),
-                                    onPressed: _loadWeatherData,
-                                    tooltip: 'Yenile',
-                                  ),
+                                const SizedBox(height: 16),
+                                // İklim verileri - grid düzeni
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final bool isWide =
+                                        constraints.maxWidth > 600;
+                                    if (isWide) {
+                                      // Geniş ekran: 3 sütunlu grid
+                                      return Row(
+                                        children: [
+                                          Expanded(
+                                            child: _ClimateInfoCard(
+                                              icon: Icons.thermostat,
+                                              iconColor: Colors.orangeAccent,
+                                              label: translate(
+                                                  'temperature', locale),
+                                              value: _currentWeather != null
+                                                  ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
+                                                  : '24°C',
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _ClimateInfoCard(
+                                              icon: Icons.air,
+                                              iconColor: Colors.blueAccent,
+                                              label: translate('aqi', locale),
+                                              value: _airQuality != null
+                                                  ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
+                                                  : '78 (Orta)',
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _ClimateInfoCard(
+                                              icon: Icons.eco,
+                                              iconColor: Colors.greenAccent,
+                                              label: translate(
+                                                  'carbon_intensity', locale),
+                                              value: _carbonIntensity != null
+                                                  ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
+                                                  : '420 gCO₂/kWh',
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    } else {
+                                      // Mobil: dikey düzen
+                                      return Column(
+                                        children: [
+                                          _ClimateInfoCard(
+                                            icon: Icons.thermostat,
+                                            iconColor: Colors.orangeAccent,
+                                            label: translate(
+                                                'temperature', locale),
+                                            value: _currentWeather != null
+                                                ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
+                                                : '24°C',
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _ClimateInfoCard(
+                                            icon: Icons.air,
+                                            iconColor: Colors.blueAccent,
+                                            label: translate('aqi', locale),
+                                            value: _airQuality != null
+                                                ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
+                                                : '78 (Orta)',
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _ClimateInfoCard(
+                                            icon: Icons.eco,
+                                            iconColor: Colors.greenAccent,
+                                            label: translate(
+                                                'carbon_intensity', locale),
+                                            value: _carbonIntensity != null
+                                                ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
+                                                : '420 gCO₂/kWh',
+                                          ),
+                                        ],
+                                      );
+                                    }
+                                  },
                                 ),
                               ],
                             ),
@@ -739,7 +1125,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               // Emisyon farkındalık / karşılaştırma (placeholder hesap)
               Text(
                 translate('emission_awareness_title', locale),
@@ -755,7 +1141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 globalAvgKg: 15.0,
                 locale: locale,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               // Eşdeğer görselleştirme
               Text(
                 translate('impact_equivalents_title', locale),
@@ -852,45 +1238,73 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// Basit bilgi çipi
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.label, required this.value});
+// İklim bilgisi kartı - daha kullanıcı dostu
+class _ClimateInfoCard extends StatelessWidget {
+  const _ClimateInfoCard({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+  });
 
+  final IconData icon;
+  final Color iconColor;
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      constraints: const BoxConstraints(maxWidth: double.infinity),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.10),
+        color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.15),
+          width: 1,
+        ),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.9),
-                    fontWeight: FontWeight.w500,
-                  ),
-              overflow: TextOverflow.ellipsis,
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 24,
             ),
           ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-              overflow: TextOverflow.ellipsis,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.7)
+                            : Colors.black.withValues(alpha: 0.7),
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
         ],
@@ -915,6 +1329,7 @@ class _EmissionComparisonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final double diffVsGlobal =
         ((userDailyEmissionKg - globalAvgKg) / globalAvgKg) * 100;
     final bool isLower = diffVsGlobal < 0;
@@ -926,11 +1341,27 @@ class _EmissionComparisonCard extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.4),
+            gradient: isDark
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.2),
+                      Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.1),
+                    ],
+                  ),
+            color: isDark ? Colors.black.withValues(alpha: 0.4) : null,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.3),
-              width: 1,
+              color: (Theme.of(context).brightness == Brightness.dark)
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.primary,
+              width: isDark ? 1 : 2,
             ),
           ),
           child: Padding(
@@ -938,32 +1369,81 @@ class _EmissionComparisonCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 0),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _InfoChip(
-                      label: translate('you', locale),
-                      value: '${userDailyEmissionKg.toStringAsFixed(1)} kg/gün',
-                    ),
-                    _InfoChip(
-                      label: translate('national_avg', locale),
-                      value: '${nationalAvgKg.toStringAsFixed(1)} kg/gün',
-                    ),
-                    _InfoChip(
-                      label: translate('global_avg', locale),
-                      value: '${globalAvgKg.toStringAsFixed(1)} kg/gün',
-                    ),
-                  ],
+                // İklim verileri gibi grid düzeni
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isWide = constraints.maxWidth > 600;
+                    if (isWide) {
+                      // Geniş ekran: 3 sütunlu grid
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: _ClimateInfoCard(
+                              icon: Icons.person,
+                              iconColor: Colors.blueAccent,
+                              label: translate('you', locale),
+                              value:
+                                  '${userDailyEmissionKg.toStringAsFixed(1)} kg/gün',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _ClimateInfoCard(
+                              icon: Icons.flag,
+                              iconColor: Colors.orangeAccent,
+                              label: translate('national_avg', locale),
+                              value:
+                                  '${nationalAvgKg.toStringAsFixed(1)} kg/gün',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _ClimateInfoCard(
+                              icon: Icons.public,
+                              iconColor: Colors.greenAccent,
+                              label: translate('global_avg', locale),
+                              value: '${globalAvgKg.toStringAsFixed(1)} kg/gün',
+                            ),
+                          ),
+                        ],
+                      );
+                    } else {
+                      // Mobil: dikey düzen
+                      return Column(
+                        children: [
+                          _ClimateInfoCard(
+                            icon: Icons.person,
+                            iconColor: Colors.blueAccent,
+                            label: translate('you', locale),
+                            value:
+                                '${userDailyEmissionKg.toStringAsFixed(1)} kg/gün',
+                          ),
+                          const SizedBox(height: 12),
+                          _ClimateInfoCard(
+                            icon: Icons.flag,
+                            iconColor: Colors.orangeAccent,
+                            label: translate('national_avg', locale),
+                            value: '${nationalAvgKg.toStringAsFixed(1)} kg/gün',
+                          ),
+                          const SizedBox(height: 12),
+                          _ClimateInfoCard(
+                            icon: Icons.public,
+                            iconColor: Colors.greenAccent,
+                            label: translate('global_avg', locale),
+                            value: '${globalAvgKg.toStringAsFixed(1)} kg/gün',
+                          ),
+                        ],
+                      );
+                    }
+                  },
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
                 Text(
                   isLower
                       ? '${translate('your_emission_is', locale)} $percentText ${translate('below_world_avg', locale)}'
                       : '${translate('your_emission_is', locale)} $percentText ${translate('above_world_avg', locale)}',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontWeight: FontWeight.w600,
                       ),
                 ),
@@ -985,11 +1465,12 @@ class _EquivalentsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     // Basit dönüşüm katsayıları (yaklaşık)
     const double carKgPerKm = 0.120; // kg CO2e / km (binek araç)
     const double flightKgPerKm = 0.255; // kg CO2e / km (uçak, kişi başı)
     const double treeKgPerYear = 21.0; // 1 ağaç yıllık CO2 tutumu
-    final double treeKgPerDay = treeKgPerYear / 365.0;
+    const double treeKgPerDay = treeKgPerYear / 365.0;
 
     final int trees = (dailyEmissionKg / treeKgPerDay).round();
     final int carKm = (dailyEmissionKg / carKgPerKm).round();
@@ -1002,7 +1483,10 @@ class _EquivalentsCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.15),
+              width: 1,
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1016,7 +1500,7 @@ class _EquivalentsCard extends StatelessWidget {
                     child: Text(
                       label,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.white,
+                            color: isDark ? Colors.white : Colors.black,
                             fontWeight: FontWeight.w600,
                           ),
                       maxLines: 1,
@@ -1029,7 +1513,7 @@ class _EquivalentsCard extends StatelessWidget {
               Text(
                 value,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Colors.white,
+                      color: isDark ? Colors.white : Colors.black,
                       fontWeight: FontWeight.bold,
                     ),
               ),
@@ -1045,11 +1529,27 @@ class _EquivalentsCard extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.4),
+            gradient: isDark
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.2),
+                      Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.1),
+                    ],
+                  ),
+            color: isDark ? Colors.black.withValues(alpha: 0.4) : null,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.3),
-              width: 1,
+              color: (Theme.of(context).brightness == Brightness.dark)
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.primary,
+              width: isDark ? 1 : 2,
             ),
           ),
           child: Padding(
@@ -1141,11 +1641,27 @@ class _BusinessComparisonTable extends StatelessWidget {
               filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.3),
+                  gradient: isDark
+                      ? null
+                      : LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.2),
+                            Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.1),
+                          ],
+                        ),
+                  color: isDark ? Colors.black.withValues(alpha: 0.3) : null,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    width: 1,
+                    color: (Theme.of(context).brightness == Brightness.dark)
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.primary,
+                    width: isDark ? 1 : 2,
                   ),
                 ),
                 child: Padding(
@@ -1393,11 +1909,27 @@ class _BusinessComparisonTable extends StatelessWidget {
               filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.3),
+                  gradient: isDark
+                      ? null
+                      : LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.2),
+                            Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.1),
+                          ],
+                        ),
+                  color: isDark ? Colors.black.withValues(alpha: 0.3) : null,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    width: 1,
+                    color: (Theme.of(context).brightness == Brightness.dark)
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.primary,
+                    width: isDark ? 1 : 2,
                   ),
                 ),
                 child: Padding(

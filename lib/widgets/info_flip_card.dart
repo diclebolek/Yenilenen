@@ -11,12 +11,14 @@ class InfoFlipCard extends StatefulWidget {
     required this.frontSummary,
     required this.backDetails,
     this.languageProvider,
+    this.isSelected = false,
   });
 
   final String frontTitle;
   final String frontSummary;
   final String backDetails;
   final LanguageProvider? languageProvider;
+  final bool isSelected;
 
   @override
   State<InfoFlipCard> createState() => _InfoFlipCardState();
@@ -33,12 +35,17 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
     const Color flipBackColor =
         Colors.black; // arka yüz temel renk (cam efekti ile yarı saydam)
 
+    // Seçili kart için daha canlı renk
+    final Color cardColor = widget.isSelected
+        ? colorScheme.primary
+        : colorScheme.primary.withValues(alpha: 0.85);
+
     Widget front = Container(
       width: 320,
       constraints: const BoxConstraints(minHeight: 120),
       child: Card(
-        color: colorScheme.primary,
-        surfaceTintColor: colorScheme.primary,
+        color: cardColor,
+        surfaceTintColor: cardColor,
         child: InkWell(
           onTap: _toggle,
           borderRadius: BorderRadius.circular(16),
@@ -50,15 +57,15 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                 Text(
                   widget.frontTitle,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: colorScheme.onPrimary,
-                  ),
+                        color: colorScheme.onPrimary,
+                      ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   widget.frontSummary,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onPrimary.withValues(alpha: 0.9),
-                  ),
+                        color: colorScheme.onPrimary.withValues(alpha: 0.9),
+                      ),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -72,8 +79,8 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                             const Locale('tr'),
                       ),
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: colorScheme.onPrimary.withValues(alpha: 0.9),
-                      ),
+                            color: colorScheme.onPrimary.withValues(alpha: 0.9),
+                          ),
                     ),
                   ],
                 ),
@@ -118,8 +125,8 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                     Text(
                       widget.backDetails,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.95),
-                      ),
+                            color: Colors.white.withValues(alpha: 0.95),
+                          ),
                     ),
                   ],
                 ),
@@ -138,13 +145,12 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
             (child.key is ValueKey) && (child.key as ValueKey).value == 'back';
         final double fullAngle =
             (isBack ? (animation.value + 1.0) : animation.value) *
-            3.1416; // 0..pi (front), pi..2pi (back)
+                3.1416; // 0..pi (front), pi..2pi (back)
         return AnimatedBuilder(
           animation: animation,
           child: child,
           builder: (context, child) {
-            final bool pastHalf =
-                (fullAngle % (2 * 3.1416)) > (3.1416 / 2) &&
+            final bool pastHalf = (fullAngle % (2 * 3.1416)) > (3.1416 / 2) &&
                 (fullAngle % (2 * 3.1416)) < (3.1416 * 3 / 2);
             final Widget correctedChild = pastHalf
                 ? Transform(

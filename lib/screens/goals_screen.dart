@@ -466,7 +466,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     height: 80,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: LinearGradient(
+                      gradient: const LinearGradient(
                         colors: [Colors.amber, Colors.orange],
                       ),
                       boxShadow: [
@@ -537,577 +537,993 @@ class _GoalsScreenState extends State<GoalsScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // İçerik
-          ListView(
-            padding: EdgeInsets.fromLTRB(
-              16,
-              16,
-              16,
-              16 +
-                  MediaQuery.of(context).padding.bottom +
-                  80, // Bottom nav bar için ekstra padding
-            ),
-            children: [
-              // Başarı rozetleri - En üstte gösteriliyor
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 1,
-                      ),
+          // İçerik - Web için genişlik kısıtlaması
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final bool isWide = constraints.maxWidth >= 900;
+              return Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isWide ? 800 : double.infinity,
+                  ),
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      16,
+                      16,
+                      16 +
+                          MediaQuery.of(context).padding.bottom +
+                          80, // Bottom nav bar için ekstra padding
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Başarı rozetleri başlığı - Konteynır dışında
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.emoji_events,
-                                color: Theme.of(context).colorScheme.primary,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                translate('achievement_badges', locale),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(
-                                      color:
-                                          isDark ? Colors.white : Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                              ),
-                              const Spacer(),
-                              // Kazanılan rozet sayısı
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.primary.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  '${_badges.values.where((v) => v).length}/${_badges.length}',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                ),
-                              ),
-                            ],
+                          Icon(
+                            Icons.emoji_events,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 24,
                           ),
-                          const SizedBox(height: 16),
-                          // Instagram story tarzı yuvarlak rozet butonları
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.start,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _AchievementBadge(
-                                  imagePath: 'assets/images/1rozet.png',
-                                  title: translate(
-                                    'environment_friendly',
-                                    locale,
+                          const SizedBox(width: 8),
+                          Text(
+                            translate('achievement_badges', locale),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          const SizedBox(width: 8),
+                          Tooltip(
+                            message:
+                                translate('achievement_badges_info', locale),
+                            child: InkWell(
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: Text(translate(
+                                        'achievement_badges', locale)),
+                                    content: Text(
+                                      translate(
+                                          'achievement_badges_info', locale),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        child: Text(translate('ok', locale)),
+                                      ),
+                                    ],
                                   ),
-                                  isUnlocked:
-                                      true, // Çevre dostu rozeti her zaman açık
-                                ),
-                                const SizedBox(width: 12),
-                                _AchievementBadge(
-                                  imagePath: 'assets/images/2rozet.png',
-                                  title: translate('energy_saving', locale),
-                                  isUnlocked: _badges['energy_saving'] ?? false,
-                                ),
-                                const SizedBox(width: 12),
-                                _AchievementBadge(
-                                  imagePath: 'assets/images/3rozet.png',
-                                  title: translate('water_protector', locale),
-                                  isUnlocked:
-                                      _badges['water_protector'] ?? false,
-                                ),
-                                const SizedBox(width: 12),
-                                _AchievementBadge(
-                                  imagePath: 'assets/images/4rozet.png',
-                                  title: translate('goal_master', locale),
-                                  isUnlocked: _badges['goal_master'] ?? false,
-                                ),
-                                const SizedBox(width: 12),
-                                _AchievementBadge(
-                                  imagePath: 'assets/images/5rozet.png',
-                                  title: translate('eco_warrior', locale),
-                                  isUnlocked: _badges['eco_warrior'] ?? false,
-                                ),
-                              ],
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: const Icon(
+                                Icons.info_outline,
+                                size: 20,
+                                color: Colors.orange,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Green Score (Yeşil Puan) bölümü - İyileştirilmiş
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.2),
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.1),
+                      const SizedBox(height: 16),
+                      // Başarı rozetleri konteynırı
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: isDark
+                                  ? null
+                                  : LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.2),
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.1),
+                                      ],
+                                    ),
+                              color: isDark
+                                  ? Colors.black.withValues(alpha: 0.4)
+                                  : null,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: (Theme.of(context).brightness ==
+                                        Brightness.dark)
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(context).colorScheme.primary,
+                                width: isDark ? 1 : 2,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 16,
+                                horizontal: 16,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      // Kazanılan rozet sayısı
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(
+                                            context,
+                                          )
+                                              .colorScheme
+                                              .primary
+                                              .withValues(alpha: 0.2),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          '${_badges.values.where((v) => v).length}/${_badges.length}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // Instagram story tarzı yuvarlak rozet butonları
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final bool isWide =
+                                          constraints.maxWidth >= 900;
+                                      if (isWide) {
+                                        // Web'de rozetleri tam ortala
+                                        return Center(
+                                          child: Wrap(
+                                            alignment: WrapAlignment.center,
+                                            spacing: 12,
+                                            runSpacing: 12,
+                                            children: [
+                                              _AchievementBadge(
+                                                imagePath:
+                                                    'assets/images/1rozet.png',
+                                                title: translate(
+                                                  'environment_friendly',
+                                                  locale,
+                                                ),
+                                                isUnlocked:
+                                                    true, // Çevre dostu rozeti her zaman açık
+                                              ),
+                                              _AchievementBadge(
+                                                imagePath:
+                                                    'assets/images/3rozet.png',
+                                                title: translate(
+                                                    'energy_saving', locale),
+                                                isUnlocked:
+                                                    _badges['energy_saving'] ??
+                                                        false,
+                                              ),
+                                              _AchievementBadge(
+                                                imagePath:
+                                                    'assets/images/2rozet.png',
+                                                title: translate(
+                                                    'water_protector', locale),
+                                                isUnlocked: _badges[
+                                                        'water_protector'] ??
+                                                    false,
+                                              ),
+                                              _AchievementBadge(
+                                                imagePath:
+                                                    'assets/images/4rozet.png',
+                                                title: translate(
+                                                    'goal_master', locale),
+                                                isUnlocked:
+                                                    _badges['goal_master'] ??
+                                                        false,
+                                              ),
+                                              _AchievementBadge(
+                                                imagePath:
+                                                    'assets/images/5rozet.png',
+                                                title: translate(
+                                                    'eco_warrior', locale),
+                                                isUnlocked:
+                                                    _badges['eco_warrior'] ??
+                                                        false,
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+                                      // Mobil/tablet: yatay scroll
+                                      return SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _AchievementBadge(
+                                              imagePath:
+                                                  'assets/images/1rozet.png',
+                                              title: translate(
+                                                'environment_friendly',
+                                                locale,
+                                              ),
+                                              isUnlocked:
+                                                  true, // Çevre dostu rozeti her zaman açık
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _AchievementBadge(
+                                              imagePath:
+                                                  'assets/images/2rozet.png',
+                                              title: translate(
+                                                  'energy_saving', locale),
+                                              isUnlocked:
+                                                  _badges['energy_saving'] ??
+                                                      false,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _AchievementBadge(
+                                              imagePath:
+                                                  'assets/images/3rozet.png',
+                                              title: translate(
+                                                  'water_protector', locale),
+                                              isUnlocked:
+                                                  _badges['water_protector'] ??
+                                                      false,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _AchievementBadge(
+                                              imagePath:
+                                                  'assets/images/4rozet.png',
+                                              title: translate(
+                                                  'goal_master', locale),
+                                              isUnlocked:
+                                                  _badges['goal_master'] ??
+                                                      false,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _AchievementBadge(
+                                              imagePath:
+                                                  'assets/images/5rozet.png',
+                                              title: translate(
+                                                  'eco_warrior', locale),
+                                              isUnlocked:
+                                                  _badges['eco_warrior'] ??
+                                                      false,
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  // Alt boşluk - üst boşlukla eşit olması için
+                                  const SizedBox(height: 16),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      // Green Score başlığı - Konteynır dışında
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.energy_savings_leaf,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            translate('green_score', locale),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          const SizedBox(width: 8),
+                          Tooltip(
+                            message: translate('green_score_info', locale),
+                            child: InkWell(
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title:
+                                        Text(translate('green_score', locale)),
+                                    content: Text(
+                                      translate('green_score_info', locale),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        child: Text(translate('ok', locale)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: const Icon(
+                                Icons.info_outline,
+                                size: 20,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 2,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.primary.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Icon(
-                                  Icons.energy_savings_leaf,
-                                  color: Theme.of(context).colorScheme.primary,
-                                  size: 28,
-                                ),
+                      const SizedBox(height: 16),
+                      // Green Score (Yeşil Puan) bölümü - İyileştirilmiş
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: isDark
+                                  ? null
+                                  : LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.2),
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.1),
+                                      ],
+                                    ),
+                              color: isDark
+                                  ? Colors.black.withValues(alpha: 0.4)
+                                  : null,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: isDark ? 1 : 2,
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      translate('green_score', locale),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                            color: isDark
-                                                ? Colors.white
-                                                : Colors.black,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 18,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${(_greenScore ~/ 100)} ${translate('virtual_tree', locale)}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            color: (isDark
-                                                    ? Colors.white
-                                                    : Colors.black)
-                                                .withValues(alpha: 0.7),
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.primary.withValues(alpha: 0.3),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      '$_greenScore',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .headlineSmall
-                                          ?.copyWith(
-                                            color: isDark
-                                                ? Colors.white
-                                                : Colors.black,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                    ),
-                                    Text(
-                                      translate('points', locale),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            color: (isDark
-                                                    ? Colors.white
-                                                    : Colors.black)
-                                                .withValues(alpha: 0.7),
-                                            fontSize: 10,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          // İlerleme çubuğu
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  // Üst: Başlık ve puan kaldı
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        translate('next_level', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: (isDark
+                                                      ? Colors.white
+                                                      : Colors.black)
+                                                  .withValues(alpha: 0.7),
+                                            ),
+                                      ),
+                                      Text(
+                                        '${100 - (_greenScore % 100)} ${translate('points_to_go', locale)}',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Colors.orange,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  // Alt: Üç kısım aynı satırda
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      // Sol: İlerleme çubuğu
+                                      Expanded(
+                                        flex: 2,
+                                        child: LayoutBuilder(
+                                          builder: (context, constraints) {
+                                            final progressValue =
+                                                ((_greenScore % 100) / 100)
+                                                    .clamp(
+                                              0.0,
+                                              1.0,
+                                            );
+                                            return ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              child:
+                                                  TweenAnimationBuilder<double>(
+                                                tween: Tween<double>(
+                                                  begin: 0.0,
+                                                  end: progressValue,
+                                                ),
+                                                duration: const Duration(
+                                                    milliseconds: 1000),
+                                                curve: Curves.easeInOut,
+                                                builder:
+                                                    (context, value, child) {
+                                                  return Container(
+                                                    height: 12,
+                                                    decoration: BoxDecoration(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              10),
+                                                      color: Colors.white
+                                                          .withValues(
+                                                        alpha: 0.2,
+                                                      ),
+                                                    ),
+                                                    child: Stack(
+                                                      clipBehavior: Clip.none,
+                                                      children: [
+                                                        FractionallySizedBox(
+                                                          widthFactor: value,
+                                                          child: Container(
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          10),
+                                                              gradient:
+                                                                  LinearGradient(
+                                                                colors: [
+                                                                  Colors.orange
+                                                                      .shade600,
+                                                                  Colors.orange
+                                                                      .shade400,
+                                                                  Colors.orange
+                                                                      .shade300,
+                                                                ],
+                                                                begin: Alignment
+                                                                    .centerLeft,
+                                                                end: Alignment
+                                                                    .centerRight,
+                                                              ),
+                                                              boxShadow: [
+                                                                BoxShadow(
+                                                                  color: Colors
+                                                                      .orange
+                                                                      .withValues(
+                                                                          alpha:
+                                                                              0.5),
+                                                                  blurRadius: 8,
+                                                                  spreadRadius:
+                                                                      1,
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Orta: Sanal ağaç kutucuğu (ikon + 2 rakamı)
+                                      Tooltip(
+                                        message:
+                                            '${(_greenScore ~/ 100)} ${translate('virtual_tree', locale)}',
+                                        child: Container(
+                                          width: 80,
+                                          height: 80,
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            gradient: isDark
+                                                ? null
+                                                : LinearGradient(
+                                                    begin: Alignment.topLeft,
+                                                    end: Alignment.bottomRight,
+                                                    colors: [
+                                                      Theme.of(
+                                                        context,
+                                                      )
+                                                          .colorScheme
+                                                          .primary
+                                                          .withValues(
+                                                              alpha: 0.2),
+                                                      Theme.of(
+                                                        context,
+                                                      )
+                                                          .colorScheme
+                                                          .primary
+                                                          .withValues(
+                                                              alpha: 0.1),
+                                                    ],
+                                                  ),
+                                            color: isDark
+                                                ? Colors.black
+                                                    .withValues(alpha: 0.4)
+                                                : null,
+                                            borderRadius:
+                                                BorderRadius.circular(16),
+                                            border: Border.all(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.energy_savings_leaf,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary,
+                                                size: 20,
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '${(_greenScore ~/ 100)}',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      color: (isDark
+                                                              ? Colors.white
+                                                              : Colors.black)
+                                                          .withValues(
+                                                              alpha: 0.9),
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 16,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Sağ: Puan kutucuğu (221 puan)
+                                      Container(
+                                        width: 80,
+                                        height: 80,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          gradient: isDark
+                                              ? null
+                                              : LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    Theme.of(
+                                                      context,
+                                                    )
+                                                        .colorScheme
+                                                        .primary
+                                                        .withValues(alpha: 0.3),
+                                                    Theme.of(
+                                                      context,
+                                                    )
+                                                        .colorScheme
+                                                        .primary
+                                                        .withValues(alpha: 0.2),
+                                                  ],
+                                                ),
+                                          color: isDark
+                                              ? Colors.black
+                                                  .withValues(alpha: 0.4)
+                                              : null,
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                          border: Border.all(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              '$_greenScore',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge
+                                                  ?.copyWith(
+                                                    color: isDark
+                                                        ? Colors.white
+                                                        : Colors.black,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 20,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              translate('points', locale),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: (isDark
+                                                            ? Colors.white
+                                                            : Colors.black)
+                                                        .withValues(alpha: 0.7),
+                                                    fontSize: 9,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 20),
+                                  // İstatistikler
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _StatCard(
+                                          icon: Icons.flag,
+                                          value: '${_goals.length}',
+                                          label:
+                                              translate('total_goals', locale),
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _StatCard(
+                                          icon: Icons.check_circle,
+                                          value:
+                                              '${_goals.where((g) => g.progress >= 1.0).length}',
+                                          label: translate(
+                                              'completed_goals', locale),
+                                          color: Colors.green,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _StatCard(
+                                          icon: Icons.emoji_events,
+                                          value:
+                                              '${_badges.values.where((v) => v).length}',
+                                          label: translate(
+                                              'badges_earned', locale),
+                                          color: Colors.amber,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 20),
+                                  // Davranış eylemleri (puan kazandırır)
                                   Text(
-                                    translate('next_level', locale),
+                                    translate('earn_points', locale),
                                     style: Theme.of(context)
                                         .textTheme
-                                        .bodySmall
+                                        .bodyMedium
                                         ?.copyWith(
                                           color: (isDark
                                                   ? Colors.white
                                                   : Colors.black)
-                                              .withValues(alpha: 0.7),
-                                        ),
-                                  ),
-                                  Text(
-                                    '${100 - (_greenScore % 100)} ${translate('points_to_go', locale)}',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.primary,
+                                              .withValues(alpha: 0.8),
                                           fontWeight: FontWeight.w600,
                                         ),
                                   ),
+                                  const SizedBox(height: 12),
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final bool isMobile =
+                                          constraints.maxWidth < 600;
+                                      if (isMobile) {
+                                        // Mobil: 2x2 grid
+                                        return Column(
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: _ActionChip(
+                                                    icon: Icons.recycling,
+                                                    label: translate(
+                                                        'recycle', locale),
+                                                    points: 10,
+                                                    onTap: () =>
+                                                        _awardPoints(10),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: _ActionChip(
+                                                    icon: Icons.directions_walk,
+                                                    label: translate(
+                                                        'walk', locale),
+                                                    points: 5,
+                                                    onTap: () =>
+                                                        _awardPoints(5),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: _ActionChip(
+                                                    icon: Icons.directions_bus,
+                                                    label: translate(
+                                                      'public_transport',
+                                                      locale,
+                                                    ),
+                                                    points: 12,
+                                                    onTap: () =>
+                                                        _awardPoints(12),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: _ActionChip(
+                                                    icon: Icons.water_drop,
+                                                    label: translate(
+                                                      'save_water',
+                                                      locale,
+                                                    ),
+                                                    points: 6,
+                                                    onTap: () =>
+                                                        _awardPoints(6),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        );
+                                      } else {
+                                        // Tablet/Desktop: Yatay
+                                        return Row(
+                                          children: [
+                                            Expanded(
+                                              child: _ActionChip(
+                                                icon: Icons.recycling,
+                                                label: translate(
+                                                    'recycle', locale),
+                                                points: 10,
+                                                onTap: () => _awardPoints(10),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: _ActionChip(
+                                                icon: Icons.directions_walk,
+                                                label:
+                                                    translate('walk', locale),
+                                                points: 5,
+                                                onTap: () => _awardPoints(5),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: _ActionChip(
+                                                icon: Icons.directions_bus,
+                                                label: translate(
+                                                  'public_transport',
+                                                  locale,
+                                                ),
+                                                points: 12,
+                                                onTap: () => _awardPoints(12),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: _ActionChip(
+                                                icon: Icons.water_drop,
+                                                label: translate(
+                                                    'save_water', locale),
+                                                points: 6,
+                                                onTap: () => _awardPoints(6),
+                                              ),
+                                            ),
+                                          ],
+                                        );
+                                      }
+                                    },
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 8),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: LinearProgressIndicator(
-                                  value: ((_greenScore % 100) / 100).clamp(
-                                    0.0,
-                                    1.0,
-                                  ),
-                                  minHeight: 12,
-                                  backgroundColor: Colors.white.withValues(
-                                    alpha: 0.2,
-                                  ),
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Theme.of(context).colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
-                          const SizedBox(height: 20),
-                          // İstatistikler
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _StatCard(
-                                  icon: Icons.flag,
-                                  value: '${_goals.length}',
-                                  label: translate('total_goals', locale),
-                                  color: Colors.blue,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _StatCard(
-                                  icon: Icons.check_circle,
-                                  value:
-                                      '${_goals.where((g) => g.progress >= 1.0).length}',
-                                  label: translate('completed_goals', locale),
-                                  color: Colors.green,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _StatCard(
-                                  icon: Icons.emoji_events,
-                                  value:
-                                      '${_badges.values.where((v) => v).length}',
-                                  label: translate('badges_earned', locale),
-                                  color: Colors.amber,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          // Davranış eylemleri (puan kazandırır)
-                          Text(
-                            translate('earn_points', locale),
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                                  color: (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: 0.8),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final bool isMobile = constraints.maxWidth < 600;
-                              if (isMobile) {
-                                // Mobil: 2x2 grid
-                                return Column(
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _ActionChip(
-                                            icon: Icons.recycling,
-                                            label: translate('recycle', locale),
-                                            points: 10,
-                                            onTap: () => _awardPoints(10),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: _ActionChip(
-                                            icon: Icons.directions_walk,
-                                            label: translate('walk', locale),
-                                            points: 5,
-                                            onTap: () => _awardPoints(5),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _ActionChip(
-                                            icon: Icons.directions_bus,
-                                            label: translate(
-                                              'public_transport',
-                                              locale,
-                                            ),
-                                            points: 12,
-                                            onTap: () => _awardPoints(12),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: _ActionChip(
-                                            icon: Icons.water_drop,
-                                            label: translate(
-                                              'save_water',
-                                              locale,
-                                            ),
-                                            points: 6,
-                                            onTap: () => _awardPoints(6),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                );
-                              } else {
-                                // Tablet/Desktop: Yatay
-                                return Row(
-                                  children: [
-                                    Expanded(
-                                      child: _ActionChip(
-                                        icon: Icons.recycling,
-                                        label: translate('recycle', locale),
-                                        points: 10,
-                                        onTap: () => _awardPoints(10),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _ActionChip(
-                                        icon: Icons.directions_walk,
-                                        label: translate('walk', locale),
-                                        points: 5,
-                                        onTap: () => _awardPoints(5),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _ActionChip(
-                                        icon: Icons.directions_bus,
-                                        label: translate(
-                                          'public_transport',
-                                          locale,
-                                        ),
-                                        points: 12,
-                                        onTap: () => _awardPoints(12),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _ActionChip(
-                                        icon: Icons.water_drop,
-                                        label: translate('save_water', locale),
-                                        points: 6,
-                                        onTap: () => _awardPoints(6),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              }
-                            },
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Hedef kartları
-              if (_goals.isEmpty)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Text(
-                      translate('no_goals', locale),
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: 0.7),
-                          ),
-                    ),
-                  ),
-                )
-              else
-                ..._goals.map(
-                  (goal) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _GoalCard(
-                      goal: goal,
-                      languageProvider: widget.languageProvider,
-                      onDelete:
-                          _userId != null ? () => _deleteGoal(goal.id) : null,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              // Yeni hedef ekleme butonu
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 1,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            translate('set_new_goal', locale),
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  color: isDark ? Colors.white : Colors.black,
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton.icon(
-                            onPressed: _userId != null
-                                ? () => _showAddGoalDialog()
-                                : null,
-                            style: ButtonStyle(
-                              minimumSize: const WidgetStatePropertyAll(
-                                Size.fromHeight(48),
-                              ),
-                              shape: WidgetStatePropertyAll(
-                                StadiumBorder(
-                                  side: BorderSide(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
+                      const SizedBox(height: 16),
+                      // Hedef kartları
+                      if (_goals.isEmpty)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Text(
+                              translate('no_goals', locale),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                    color:
+                                        (isDark ? Colors.white : Colors.black)
+                                            .withValues(alpha: 0.7),
                                   ),
-                                ),
+                            ),
+                          ),
+                        )
+                      else
+                        ..._goals.map(
+                          (goal) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _GoalCard(
+                              goal: goal,
+                              languageProvider: widget.languageProvider,
+                              onDelete: _userId != null
+                                  ? () => _deleteGoal(goal.id)
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      // Yeni hedef ekleme butonu
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: isDark
+                                    ? [
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.2),
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.1),
+                                      ]
+                                    : [
+                                        // Açık temada yeşil tonları
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.2),
+                                        Theme.of(
+                                          context,
+                                        )
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.1),
+                                      ],
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 2,
                               ),
                             ),
-                            icon: const Icon(Icons.add),
-                            label: Text(translate('add_goal', locale)),
-                          ),
-                          if (_userId == null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                translate('login_required_for_goals', locale),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color:
-                                          (isDark ? Colors.white : Colors.black)
-                                              .withValues(alpha: 0.6),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    translate('set_new_goal', locale),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          color: isDark
+                                              ? Colors.white
+                                              : Colors.black,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  FilledButton.icon(
+                                    onPressed: _userId != null
+                                        ? () => _showAddGoalDialog()
+                                        : null,
+                                    style: ButtonStyle(
+                                      minimumSize: const WidgetStatePropertyAll(
+                                        Size.fromHeight(48),
+                                      ),
+                                      shape: WidgetStatePropertyAll(
+                                        StadiumBorder(
+                                          side: BorderSide(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                          ),
+                                        ),
+                                      ),
                                     ),
+                                    icon: const Icon(Icons.add),
+                                    label: Text(translate('add_goal', locale)),
+                                  ),
+                                  if (_userId == null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        translate(
+                                            'login_required_for_goals', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: (isDark
+                                                      ? Colors.white
+                                                      : Colors.black)
+                                                  .withValues(alpha: 0.6),
+                                            ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
-                        ],
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+              );
+            },
           ),
         ],
       ),
@@ -1328,15 +1744,33 @@ class _GoalCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           decoration: BoxDecoration(
+            gradient: isCompleted
+                ? null
+                : (isDark
+                    ? null
+                    : LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.2),
+                          Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.1),
+                        ],
+                      )),
             color: isCompleted
                 ? Colors.green.withValues(alpha: 0.15)
-                : Colors.black.withValues(alpha: 0.28),
+                : (isDark ? Colors.black.withValues(alpha: 0.4) : null),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: isCompleted
                   ? Colors.green
-                  : Theme.of(context).colorScheme.primary,
-              width: isCompleted ? 2 : 1,
+                  : (Theme.of(context).brightness == Brightness.dark)
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.primary,
+              width: isCompleted ? 2 : (isDark ? 1 : 2),
             ),
             boxShadow: isCompleted
                 ? [
@@ -1394,7 +1828,7 @@ class _GoalCard extends StatelessWidget {
                             const SizedBox(height: 4),
                             Row(
                               children: [
-                                Icon(
+                                const Icon(
                                   Icons.check_circle,
                                   color: Colors.green,
                                   size: 16,
@@ -1495,7 +1929,8 @@ class _GoalCard extends StatelessWidget {
                           ),
                     ),
                     if (isCompleted)
-                      Icon(Icons.celebration, color: Colors.amber, size: 18),
+                      const Icon(Icons.celebration,
+                          color: Colors.amber, size: 18),
                   ],
                 ),
               ],
@@ -1585,7 +2020,7 @@ class _AchievementBadge extends StatelessWidget {
                       height: 70,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
-                        return Icon(
+                        return const Icon(
                           Icons.star,
                           color: Colors.white,
                           size: 32,

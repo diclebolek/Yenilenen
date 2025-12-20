@@ -132,7 +132,7 @@ class RealtimeEspDataWidget extends StatelessWidget {
                           ),
                     ),
                     const Spacer(),
-                    Icon(Icons.circle, color: Colors.green, size: 12),
+                    const Icon(Icons.circle, color: Colors.green, size: 12),
                     const SizedBox(width: 4),
                     Text(
                       'Canlı',
