@@ -81,6 +81,59 @@ class FirebaseRealtimeService {
     }
   }
 
+  /// Manuel verileri Firebase'e kaydet
+  /// Path: /manual_data/{userId}/latest ve /manual_data/{userId}/history
+  Future<void> saveManualData({
+    required String userId,
+    required ConsumptionEntry consumption,
+  }) async {
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      final data = {
+        'electricity': consumption.electricityKwh,
+        'water': consumption.waterCubicMeters,
+        'fuel': consumption.fuelLiters,
+        'waste': consumption.wasteKg,
+        'timestamp': timestamp,
+        'created_at': consumption.createdAt.toIso8601String(),
+        'source': 'manual', // Manuel giriş olduğunu belirt
+      };
+
+      // Latest veriyi kaydet
+      await _databaseRef
+          .child('manual_data')
+          .child(userId)
+          .child('latest')
+          .set(data);
+
+      // Geçmiş verileri de kaydet (tarih bazlı)
+      final dateKey =
+          DateTime.now().toIso8601String().split('T')[0]; // YYYY-MM-DD
+      await _databaseRef
+          .child('manual_data')
+          .child(userId)
+          .child('history')
+          .child(dateKey)
+          .child(timestamp.toString())
+          .set(data);
+
+      dev.log(
+        'Manuel veri Firebase\'e kaydedildi: $userId',
+        name: 'FirebaseRealtimeService',
+      );
+    } catch (e, st) {
+      dev.log(
+        'Firebase manuel veri kayıt hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      // Hata olsa bile devam et (kullanıcı deneyimini bozma)
+    }
+  }
+
   /// Real-time dinleme - ESP8266 verilerini anlık olarak dinle
   /// Stream döndürür, widget'ta StreamBuilder ile kullanılabilir
   Stream<ConsumptionEntry?> listenToEsp8266Data(String deviceId) {

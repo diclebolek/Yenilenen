@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import '../services/database_service.dart';
+import '../services/firebase_realtime_service.dart';
+import '../services/firebase_auth_service.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 
@@ -368,6 +370,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                   }
                                   setState(() {});
                                   setStateLocal(() {});
+                                  // Cihaz eklendiğinde elektrik hesaplamasını güncelle
+                                  _calculateCategory('electricity');
+                                  // Toplam hesaplama ve kayıt yap (validation olmadan)
+                                  _calculateTotal(skipValidation: true);
                                 },
                                 onEdit: () async {
                                   await _editDevice(p);
@@ -375,6 +381,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                   setStateLocal(() {});
                                   // Cihaz düzenlendiğinde elektrik hesaplamasını güncelle
                                   _calculateCategory('electricity');
+                                  // Toplam hesaplama ve kayıt yap (validation olmadan)
+                                  _calculateTotal(skipValidation: true);
                                 },
                               ),
                             )
@@ -419,6 +427,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                       );
                                       setState(() {});
                                       setStateLocal(() {});
+                                      // Cihaz miktarı değiştiğinde elektrik hesaplamasını güncelle
+                                      _calculateCategory('electricity');
+                                      // Toplam hesaplama ve kayıt yap (validation olmadan)
+                                      _calculateTotal(skipValidation: true);
                                     },
                                     icon: const Icon(
                                       Icons.add_circle,
@@ -438,6 +450,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                       }
                                       setState(() {});
                                       setStateLocal(() {});
+                                      // Cihaz miktarı değiştiğinde elektrik hesaplamasını güncelle
+                                      _calculateCategory('electricity');
+                                      // Toplam hesaplama ve kayıt yap (validation olmadan)
+                                      _calculateTotal(skipValidation: true);
                                     },
                                     icon: const Icon(
                                       Icons.remove_circle,
@@ -964,6 +980,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                   });
                   // Cihaz düzenlendiğinde elektrik hesaplamasını güncelle
                   _calculateCategory('electricity');
+                  // Toplam hesaplama ve kayıt yap (validation olmadan)
+                  _calculateTotal(skipValidation: true);
                 }
                 Navigator.of(context).pop();
               },
@@ -1230,6 +1248,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                               });
                               // Cihaz eklendiğinde elektrik hesaplamasını güncelle
                               _calculateCategory('electricity');
+                              // Toplam hesaplama ve kayıt yap (validation olmadan)
+                              _calculateTotal(skipValidation: true);
                             },
                             onEdit: () async {
                               final customized = await _customizeNewDevice(p);
@@ -1239,6 +1259,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                 );
                                 // Cihaz eklendiğinde elektrik hesaplamasını güncelle
                                 _calculateCategory('electricity');
+                                // Toplam hesaplama ve kayıt yap (validation olmadan)
+                                _calculateTotal(skipValidation: true);
                               }
                             },
                           ),
@@ -1266,6 +1288,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           setState(() => _selectedDevices.remove(d));
                           // Cihaz silindiğinde elektrik hesaplamasını güncelle
                           _calculateCategory('electricity');
+                          // Toplam hesaplama ve kayıt yap (validation olmadan)
+                          _calculateTotal(skipValidation: true);
                         },
                       ),
                     ),
@@ -1756,8 +1780,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   }
 
   // Toplam hesaplama (son sekmede)
-  void _calculateTotal() {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+  void _calculateTotal({bool skipValidation = false}) {
+    if (!skipValidation && !(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
 
     // Önce tüm kategorileri hesapla
     _calculateCategory('electricity');
@@ -1784,6 +1810,22 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     db.updateReading('Yakıt (litre)', entry.fuelLiters);
     db.updateReading('Su (m³)', entry.waterCubicMeters);
     db.updateReading('Atık (kg)', entry.wasteKg);
+
+    // Manuel verileri Firebase'e kaydet (kullanıcı giriş yapmışsa)
+    // Fire-and-forget: await etmeden arka planda kaydet
+    final userId = FirebaseAuthService.instance.currentUser?.uid;
+    if (userId != null) {
+      FirebaseRealtimeService.instance
+          .saveManualData(
+        userId: userId,
+        consumption: entry,
+      )
+          .catchError((e) {
+        // Firebase hatası olsa bile devam et (kullanıcı deneyimini bozma)
+        debugPrint('Manuel veri Firebase kayıt hatası: $e');
+      });
+    }
+
     widget.onCalculated(result);
   }
 
@@ -1966,11 +2008,22 @@ class _DeviceTileState extends State<_DeviceTile> {
                   child: TextButton(
                     onPressed: () => widget.onAddQuantity(_quantity),
                     style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       minimumSize: const Size(0, 28),
                     ),
-                    child: const Text('+ Ekle', style: TextStyle(fontSize: 12)),
+                    child: Text(
+                      '+ Ekle',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.white,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -2093,7 +2146,7 @@ class _VehicleTile extends StatelessWidget {
                   child: Text(
                     '+ Ekle',
                     style: TextStyle(
-                      color: isDark ? Colors.black : null,
+                      color: isDark ? Colors.black : Colors.white,
                     ),
                   ),
                 ),

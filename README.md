@@ -76,9 +76,9 @@ flutter pub get
 
 6. Assets (Görseller):
    Aşağıdaki görselleri `assets/images/` klasörüne eklemeniz gerekmektedir:
-   - `herosectionafis.jpg` - Ana sayfa hero görseli 1
-   - `herosectionafis2.jpg` - Ana sayfa hero görseli 2
-   - `herosectionafis3.jpg` - Ana sayfa hero görseli 3
+   - `herosectionafis.png` - Ana sayfa hero görseli 1
+   - `herosectionafis2.png` - Ana sayfa hero görseli 2
+   - `herosectionafis3.png` - Ana sayfa hero görseli 3
    - `olive-drab_small.webp` - Ağaç bağışı banner görseli
    - `bckgrnd2.jpeg` - Login/Register arkaplan görseli
    - `foto_yükleme.png` - Fatura tarama placeholder görseli

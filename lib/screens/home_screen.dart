@@ -352,9 +352,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       itemCount: 3,
                       itemBuilder: (context, index) {
                         final images = [
-                          'assets/images/herosectionafis.jpg',
-                          'assets/images/herosectionafis2.jpg',
-                          'assets/images/herosectionafis3.jpg',
+                          'assets/images/herosectionafis.png',
+                          'assets/images/herosectionafis2.png',
+                          'assets/images/herosectionafis3.png',
                         ];
                         return Container(
                           margin: isWide
@@ -381,6 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   fit: BoxFit.cover,
                                   width: double.infinity,
                                   height: double.infinity,
+                                  alignment: Alignment.center,
                                 )
                               : ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
@@ -388,6 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     images[index],
                                     fit: BoxFit.cover,
                                     width: double.infinity,
+                                    alignment: Alignment.center,
                                   ),
                                 ),
                         );
