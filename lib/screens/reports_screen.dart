@@ -28,6 +28,9 @@ enum _InputMode { none, manual, raspberry }
 
 class _ReportsScreenState extends State<ReportsScreen> {
   double? _lastCalculatedKgCo2e;
+  double? _manualCalculatedKgCo2e; // Manuel hesaplama sonucu
+  double? _espCalculatedKgCo2e; // ESP hesaplama sonucu
+  bool _useEspData = false; // Gauge'da ESP verisi mi gösterilecek?
   _InputMode _selectedMode = _InputMode.none;
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
@@ -99,7 +102,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // ESP'den gelen verilerle emisyonu hesapla
         final emission = Calculation.calculateDailyEmission(entry);
         setState(() {
-          _lastCalculatedKgCo2e = emission;
+          _espCalculatedKgCo2e = emission;
+          // Eğer ESP verisi seçiliyse, gauge'ı güncelle
+          if (_useEspData) {
+            _lastCalculatedKgCo2e = emission;
+          }
         });
       }
     });
@@ -475,6 +482,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     kgCo2e: _lastCalculatedKgCo2e,
                                     size: gaugeSize,
                                     languageProvider: widget.languageProvider,
+                                    useEspData: _useEspData,
+                                    onToggleChanged: (value) {
+                                      setState(() {
+                                        _useEspData = value;
+                                        // Toggle değiştiğinde gösterilecek veriyi güncelle
+                                        if (value) {
+                                          _lastCalculatedKgCo2e =
+                                              _espCalculatedKgCo2e;
+                                        } else {
+                                          _lastCalculatedKgCo2e =
+                                              _manualCalculatedKgCo2e;
+                                        }
+                                      });
+                                    },
                                   ),
                                 ),
                               ),
@@ -569,10 +590,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     padding: const EdgeInsets.all(8),
                                     child: ConsumptionForm(
                                       onCalculated: (valueKgCo2e) {
-                                        setState(
-                                          () => _lastCalculatedKgCo2e =
-                                              valueKgCo2e,
-                                        );
+                                        setState(() {
+                                          _manualCalculatedKgCo2e = valueKgCo2e;
+                                          // Eğer manuel veri seçiliyse, gauge'ı güncelle
+                                          if (!_useEspData) {
+                                            _lastCalculatedKgCo2e = valueKgCo2e;
+                                          }
+                                        });
                                       },
                                       languageProvider: widget.languageProvider,
                                     ),
@@ -654,7 +678,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             MainAxisAlignment.spaceBetween,
                                         children: [
                                           Text(
-                                            translate('daily_trends', locale),
+                                            _showGlobalTrend
+                                                ? translate(
+                                                    'global_trend', locale)
+                                                : translate(
+                                                    'daily_trends', locale),
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .titleMedium
@@ -686,7 +714,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     _showGlobalTrend = value;
                                                   });
                                                 },
-                                                activeColor: Colors.green,
+                                                activeThumbColor: Colors.green,
                                               ),
                                             ],
                                           ),
@@ -1359,11 +1387,15 @@ class _FootprintGauge extends StatelessWidget {
     required this.kgCo2e,
     required this.size,
     this.languageProvider,
+    this.useEspData = false,
+    this.onToggleChanged,
   });
 
   final double? kgCo2e;
   final double size;
   final LanguageProvider? languageProvider;
+  final bool useEspData;
+  final ValueChanged<bool>? onToggleChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1379,70 +1411,142 @@ class _FootprintGauge extends StatelessWidget {
       height: size,
       child: Stack(
         alignment: Alignment.center,
+        clipBehavior: Clip.none,
         children: [
-          // Gradient progress ring
-          SizedBox(
-            width: size,
-            height: size,
-            child: CustomPaint(
-              painter: _GradientRingPainter(
-                progress: progress,
-                strokeWidth: 10,
-                trackColor: Colors.grey.shade300,
-                gradientColors: const [
-                  Color(0xFF304411), // koyu yeşil
-                  Color(0xFF48631F), // açık yeşil
-                ],
+          // Gradient progress ring - tıklamaları engellemesin
+          IgnorePointer(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: CustomPaint(
+                painter: _GradientRingPainter(
+                  progress: progress,
+                  strokeWidth: 10,
+                  trackColor: Colors.grey.shade300,
+                  gradientColors: const [
+                    Color(0xFF304411), // koyu yeşil
+                    Color(0xFF48631F), // açık yeşil
+                  ],
+                ),
               ),
             ),
           ),
           // Inner content
-          Container(
-            width: size - 40,
-            height: size - 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  tonnes.toStringAsFixed(1),
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.black
-                            : Theme.of(context).colorScheme.onSurface,
+          GestureDetector(
+            onTap: onToggleChanged != null
+                ? () {
+                    onToggleChanged!(!useEspData);
+                  }
+                : null,
+            child: Container(
+              width: size - 40,
+              height: size - 40,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tonnes.toStringAsFixed(1),
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color:
+                                Theme.of(context).brightness == Brightness.dark
+                                    ? Colors.black
+                                    : Theme.of(context).colorScheme.onSurface,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      translate('tonnes_co2e', locale),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color:
+                                Theme.of(context).brightness == Brightness.dark
+                                    ? Colors.black
+                                    : Theme.of(context).colorScheme.onSurface,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Flexible(
+                      child: Text(
+                        translate('greenhouse_gas_emissions', locale),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Colors.black
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
                       ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  translate('tonnes_co2e', locale),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.black
-                            : Theme.of(context).colorScheme.onSurface,
+                    ),
+                    if (onToggleChanged != null) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            translate('manual', locale),
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Colors.black87
+                                      : Theme.of(context).colorScheme.onSurface,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: useEspData,
+                            onChanged: onToggleChanged,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'ESP',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Colors.black87
+                                      : Theme.of(context).colorScheme.onSurface,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
                       ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  translate('greenhouse_gas_emissions', locale),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.black
-                            : Theme.of(context).colorScheme.onSurface,
-                      ),
-                ),
-              ],
+              ),
             ),
           ),
         ],

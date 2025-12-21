@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' show ImageFilter;
+import 'dart:math' as math;
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../services/firebase_auth_service.dart';
@@ -21,17 +22,36 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  late AnimationController _animationController;
+  late Animation<double> _fillAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
+    _fillAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -42,6 +62,10 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = true;
     });
 
+    // Form validasyonu geçti - animasyonu başlat (giriş başarılı olacaksa)
+    _animationController.reset();
+    _animationController.forward();
+
     try {
       // Firebase Authentication ile giriş yap
       await FirebaseAuthService.instance.signInWithEmail(
@@ -49,7 +73,15 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
 
-      // Başarılı giriş
+      // Animasyonun tamamlanmasını bekle (sayfa açılana kadar)
+      if (!_animationController.isCompleted) {
+        await _animationController.forward();
+      } else {
+        // Animasyon zaten tamamlandıysa kısa bir bekleme
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+
+      // Başarılı giriş - sayfayı aç
       widget.onLoginSuccess();
     } on FirebaseAuthException catch (e) {
       // Firebase hata mesajlarını Türkçe'ye çevir
@@ -80,6 +112,8 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() {
           _isLoading = false;
         });
+        // Hata durumunda animasyonu sıfırla
+        _animationController.reset();
       }
     }
   }
@@ -387,47 +421,180 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                     const SizedBox(height: 24),
 
-                                    // Login button
+                                    // Login button with water fill animation
                                     SizedBox(
                                       width: double.infinity,
                                       height: 50,
-                                      child: ElevatedButton(
-                                        onPressed:
-                                            _isLoading ? null : _handleLogin,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Theme.of(
-                                            context,
-                                          ).colorScheme.primary,
-                                          foregroundColor: Colors.white,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              12,
+                                      child: AnimatedBuilder(
+                                        animation: _fillAnimation,
+                                        builder: (context, child) {
+                                          return ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            child: Stack(
+                                              clipBehavior: Clip.none,
+                                              children: [
+                                                // Base button (white background) - sabit boyut, her zaman beyaz
+                                                SizedBox(
+                                                  width: double.infinity,
+                                                  height: 50,
+                                                  child: ElevatedButton(
+                                                    onPressed: _isLoading
+                                                        ? null
+                                                        : _handleLogin,
+                                                    style: ElevatedButton
+                                                        .styleFrom(
+                                                      backgroundColor: Colors
+                                                          .white, // Her zaman beyaz
+                                                      foregroundColor: Theme.of(
+                                                              context)
+                                                          .colorScheme
+                                                          .primary, // Metin mavi
+                                                      padding: EdgeInsets.zero,
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(
+                                                          12,
+                                                        ),
+                                                      ),
+                                                      elevation: 8,
+                                                      shadowColor: Colors.black
+                                                          .withValues(
+                                                              alpha: 0.3),
+                                                    ),
+                                                    child: _isLoading &&
+                                                            _fillAnimation
+                                                                    .value <
+                                                                0.2
+                                                        ? const SizedBox(
+                                                            width: 20,
+                                                            height: 20,
+                                                            child:
+                                                                CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                              valueColor:
+                                                                  AlwaysStoppedAnimation<
+                                                                          Color>(
+                                                                      Colors
+                                                                          .blue),
+                                                            ),
+                                                          )
+                                                        : Text(
+                                                            translate('login',
+                                                                locale),
+                                                            style: TextStyle(
+                                                              fontSize: 16,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              // Metin rengi: su doldukça beyaz, değilse mavi
+                                                              color: _fillAnimation
+                                                                          .value >
+                                                                      0.4
+                                                                  ? Colors.white
+                                                                  : Theme.of(
+                                                                          context)
+                                                                      .colorScheme
+                                                                      .primary,
+                                                            ),
+                                                          ),
+                                                  ),
+                                                ),
+                                                // Water fill effect - animasyon başladığında
+                                                if (_fillAnimation.value > 0)
+                                                  Positioned(
+                                                    bottom: 0,
+                                                    left: 0,
+                                                    right: 0,
+                                                    child: ClipRRect(
+                                                      borderRadius:
+                                                          const BorderRadius
+                                                              .only(
+                                                        bottomLeft:
+                                                            Radius.circular(12),
+                                                        bottomRight:
+                                                            Radius.circular(12),
+                                                      ),
+                                                      child: Container(
+                                                        height: 50 *
+                                                            _fillAnimation
+                                                                .value,
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          gradient:
+                                                              LinearGradient(
+                                                            begin: Alignment
+                                                                .topCenter,
+                                                            end: Alignment
+                                                                .bottomCenter,
+                                                            // Mavi su efekti
+                                                            colors: [
+                                                              Colors.blue
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.9),
+                                                              Colors.blue
+                                                                  .shade700,
+                                                            ],
+                                                            stops: const [
+                                                              0.0,
+                                                              1.0
+                                                            ],
+                                                          ),
+                                                        ),
+                                                        child: Stack(
+                                                          children: [
+                                                            // Water wave effect
+                                                            Positioned.fill(
+                                                              child:
+                                                                  CustomPaint(
+                                                                painter:
+                                                                    _WaterWavePainter(
+                                                                  _fillAnimation
+                                                                      .value,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            // Text overlay (visible when filled)
+                                                            if (_fillAnimation
+                                                                    .value >
+                                                                0.3)
+                                                              Center(
+                                                                child: Opacity(
+                                                                  opacity: ((_fillAnimation.value -
+                                                                              0.3) /
+                                                                          0.7)
+                                                                      .clamp(
+                                                                          0.0,
+                                                                          1.0),
+                                                                  child: Text(
+                                                                    translate(
+                                                                        'login',
+                                                                        locale),
+                                                                    style:
+                                                                        const TextStyle(
+                                                                      fontSize:
+                                                                          16,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w600,
+                                                                      color: Colors
+                                                                          .white,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
-                                          ),
-                                          elevation: 8,
-                                          shadowColor: Colors.black.withValues(
-                                            alpha: 0.3,
-                                          ),
-                                        ),
-                                        child: _isLoading
-                                            ? const SizedBox(
-                                                width: 20,
-                                                height: 20,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  valueColor:
-                                                      AlwaysStoppedAnimation<
-                                                          Color>(Colors.white),
-                                                ),
-                                              )
-                                            : Text(
-                                                translate('login', locale),
-                                                style: const TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
+                                          );
+                                        },
                                       ),
                                     ),
                                     const SizedBox(height: 16),
@@ -609,5 +776,43 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
       ),
     );
+  }
+}
+
+/// Water wave painter for the fill animation effect
+class _WaterWavePainter extends CustomPainter {
+  final double progress;
+
+  _WaterWavePainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    const double waveHeight = 8.0;
+    final waveLength = size.width / 2;
+
+    // Create wave effect at the top of the filled area
+    final y = size.height * (1 - progress);
+
+    path.moveTo(0, y);
+    for (double x = 0; x <= size.width; x += 1) {
+      final wave = waveHeight *
+          math.sin((x / waveLength * 2 * math.pi) + (progress * 2 * math.pi));
+      path.lineTo(x, y + wave);
+    }
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_WaterWavePainter oldDelegate) {
+    return oldDelegate.progress != progress;
   }
 }

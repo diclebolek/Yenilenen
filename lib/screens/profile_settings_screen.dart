@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/postgres_service.dart';
+import '../services/firebase_auth_service.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../widgets/app_nav.dart';
@@ -59,23 +60,46 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   Future<void> _loadUserData() async {
     try {
-      // Demo için sabit veriler - gerçek uygulamada API'den gelecek
+      // Firebase'den mevcut kullanıcıyı al
+      final firebaseUser = FirebaseAuthService.instance.currentUser;
+
+      if (firebaseUser == null) {
+        // Kullanıcı giriş yapmamış
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Lütfen önce giriş yapın'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Firebase'den email'i al
+      final email = firebaseUser.email ?? '';
+
+      // PostgreSQL'den kullanıcı bilgilerini çekmeyi dene
+      // Not: Email ile kullanıcı arama için API endpoint'i gerekli
+      // Şimdilik Firebase'den email'i kullanıyoruz
+
+      // PostgreSQL'den kullanıcı bilgilerini çek (eğer kullanıcı ID'si varsa)
+      // Firebase UID'yi kullanarak PostgreSQL'de kullanıcı bulunabilir
+      // Şimdilik Firebase'den gelen email'i kullanıyoruz
+
       setState(() {
         _currentUser = {
-          'kullanici_id': 1,
-          'eposta': 'admin@teknoloji.com',
+          'kullanici_id': 1, // PostgreSQL'den gelecek
+          'eposta': email, // Firebase'den gerçek email
           'rol': 'sahip',
-          'isletme_id': 1,
-        };
-        _currentBusiness = {
-          'isletme_id': 1,
-          'ad': 'Demo İşletme',
-          'sektor_id': 1,
+          'isletme_id': 1, // PostgreSQL'den gelecek
         };
 
-        _businessNameController.text = _currentBusiness!['ad'];
-        _emailController.text = _currentUser!['eposta'];
-        _selectedSektorId = _currentBusiness!['sektor_id'];
+        // İşletme bilgilerini PostgreSQL'den çekmeyi dene
+        _loadBusinessInfo(1); // İşletme ID'si PostgreSQL'den gelecek
+
+        _emailController.text = email;
       });
     } catch (e) {
       if (mounted) {
@@ -87,6 +111,41 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _loadBusinessInfo(int isletmeId) async {
+    try {
+      // PostgreSQL'den işletme bilgilerini çek
+      final businessInfo =
+          await PostgresService.instance.getBusinessInfo(isletmeId);
+
+      if (businessInfo != null) {
+        setState(() {
+          _currentBusiness = businessInfo;
+          _businessNameController.text = businessInfo['ad'] ?? '';
+          _selectedSektorId = businessInfo['sektor_id'];
+        });
+      } else {
+        // PostgreSQL'den veri alınamazsa, Firebase'den email'e göre varsayılan değerler
+        setState(() {
+          _currentBusiness = {
+            'isletme_id': isletmeId,
+            'ad': '', // Kullanıcıdan alınacak
+            'sektor_id': null,
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint('İşletme bilgileri yüklenirken hata: $e');
+      // Hata durumunda boş değerler
+      setState(() {
+        _currentBusiness = {
+          'isletme_id': isletmeId,
+          'ad': '',
+          'sektor_id': null,
+        };
+      });
     }
   }
 
@@ -155,19 +214,35 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   Future<void> _updateUserInfo() async {
     if (_emailController.text.trim() != _currentUser!['eposta']) {
-      // E-posta değişikliği
+      // E-posta değişikliği - Firebase'de güncelle
       try {
-        await PostgresService.instance.updateUserEmail(
-          kullaniciId: _currentUser!['kullanici_id'],
-          newEmail: _emailController.text.trim(),
+        await FirebaseAuthService.instance.updateEmail(
+          _emailController.text.trim(),
         );
+
+        // PostgreSQL'de de güncelle (eğer bağlantı varsa)
+        try {
+          await PostgresService.instance.updateUserEmail(
+            kullaniciId: _currentUser!['kullanici_id'],
+            newEmail: _emailController.text.trim(),
+          );
+        } catch (e) {
+          debugPrint('PostgreSQL e-posta güncelleme hatası: $e');
+          // PostgreSQL hatası olsa bile Firebase güncellendi
+        }
+
+        // Yerel state'i güncelle
+        setState(() {
+          _currentUser!['eposta'] = _emailController.text.trim();
+        });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('E-posta başarıyla güncellendi'),
+              content: Text(
+                  'E-posta başarıyla güncellendi. Lütfen yeni e-posta adresinizi doğrulayın.'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
+              duration: Duration(seconds: 4),
             ),
           );
         }
@@ -201,11 +276,23 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       }
 
       try {
-        await PostgresService.instance.updateUserPassword(
-          kullaniciId: _currentUser!['kullanici_id'],
+        // Firebase'de şifreyi güncelle
+        await FirebaseAuthService.instance.updatePassword(
           currentPassword: _passwordController.text,
           newPassword: _newPasswordController.text,
         );
+
+        // PostgreSQL'de de güncelle (eğer bağlantı varsa)
+        try {
+          await PostgresService.instance.updateUserPassword(
+            kullaniciId: _currentUser!['kullanici_id'],
+            currentPassword: _passwordController.text,
+            newPassword: _newPasswordController.text,
+          );
+        } catch (e) {
+          debugPrint('PostgreSQL şifre güncelleme hatası: $e');
+          // PostgreSQL hatası olsa bile Firebase güncellendi
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -467,292 +554,305 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       ),
       body: SafeArea(
         bottom: false,
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            16,
-            16,
-            16 +
-                (isCompactLayout
-                    ? 80 + MediaQuery.of(context).padding.bottom
-                    : 0), // Bottom navbar için padding
-          ),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // İşletme Bilgileri Kartı
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              16 +
+                  (isCompactLayout
+                      ? 80 + MediaQuery.of(context).padding.bottom
+                      : 0), // Bottom navbar için padding
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 900, // Web için maksimum genişlik
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // İşletme Bilgileri Kartı
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.business, color: Colors.blue),
-                            const SizedBox(width: 8),
-                            Text(
-                              translate('business_info', locale),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            Row(
+                              children: [
+                                const Icon(Icons.business, color: Colors.blue),
+                                const SizedBox(width: 8),
+                                Text(
+                                  translate('business_info', locale),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // İşletme Adı
+                            TextFormField(
+                              controller: _businessNameController,
+                              decoration: InputDecoration(
+                                labelText: translate('business_name', locale),
+                                prefixIcon: const Icon(Icons.business_outlined),
+                                border: const OutlineInputBorder(),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return translate(
+                                      'business_name_required', locale);
+                                }
+                                if (value.length < 2) {
+                                  return translate(
+                                    'business_name_min_length',
+                                    locale,
+                                  );
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Sektör Seçimi
+                            DropdownButtonFormField<int>(
+                              key: ValueKey<int?>(_selectedSektorId),
+                              initialValue: _selectedSektorId,
+                              decoration: InputDecoration(
+                                labelText: translate('sector', locale),
+                                prefixIcon: const Icon(Icons.category_outlined),
+                                border: const OutlineInputBorder(),
+                              ),
+                              items: _sektors.map((sektor) {
+                                return DropdownMenuItem<int>(
+                                  value: sektor['sektor_id'],
+                                  child: Text(sektor['ad']),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedSektorId = value;
+                                });
+                              },
+                              validator: (value) {
+                                if (value == null) {
+                                  return translate('select_sector', locale);
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Güncelle Butonu
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed:
+                                    _isLoading ? null : _updateBusinessInfo,
+                                icon: _isLoading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.save),
+                                label: Text(
+                                  _isLoading
+                                      ? translate('updating', locale)
+                                      : translate(
+                                          'update_business_info', locale),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
-
-                        // İşletme Adı
-                        TextFormField(
-                          controller: _businessNameController,
-                          decoration: InputDecoration(
-                            labelText: translate('business_name', locale),
-                            prefixIcon: const Icon(Icons.business_outlined),
-                            border: const OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return translate(
-                                  'business_name_required', locale);
-                            }
-                            if (value.length < 2) {
-                              return translate(
-                                'business_name_min_length',
-                                locale,
-                              );
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Sektör Seçimi
-                        DropdownButtonFormField<int>(
-                          key: ValueKey<int?>(_selectedSektorId),
-                          initialValue: _selectedSektorId,
-                          decoration: InputDecoration(
-                            labelText: translate('sector', locale),
-                            prefixIcon: const Icon(Icons.category_outlined),
-                            border: const OutlineInputBorder(),
-                          ),
-                          items: _sektors.map((sektor) {
-                            return DropdownMenuItem<int>(
-                              value: sektor['sektor_id'],
-                              child: Text(sektor['ad']),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedSektorId = value;
-                            });
-                          },
-                          validator: (value) {
-                            if (value == null) {
-                              return translate('select_sector', locale);
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Güncelle Butonu
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: _isLoading ? null : _updateBusinessInfo,
-                            icon: _isLoading
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.save),
-                            label: Text(
-                              _isLoading
-                                  ? translate('updating', locale)
-                                  : translate('update_business_info', locale),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                // Kullanıcı Bilgileri Kartı
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                    // Kullanıcı Bilgileri Kartı
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.person, color: Colors.green),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Kullanıcı Bilgileri',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            Row(
+                              children: [
+                                const Icon(Icons.person, color: Colors.green),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Kullanıcı Bilgileri',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // E-posta
+                            TextFormField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              decoration: const InputDecoration(
+                                labelText: 'E-posta',
+                                prefixIcon: Icon(Icons.email_outlined),
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'E-posta gereklidir';
+                                }
+                                if (!RegExp(
+                                  r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                                ).hasMatch(value)) {
+                                  return 'Geçerli bir e-posta adresi girin';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Mevcut Şifre
+                            TextFormField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              decoration: InputDecoration(
+                                labelText:
+                                    'Mevcut Şifre (şifre değiştirmek için)',
+                                prefixIcon: const Icon(Icons.lock_outlined),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                  },
+                                ),
+                                border: const OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Yeni Şifre
+                            TextFormField(
+                              controller: _newPasswordController,
+                              obscureText: _obscureNewPassword,
+                              decoration: InputDecoration(
+                                labelText: 'Yeni Şifre',
+                                prefixIcon: const Icon(Icons.lock_outlined),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscureNewPassword
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscureNewPassword =
+                                          !_obscureNewPassword;
+                                    });
+                                  },
+                                ),
+                                border: const OutlineInputBorder(),
+                              ),
+                              validator: (value) {
+                                if (value != null &&
+                                    value.isNotEmpty &&
+                                    value.length < 6) {
+                                  return 'Şifre en az 6 karakter olmalıdır';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Şifre Tekrar
+                            TextFormField(
+                              controller: _confirmPasswordController,
+                              obscureText: _obscureConfirmPassword,
+                              decoration: InputDecoration(
+                                labelText: 'Yeni Şifre Tekrar',
+                                prefixIcon: const Icon(Icons.lock_outlined),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscureConfirmPassword
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscureConfirmPassword =
+                                          !_obscureConfirmPassword;
+                                    });
+                                  },
+                                ),
+                                border: const OutlineInputBorder(),
+                              ),
+                              validator: (value) {
+                                if (_newPasswordController.text.isNotEmpty &&
+                                    value != _newPasswordController.text) {
+                                  return 'Şifreler eşleşmiyor';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Güncelle Butonu
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading ? null : _updateUserInfo,
+                                icon: _isLoading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.save),
+                                label: Text(
+                                  _isLoading
+                                      ? 'Güncelleniyor...'
+                                      : 'Kullanıcı Bilgilerini Güncelle',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
-
-                        // E-posta
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(
-                            labelText: 'E-posta',
-                            prefixIcon: Icon(Icons.email_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'E-posta gereklidir';
-                            }
-                            if (!RegExp(
-                              r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                            ).hasMatch(value)) {
-                              return 'Geçerli bir e-posta adresi girin';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Mevcut Şifre
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          decoration: InputDecoration(
-                            labelText: 'Mevcut Şifre (şifre değiştirmek için)',
-                            prefixIcon: const Icon(Icons.lock_outlined),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                            ),
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Yeni Şifre
-                        TextFormField(
-                          controller: _newPasswordController,
-                          obscureText: _obscureNewPassword,
-                          decoration: InputDecoration(
-                            labelText: 'Yeni Şifre',
-                            prefixIcon: const Icon(Icons.lock_outlined),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscureNewPassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscureNewPassword = !_obscureNewPassword;
-                                });
-                              },
-                            ),
-                            border: const OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value != null &&
-                                value.isNotEmpty &&
-                                value.length < 6) {
-                              return 'Şifre en az 6 karakter olmalıdır';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Şifre Tekrar
-                        TextFormField(
-                          controller: _confirmPasswordController,
-                          obscureText: _obscureConfirmPassword,
-                          decoration: InputDecoration(
-                            labelText: 'Yeni Şifre Tekrar',
-                            prefixIcon: const Icon(Icons.lock_outlined),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscureConfirmPassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscureConfirmPassword =
-                                      !_obscureConfirmPassword;
-                                });
-                              },
-                            ),
-                            border: const OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (_newPasswordController.text.isNotEmpty &&
-                                value != _newPasswordController.text) {
-                              return 'Şifreler eşleşmiyor';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Güncelle Butonu
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: _isLoading ? null : _updateUserInfo,
-                            icon: _isLoading
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.save),
-                            label: Text(
-                              _isLoading
-                                  ? 'Güncelleniyor...'
-                                  : 'Kullanıcı Bilgilerini Güncelle',
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

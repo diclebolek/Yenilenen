@@ -38,6 +38,12 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   ConsumptionEntry? _lastEntry;
   late TabController _tabController;
 
+  // Her kategori için ayrı CO2 değerleri
+  double? _electricityCo2;
+  double? _fuelCo2;
+  double? _waterCo2;
+  double? _wasteCo2;
+
   // Cihaz seçimi için durum
   final List<_DevicePreset> _devicePresets = const [
     _DevicePreset(
@@ -312,7 +318,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                         children: [
                           Text(
                             'Cihaz Seç',
-                            style: Theme.of(context).textTheme.titleMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
                                 ?.copyWith(
                                   color: Theme.of(context).colorScheme.primary,
                                   fontWeight: FontWeight.w700,
@@ -354,9 +362,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                   } else {
                                     existing.quantity =
                                         (existing.quantity + qty).clamp(
-                                          1,
-                                          9999,
-                                        );
+                                      1,
+                                      9999,
+                                    );
                                   }
                                   setState(() {});
                                   setStateLocal(() {});
@@ -365,6 +373,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                   await _editDevice(p);
                                   setState(() {});
                                   setStateLocal(() {});
+                                  // Cihaz düzenlendiğinde elektrik hesaplamasını güncelle
+                                  _calculateCategory('electricity');
                                 },
                               ),
                             )
@@ -377,7 +387,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           children: [
                             Text(
                               'Seçilen Cihazlar',
-                              style: Theme.of(context).textTheme.titleSmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
                                   ?.copyWith(
                                     color: Theme.of(
                                       context,
@@ -443,7 +455,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           Expanded(
                             child: Text(
                               'Toplam (kWh/gün): ${_calculateDevicesElectricity().toStringAsFixed(2)}',
-                              style: Theme.of(context).textTheme.bodyMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
                                   ?.copyWith(
                                     color: Theme.of(
                                       context,
@@ -491,8 +505,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
       context: context,
       barrierDismissible: true,
       builder: (context) {
+        final bool isDark = Theme.of(context).brightness == Brightness.dark;
         return Dialog(
-          backgroundColor: Colors.white,
+          backgroundColor: isDark ? Colors.grey[900] : Colors.white,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 24,
@@ -514,7 +529,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                         children: [
                           Text(
                             'Araç Seç',
-                            style: Theme.of(context).textTheme.titleMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
                                 ?.copyWith(
                                   color: Theme.of(context).colorScheme.primary,
                                   fontWeight: FontWeight.w700,
@@ -523,7 +540,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           const Spacer(),
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close, color: Colors.black),
+                            icon: Icon(Icons.close,
+                                color: isDark ? Colors.white : Colors.black),
                           ),
                         ],
                       ),
@@ -568,7 +586,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           children: [
                             Text(
                               'Seçilen Araçlar',
-                              style: Theme.of(context).textTheme.titleSmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
                                   ?.copyWith(
                                     color: Theme.of(
                                       context,
@@ -586,7 +606,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall
-                                          ?.copyWith(color: Colors.black),
+                                          ?.copyWith(
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : Colors.black),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -599,14 +622,18 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                       setState(() {});
                                       setStateLocal(() {});
                                     },
-                                    icon: const Icon(
+                                    icon: Icon(
                                       Icons.add_circle,
-                                      color: Colors.black,
+                                      color:
+                                          isDark ? Colors.white : Colors.black,
                                     ),
                                   ),
                                   Text(
                                     '${v.quantity}',
-                                    style: const TextStyle(color: Colors.black),
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black),
                                   ),
                                   IconButton(
                                     onPressed: () {
@@ -618,9 +645,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                       setState(() {});
                                       setStateLocal(() {});
                                     },
-                                    icon: const Icon(
+                                    icon: Icon(
                                       Icons.remove_circle,
-                                      color: Colors.black,
+                                      color:
+                                          isDark ? Colors.white : Colors.black,
                                     ),
                                   ),
                                 ],
@@ -634,9 +662,11 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           Expanded(
                             child: Text(
                               'Toplam (L/gün): ${_calculateVehiclesFuelLiters().toStringAsFixed(2)}',
-                              style: Theme.of(context).textTheme.bodyMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
                                   ?.copyWith(
-                                    color: Colors.black,
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.w600,
                                   ),
                             ),
@@ -692,9 +722,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           title: Text(
             'Düzenle: ${preset.name}',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: isDark ? Colors.white : Colors.black,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -704,6 +734,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Litre / 100km',
                   labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
@@ -715,6 +746,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Km / Gün',
                   labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
@@ -778,9 +810,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           title: Text(
             'Düzenle: ${preset.name}',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: isDark ? Colors.white : Colors.black,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -790,6 +822,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Watt (W)',
                   labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
@@ -801,6 +834,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Saat / Gün',
                   labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
@@ -868,9 +902,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           title: Text(
             'Düzenle: ${preset.name}',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: isDark ? Colors.white : Colors.black,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -880,6 +914,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Watt (W)',
                   labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
@@ -891,6 +926,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Saat / Gün',
                   labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
@@ -911,19 +947,23 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 final pw = double.tryParse(powerCtrl.text);
                 final hr = double.tryParse(hoursCtrl.text);
                 if (pw != null && hr != null && pw >= 0 && hr >= 0) {
-                  if (_selectedDevices.contains(existing)) {
-                    existing
-                      ..powerW = pw
-                      ..hoursPerDay = hr;
-                  } else {
-                    _selectedDevices.add(
-                      _SelectedDevice(
-                        name: preset.name,
-                        powerW: pw,
-                        hoursPerDay: hr,
-                      ),
-                    );
-                  }
+                  setState(() {
+                    if (_selectedDevices.contains(existing)) {
+                      existing
+                        ..powerW = pw
+                        ..hoursPerDay = hr;
+                    } else {
+                      _selectedDevices.add(
+                        _SelectedDevice(
+                          name: preset.name,
+                          powerW: pw,
+                          hoursPerDay: hr,
+                        ),
+                      );
+                    }
+                  });
+                  // Cihaz düzenlendiğinde elektrik hesaplamasını güncelle
+                  _calculateCategory('electricity');
                 }
                 Navigator.of(context).pop();
               },
@@ -935,33 +975,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     );
   }
 
-  void _submit() {
-    // Alanlar boş bırakılabilir; boşlar 0 kabul edilerek kısmi/ilgili kategori hesaplanır
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    // Elektrik tüketimi: Manuel alan + cihazlar toplamı (ampuller cihaz olarak eklenir)
-    double electricityKwh = _parseOrZero(_electricityCtrl.text);
-
-    // Seçilen cihazlar tüketimini ekle
-    electricityKwh += _calculateDevicesElectricity();
-
-    final entry = ConsumptionEntry(
-      electricityKwh: electricityKwh,
-      fuelLiters: _parseOrZero(_fuelCtrl.text) + _calculateVehiclesFuelLiters(),
-      waterCubicMeters: _parseOrZero(_waterCtrl.text),
-      wasteKg: _parseOrZero(_wasteCtrl.text),
-      createdAt: DateTime.now(),
-    );
-    setState(() => _lastEntry = entry);
-    final result = Calculation.calculateDailyEmission(entry);
-    // Update shared readings for goals auto-check
-    final db = DatabaseService.instance;
-    db.updateReading('Elektrik (kWh)', entry.electricityKwh);
-    db.updateReading('Yakıt (litre)', entry.fuelLiters);
-    db.updateReading('Su (m³)', entry.waterCubicMeters);
-    db.updateReading('Atık (kg)', entry.wasteKg);
-    widget.onCalculated(result);
-  }
+  // Eski _submit fonksiyonu _calculateTotal olarak değiştirildi
 
   @override
   Widget build(BuildContext context) {
@@ -1064,32 +1078,17 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               ),
 
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  FilledButton.icon(
-                    onPressed: _submit,
-                    icon: const Icon(Icons.calculate),
-                    label: Text(
-                      translate(
-                        'calculate',
-                        widget.languageProvider?.currentLocale ??
-                            const Locale('tr'),
-                      ),
-                    ),
+              // Sadece reset butonu (toplam hesaplama son sekmede)
+              OutlinedButton.icon(
+                onPressed: _resetForm,
+                icon: const Icon(Icons.refresh),
+                label: Text(
+                  translate(
+                    'reset',
+                    widget.languageProvider?.currentLocale ??
+                        const Locale('tr'),
                   ),
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: _resetForm,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(
-                      translate(
-                        'reset',
-                        widget.languageProvider?.currentLocale ??
-                            const Locale('tr'),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
               if (_lastEntry != null) ...[
                 const SizedBox(height: 16),
@@ -1133,6 +1132,42 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             prefixIcon: const Icon(Icons.electrical_services),
           ),
           validator: _validateOptionalNumeric,
+          onChanged: (value) {
+            // Değer değiştiğinde hesaplamayı sıfırla
+            setState(() => _electricityCo2 = null);
+          },
+        ),
+        const SizedBox(height: 12),
+
+        // Elektrik için hesaplama butonu ve sonuç
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _calculateCategory('electricity'),
+                icon: const Icon(Icons.calculate),
+                label: const Text('Elektrik CO₂ Hesapla'),
+              ),
+            ),
+            if (_electricityCo2 != null) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_electricityCo2!.toStringAsFixed(2)} kg CO₂e',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 12),
 
@@ -1163,9 +1198,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                   Text(
                     'Cihazlar',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                 ],
               ),
@@ -1176,9 +1211,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                   return Wrap(
                     spacing: 10,
                     runSpacing: 10,
-                    alignment: isWide
-                        ? WrapAlignment.start
-                        : WrapAlignment.center,
+                    alignment:
+                        isWide ? WrapAlignment.start : WrapAlignment.center,
                     children: _devicePresets
                         .map(
                           (p) => _DeviceTile(
@@ -1194,6 +1228,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                   ),
                                 );
                               });
+                              // Cihaz eklendiğinde elektrik hesaplamasını güncelle
+                              _calculateCategory('electricity');
                             },
                             onEdit: () async {
                               final customized = await _customizeNewDevice(p);
@@ -1201,6 +1237,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                 setState(
                                   () => _selectedDevices.add(customized),
                                 );
+                                // Cihaz eklendiğinde elektrik hesaplamasını güncelle
+                                _calculateCategory('electricity');
                               }
                             },
                           ),
@@ -1226,6 +1264,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                         deleteIcon: const Icon(Icons.close, size: 16),
                         onDeleted: () {
                           setState(() => _selectedDevices.remove(d));
+                          // Cihaz silindiğinde elektrik hesaplamasını güncelle
+                          _calculateCategory('electricity');
                         },
                       ),
                     ),
@@ -1259,6 +1299,41 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             prefixIcon: const Icon(Icons.local_gas_station),
           ),
           validator: _validateOptionalNumeric,
+          onChanged: (value) {
+            setState(() => _fuelCo2 = null);
+          },
+        ),
+        const SizedBox(height: 12),
+
+        // Yakıt için hesaplama butonu ve sonuç
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _calculateCategory('fuel'),
+                icon: const Icon(Icons.calculate),
+                label: const Text('Yakıt CO₂ Hesapla'),
+              ),
+            ),
+            if (_fuelCo2 != null) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_fuelCo2!.toStringAsFixed(2)} kg CO₂e',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 12),
         // Araç ekleme butonu ve seçilen araçlar
@@ -1309,8 +1384,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               Text(
                 translate('tip', locale),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1344,6 +1419,41 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             prefixIcon: const Icon(Icons.water_drop),
           ),
           validator: _validateOptionalNumeric,
+          onChanged: (value) {
+            setState(() => _waterCo2 = null);
+          },
+        ),
+        const SizedBox(height: 12),
+
+        // Su için hesaplama butonu ve sonuç
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _calculateCategory('water'),
+                icon: const Icon(Icons.calculate),
+                label: const Text('Su CO₂ Hesapla'),
+              ),
+            ),
+            if (_waterCo2 != null) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_waterCo2!.toStringAsFixed(2)} kg CO₂e',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 12),
         Container(
@@ -1358,8 +1468,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               Text(
                 translate('tip', locale),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1393,6 +1503,41 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             prefixIcon: const Icon(Icons.delete_outline),
           ),
           validator: _validateOptionalNumeric,
+          onChanged: (value) {
+            setState(() => _wasteCo2 = null);
+          },
+        ),
+        const SizedBox(height: 12),
+
+        // Atık için hesaplama butonu ve sonuç
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _calculateCategory('waste'),
+                icon: const Icon(Icons.calculate),
+                label: const Text('Atık CO₂ Hesapla'),
+              ),
+            ),
+            if (_wasteCo2 != null) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_wasteCo2!.toStringAsFixed(2)} kg CO₂e',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 12),
         Container(
@@ -1407,8 +1552,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               Text(
                 translate('tip', locale),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1418,8 +1563,228 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             ],
           ),
         ),
+        const SizedBox(height: 16),
+
+        // Toplam hesaplama butonu (son sekmede)
+        FilledButton.icon(
+          onPressed: _calculateTotal,
+          icon: const Icon(Icons.calculate),
+          label: const Text('TOPLAM CO₂ HESAPLA'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Kategori bazlı özet gösterimi
+        if (_electricityCo2 != null ||
+            _fuelCo2 != null ||
+            _waterCo2 != null ||
+            _wasteCo2 != null)
+          Builder(
+            builder: (context) {
+              final totalCo2 = ((_electricityCo2 ?? 0) +
+                  (_fuelCo2 ?? 0) +
+                  (_waterCo2 ?? 0) +
+                  (_wasteCo2 ?? 0));
+              // Çok yüksek değer kontrolü: 100,000 kg CO₂e'den fazla ise uyarı göster
+              final bool isVeryHigh = totalCo2 > 100000;
+              final bool hasExtremeValue = (_fuelCo2 ?? 0) > 1000000 ||
+                  (_waterCo2 ?? 0) > 1000000 ||
+                  (_wasteCo2 ?? 0) > 1000000 ||
+                  (_electricityCo2 ?? 0) > 1000000;
+
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surface
+                      .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: (isVeryHigh || hasExtremeValue)
+                        ? Colors.red.withValues(alpha: 0.5)
+                        : Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.3),
+                    width: (isVeryHigh || hasExtremeValue) ? 2 : 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Kategori Bazlı CO₂ Özeti:',
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                        ),
+                        if (isVeryHigh || hasExtremeValue) ...[
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.red,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Değerler çok yüksek! Lütfen kontrol edin.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (_electricityCo2 != null)
+                      _CategorySummaryRow(
+                          label: 'Elektrik',
+                          co2: _electricityCo2!,
+                          color: Colors.orange,
+                          isHigh: _electricityCo2! > 1000000),
+                    if (_fuelCo2 != null)
+                      _CategorySummaryRow(
+                          label: 'Yakıt',
+                          co2: _fuelCo2!,
+                          color: Colors.red,
+                          isHigh: _fuelCo2! > 1000000),
+                    if (_waterCo2 != null)
+                      _CategorySummaryRow(
+                          label: 'Su',
+                          co2: _waterCo2!,
+                          color: Colors.blue,
+                          isHigh: _waterCo2! > 1000000),
+                    if (_wasteCo2 != null)
+                      _CategorySummaryRow(
+                          label: 'Atık',
+                          co2: _wasteCo2!,
+                          color: Colors.grey,
+                          isHigh: _wasteCo2! > 1000000),
+                    const SizedBox(height: 8),
+                    Divider(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.3)),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'TOPLAM:',
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                        ),
+                        Row(
+                          children: [
+                            if (isVeryHigh || hasExtremeValue)
+                              const Padding(
+                                padding: EdgeInsets.only(right: 8),
+                                child: Icon(
+                                  Icons.error_outline,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
+                              ),
+                            Text(
+                              '${totalCo2.toStringAsFixed(2)} kg CO₂e',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: (isVeryHigh || hasExtremeValue)
+                                        ? Colors.red
+                                        : Theme.of(context).colorScheme.primary,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
       ],
     );
+  }
+
+  // Her kategori için ayrı hesaplama
+  void _calculateCategory(String category) {
+    double co2 = 0.0;
+    switch (category) {
+      case 'electricity':
+        final electricityKwh = _parseOrZero(_electricityCtrl.text) +
+            _calculateDevicesElectricity();
+        co2 = electricityKwh * Calculation.factorElectricityKgPerKwh;
+        setState(() => _electricityCo2 = co2);
+        break;
+      case 'fuel':
+        final fuelLiters =
+            _parseOrZero(_fuelCtrl.text) + _calculateVehiclesFuelLiters();
+        co2 = fuelLiters * Calculation.factorFuelKgPerLiter;
+        setState(() => _fuelCo2 = co2);
+        break;
+      case 'water':
+        final waterCubicMeters = _parseOrZero(_waterCtrl.text);
+        co2 = waterCubicMeters * Calculation.factorWaterKgPerM3;
+        setState(() => _waterCo2 = co2);
+        break;
+      case 'waste':
+        final wasteKg = _parseOrZero(_wasteCtrl.text);
+        co2 = wasteKg * Calculation.factorWasteKgPerKg;
+        setState(() => _wasteCo2 = co2);
+        break;
+    }
+  }
+
+  // Toplam hesaplama (son sekmede)
+  void _calculateTotal() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    // Önce tüm kategorileri hesapla
+    _calculateCategory('electricity');
+    _calculateCategory('fuel');
+    _calculateCategory('water');
+    _calculateCategory('waste');
+
+    // Elektrik tüketimi: Manuel alan + cihazlar toplamı
+    double electricityKwh = _parseOrZero(_electricityCtrl.text);
+    electricityKwh += _calculateDevicesElectricity();
+
+    final entry = ConsumptionEntry(
+      electricityKwh: electricityKwh,
+      fuelLiters: _parseOrZero(_fuelCtrl.text) + _calculateVehiclesFuelLiters(),
+      waterCubicMeters: _parseOrZero(_waterCtrl.text),
+      wasteKg: _parseOrZero(_wasteCtrl.text),
+      createdAt: DateTime.now(),
+    );
+    setState(() => _lastEntry = entry);
+    final result = Calculation.calculateDailyEmission(entry);
+    // Update shared readings for goals auto-check
+    final db = DatabaseService.instance;
+    db.updateReading('Elektrik (kWh)', entry.electricityKwh);
+    db.updateReading('Yakıt (litre)', entry.fuelLiters);
+    db.updateReading('Su (m³)', entry.waterCubicMeters);
+    db.updateReading('Atık (kg)', entry.wasteKg);
+    widget.onCalculated(result);
   }
 
   // Form sıfırlama fonksiyonu
@@ -1433,7 +1798,13 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     _bulbHoursCtrl.clear();
     _selectedDevices.clear();
     _selectedVehicles.clear();
-    setState(() => _lastEntry = null);
+    setState(() {
+      _lastEntry = null;
+      _electricityCo2 = null;
+      _fuelCo2 = null;
+      _waterCo2 = null;
+      _wasteCo2 = null;
+    });
   }
 }
 
@@ -1547,8 +1918,8 @@ class _DeviceTileState extends State<_DeviceTile> {
                   child: Text(
                     widget.preset.name,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                          fontWeight: FontWeight.w600,
+                        ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1568,9 +1939,9 @@ class _DeviceTileState extends State<_DeviceTile> {
             Text(
               '${widget.preset.powerW.toStringAsFixed(0)} W • ${widget.preset.hoursPerDay.toStringAsFixed(1)} s/g',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.lightGreenAccent,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: Colors.lightGreenAccent,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
             const SizedBox(height: 10),
             Column(
@@ -1650,6 +2021,7 @@ class _VehicleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
       width: 170,
       child: InkWell(
@@ -1670,14 +2042,16 @@ class _VehicleTile extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(preset.icon, color: Colors.white),
+                  Icon(preset.icon,
+                      color: isDark ? Colors.black : Colors.white),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       preset.name,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.black : null,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1697,9 +2071,9 @@ class _VehicleTile extends StatelessWidget {
               Text(
                 '${preset.litersPer100km.toStringAsFixed(1)} l/100km • ${preset.kmPerDay.toStringAsFixed(1)} km/g',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.lightGreenAccent,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: Colors.lightGreenAccent,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
               const SizedBox(height: 10),
               Align(
@@ -1716,12 +2090,78 @@ class _VehicleTile extends StatelessWidget {
                       color: const Color(0xFF304411).withValues(alpha: 0.28),
                     ),
                   ),
-                  child: const Text('+ Ekle'),
+                  child: Text(
+                    '+ Ekle',
+                    style: TextStyle(
+                      color: isDark ? Colors.black : null,
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// Kategori özet satırı widget'ı
+class _CategorySummaryRow extends StatelessWidget {
+  const _CategorySummaryRow({
+    required this.label,
+    required this.co2,
+    required this.color,
+    this.isHigh = false,
+  });
+
+  final String label;
+  final double co2;
+  final Color color;
+  final bool isHigh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(label),
+            ],
+          ),
+          Row(
+            children: [
+              if (isHigh)
+                const Padding(
+                  padding: EdgeInsets.only(right: 4),
+                  child: Icon(
+                    Icons.warning,
+                    color: Colors.red,
+                    size: 16,
+                  ),
+                ),
+              Text(
+                '${co2.toStringAsFixed(2)} kg CO₂e',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: isHigh ? Colors.red : color,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -141,6 +141,18 @@ class RealtimeEspDataWidget extends StatelessWidget {
                         fontSize: 12,
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      onPressed: () async {
+                        // Manuel olarak ESP8266'dan veri çek
+                        await apiService.getLiveConsumptionData(
+                          saveToFirebase: true,
+                        );
+                      },
+                      icon: const Icon(Icons.refresh),
+                      color: Colors.white,
+                      tooltip: 'Yenile',
+                    ),
                   ],
                 ),
                 Divider(color: Colors.white.withValues(alpha: 0.3)),
