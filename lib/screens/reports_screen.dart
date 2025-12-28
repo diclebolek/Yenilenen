@@ -48,16 +48,142 @@ class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
   bool _showGlobalTrend = false; // Kişisel mi dünya geneli mi?
   List<double> _globalDailyTrends = [0, 0, 0, 0, 0, 0, 0];
+  // Ülke verileri - karşılaştırma için
+  Map<String, List<double>> _countryTrends = {};
+  // Her ülke için veri kaynağını takip et (true = gerçek veri, false = placeholder)
+  Map<String, bool> _countryDataSources = {};
+  bool _showCountryComparison = true; // Ülke karşılaştırması gösterilsin mi?
 
   @override
   void initState() {
     super.initState();
     _loadTrendData();
     _loadGlobalTrendData();
+    // Ülke verilerini yükle - öncelikli olarak
+    _loadCountryTrends().then((_) {
+      debugPrint(
+          'Ülke verileri yükleme tamamlandı: ${_countryTrends.length} ülke');
+    });
     // ESP verilerini real-time dinle ve otomatik güncelle
     _listenToEspData();
     // Shelly'yi başlat
     _initializeShelly();
+  }
+
+  /// Ülke verilerini yükle (karşılaştırma için)
+  Future<void> _loadCountryTrends() async {
+    try {
+      // Popüler ülkelerin verilerini yükle
+      final countries = {
+        'Türkiye': 'TUR',
+        'ABD': 'USA',
+        'Çin': 'CHN',
+        'Almanya': 'DEU',
+        'Fransa': 'FRA',
+        'İngiltere': 'GBR',
+      };
+
+      // Önce tüm ülkeler için placeholder veriler yükle (hızlı görünürlük için)
+      final Map<String, List<double>> trends = {};
+      final Map<String, bool> dataSources = {};
+      for (var entry in countries.entries) {
+        trends[entry.key] = _getPlaceholderCountryData(entry.key);
+        dataSources[entry.key] = false; // Başlangıçta placeholder
+      }
+
+      // State'i güncelle - placeholder verilerle başla
+      if (mounted) {
+        setState(() {
+          _countryTrends = trends;
+          _countryDataSources = dataSources;
+        });
+        debugPrint('Placeholder veriler yüklendi: ${trends.length} ülke');
+      }
+      // Şimdi API'den gerçek verileri yüklemeyi dene
+      for (var entry in countries.entries) {
+        try {
+          debugPrint('🔄 ${entry.key} (${entry.value}) verisi yükleniyor...');
+          final trend = await _globalCarbonService
+              .getCountryDailyTrend(entry.value)
+              .timeout(const Duration(seconds: 10));
+
+          // Veri başarıyla yüklendiyse ve geçerli değerlere sahipse kullan
+          // Tüm değerlerin 0'dan büyük olması ve ortalama değerin mantıklı olması gerekiyor
+          final avgValue = trend.isNotEmpty
+              ? (trend.reduce((a, b) => a + b) / trend.length)
+              : 0.0;
+          final hasValidData = trend.isNotEmpty &&
+              trend.any((e) => e > 0.1) &&
+              avgValue > 0.5 && // Ortalama en az 0.5 kg/gün olmalı
+              avgValue <
+                  50.0; // Ortalama en fazla 50 kg/gün olmalı (makul üst sınır)
+
+          // Placeholder verilerle karşılaştır - eğer çok benziyorsa muhtemelen placeholder
+          final placeholderData = _getPlaceholderCountryData(entry.key);
+          final placeholderAvg =
+              placeholderData.reduce((a, b) => a + b) / placeholderData.length;
+          final isLikelyPlaceholder = (avgValue - placeholderAvg).abs() <
+              0.1; // Ortalama değerler çok yakınsa
+
+          if (hasValidData && !isLikelyPlaceholder) {
+            trends[entry.key] = trend;
+            dataSources[entry.key] = true; // Gerçek veri
+            debugPrint(
+                '✅ ${entry.key} GERÇEK VERİ API\'den yüklendi: ilk=${trend.first.toStringAsFixed(2)}, ortalama=${avgValue.toStringAsFixed(2)}, son=${trend.last.toStringAsFixed(2)}');
+          } else {
+            // Veri boş, 0, çok küçük veya placeholder gibi görünüyorsa placeholder kullan (zaten yüklü)
+            debugPrint(
+                '⚠️ ${entry.key} PLACEHOLDER VERİ kullanılıyor (API verisi geçersiz veya placeholder benzeri: ilk=${trend.isNotEmpty ? trend.first.toStringAsFixed(2) : "yok"}, ortalama=${avgValue.toStringAsFixed(2)}, geçerli=$hasValidData, placeholder benzeri=$isLikelyPlaceholder)');
+          }
+        } catch (e) {
+          // Hata durumunda placeholder veri kullan (zaten yüklü)
+          debugPrint(
+              '⚠️ ${entry.key} PLACEHOLDER VERİ kullanılıyor (hata: $e)');
+        }
+      }
+
+      // State'i güncelle - gerçek verilerle güncelle
+      if (mounted) {
+        setState(() {
+          _countryTrends = trends;
+          _countryDataSources = dataSources;
+        });
+        debugPrint('Yüklenen ülke sayısı: ${trends.length}');
+        trends.forEach((country, data) {
+          final isReal = dataSources[country] ?? false;
+          debugPrint(
+              '$country: ${data.length} veri noktası, ortalama: ${data.isNotEmpty ? (data.reduce((a, b) => a + b) / data.length).toStringAsFixed(2) : "0"}, kaynak: ${isReal ? "GERÇEK" : "PLACEHOLDER"}');
+        });
+      }
+    } catch (e) {
+      debugPrint('Ülke verileri yükleme hatası: $e');
+    }
+  }
+
+  /// Ülke için placeholder veri oluştur (hata durumunda kullanılır)
+  List<double> _getPlaceholderCountryData(String countryName) {
+    // Ülkelere göre farklı ortalama kişi başı günlük CO2 emisyonları (kg/gün)
+    final countryAverages = {
+      'Türkiye': 4.2,
+      'ABD': 15.5,
+      'Çin': 7.4,
+      'Almanya': 8.9,
+      'Fransa': 8.0,
+      'İngiltere': 7.8,
+    };
+
+    final avgDaily = countryAverages[countryName] ?? 4.5;
+
+    // Son 7 gün için hafif değişkenlik gösteren trend
+    return [
+      avgDaily * 0.98,
+      avgDaily * 0.99,
+      avgDaily * 1.0,
+      avgDaily * 1.01,
+      avgDaily * 0.99,
+      avgDaily * 1.02,
+      avgDaily * 1.0,
+    ];
   }
 
   /// Dünya geneli trend verilerini yükle
@@ -74,9 +200,196 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  /// Ülke çizgilerini oluştur (grafik için)
+  List<LineChartBarData> _buildCountryLines(
+      List<double> userData, double maxY) {
+    if (_countryTrends.isEmpty) {
+      debugPrint('_buildCountryLines: _countryTrends boş!');
+      return [];
+    }
+
+    debugPrint('_buildCountryLines: ${_countryTrends.length} ülke verisi var');
+
+    // Ülke renkleri
+    final countryColors = {
+      'Türkiye': Colors.blue,
+      'ABD': Colors.red,
+      'Çin': Colors.orange,
+      'Almanya': Colors.yellow,
+      'Fransa': Colors.purple,
+      'İngiltere': Colors.teal,
+    };
+
+    final List<LineChartBarData> countryLines = [];
+
+    // Kullanıcı verilerinin ortalama ve max değerlerini hesapla (normalizasyon için)
+    final userMax =
+        userData.isNotEmpty ? userData.reduce((a, b) => a > b ? a : b) : 0.0;
+    final userAvg = userData.isNotEmpty
+        ? userData.reduce((a, b) => a + b) / userData.length
+        : 0.0;
+
+    // Ülke verilerinin max değerini hesapla
+    final countryMax = _countryTrends.values
+        .expand((e) => e)
+        .fold(0.0, (a, b) => a > b ? a : b);
+
+    // Normalizasyon faktörü: Kullanıcı verileriyle ülke verilerini karşılaştırılabilir hale getir
+    // Eğer kullanıcı verileri çok yüksekse, ülke verilerini ölçeklendir
+    // Ülke verileri kişi başı günlük değerler (4-15 kg), kullanıcı verileri toplam değerler olabilir
+    // Ülke verilerini kullanıcı verilerinin görünür bir aralığına ölçeklendir
+    double scaleFactor = 1.0;
+    if (userMax > 0 && countryMax > 0 && userMax > countryMax * 20) {
+      // Kullanıcı verileri çok yüksekse, ülke verilerini kullanıcı max'inin %10-20'si aralığına ölçeklendir
+      final targetMax = userMax * 0.15; // Kullanıcı max'inin %15'i
+      scaleFactor = targetMax / countryMax;
+      debugPrint(
+          '📊 Ölçeklendirme uygulanıyor: targetMax=$targetMax, scaleFactor=$scaleFactor');
+    } else {
+      debugPrint(
+          '📊 Ölçeklendirme gerekmiyor: userMax=$userMax, countryMax=$countryMax');
+    }
+
+    debugPrint(
+        '📊 Normalizasyon: userMax=$userMax, userAvg=$userAvg, countryMax=$countryMax, scaleFactor=$scaleFactor');
+
+    // Her ülke için farklı bir yükseklik offset'i belirle (çizgilerin üst üste binmemesi için)
+    final countryOffsets = {
+      'Türkiye': 0.0,
+      'ABD': userMax * 0.02, // Kullanıcı max'inin %2'si kadar yukarı
+      'Çin': userMax * 0.04, // Kullanıcı max'inin %4'ü kadar yukarı
+      'Almanya': userMax * 0.06, // Kullanıcı max'inin %6'sı kadar yukarı
+      'Fransa': userMax * 0.08, // Kullanıcı max'inin %8'i kadar yukarı
+      'İngiltere': userMax * 0.10, // Kullanıcı max'inin %10'u kadar yukarı
+    };
+
+    // Her ülke için bir çizgi oluştur
+    int countryIndex = 0;
+    _countryTrends.forEach((countryName, countryData) {
+      // Ülke verilerini normalize et (kullanıcı verileriyle aynı ölçekte)
+      final normalizedCountryData =
+          countryData.map((e) => e * scaleFactor).toList();
+
+      // Bu ülke için offset değerini al
+      final offset =
+          countryOffsets[countryName] ?? (userMax * 0.02 * countryIndex);
+
+      final color =
+          countryColors[countryName] ?? Colors.grey.withValues(alpha: 0.5);
+
+      // Veri kontrolü
+      final hasValidData = normalizedCountryData.isNotEmpty &&
+          normalizedCountryData.any((e) => e > 0);
+
+      debugPrint(
+          '$countryName: ${normalizedCountryData.length} veri, geçerli: $hasValidData, ilk değer: ${normalizedCountryData.isNotEmpty ? normalizedCountryData.first.toStringAsFixed(2) : "yok"}');
+
+      // Veri değerlerini kontrol et ve logla (offset ekle)
+      final spots = List.generate(
+        7,
+        (index) {
+          final baseValue = normalizedCountryData.isNotEmpty &&
+                  index < normalizedCountryData.length
+              ? normalizedCountryData[index].clamp(0.0, double.infinity)
+              : 0.0;
+          // Offset ekle - her ülke farklı yükseklikte görünsün
+          final value = baseValue + offset;
+          return FlSpot(index.toDouble(), value);
+        },
+      );
+
+      // Tüm noktaların değerlerini logla
+      final valuesStr = spots.map((s) => s.y.toStringAsFixed(2)).join(', ');
+      final maxValue = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
+      final minValue = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
+      debugPrint(
+          '📊 $countryName çizgi noktaları (offset: ${offset.toStringAsFixed(2)}): [$valuesStr] | Min: ${minValue.toStringAsFixed(2)}, Max: ${maxValue.toStringAsFixed(2)}');
+
+      countryIndex++;
+
+      countryLines.add(
+        LineChartBarData(
+          spots: spots,
+          isCurved: true,
+          color: color,
+          barWidth: 3.0, // Çizgi kalınlığını daha da artırdık
+          isStrokeCapRound: true,
+          dotData: FlDotData(
+            show: true, // Ülke çizgilerinde nokta göster
+            getDotPainter: (spot, percent, barData, index) {
+              return FlDotCirclePainter(
+                radius: 4, // Nokta boyutunu artırdık
+                color: color,
+                strokeWidth: 2,
+                strokeColor: Colors.white,
+              );
+            },
+          ),
+          belowBarData: BarAreaData(
+            show: false, // Ülke çizgilerinde alan gösterme
+          ),
+        ),
+      );
+    });
+
+    debugPrint('_buildCountryLines: ${countryLines.length} çizgi oluşturuldu');
+    return countryLines;
+  }
+
+  /// Legend item widget'ı oluştur
+  Widget _buildLegendItem(String label, Color color, {bool? isRealData}) {
+    final isReal = isRealData ?? true; // Varsayılan olarak gerçek veri
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 16,
+          height: 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.8),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        // Veri kaynağı göstergesi
+        if (isRealData != null) ...[
+          const SizedBox(width: 4),
+          Icon(
+            isReal ? Icons.check_circle : Icons.info_outline,
+            size: 12,
+            color: isReal
+                ? Colors.green.withValues(alpha: 0.8)
+                : Colors.orange.withValues(alpha: 0.8),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Ülke rengini getir
+  Color _getCountryColor(String countryName) {
+    final countryColors = {
+      'Türkiye': Colors.blue,
+      'ABD': Colors.red,
+      'Çin': Colors.orange,
+      'Almanya': Colors.yellow,
+      'Fransa': Colors.purple,
+      'İngiltere': Colors.teal,
+    };
+    return countryColors[countryName] ?? Colors.grey;
+  }
+
   Future<void> _initializeShelly() async {
     _apiService.initializeShelly(
-      deviceIp: '10.55.13.119',
+      deviceIp: '192.168.137.232',
       deviceId: _shellyDeviceId,
     );
     try {
@@ -200,19 +513,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ));
           }
 
-          // Shelly latest verisini de ekle (elektrik verisini birleştir)
+          // Shelly latest verisini de ekle
+          // ÖNEMLİ: ESP ve Shelly aynı elektriği ölçüyor olabilir, toplama!
+          // En son (en güncel) veriyi kullan
           if (shellyLatestEntry != null && mounted) {
-            // Eğer ESP verisi varsa, elektrik verilerini topla
             if (historyData.isNotEmpty) {
+              // ESP verisi varsa, hangisi daha güncelse onu kullan
               final lastEntry = historyData.last;
-              historyData[historyData.length - 1] = ConsumptionEntry(
-                electricityKwh:
-                    lastEntry.electricityKwh + shellyLatestEntry.electricityKwh,
-                waterCubicMeters: lastEntry.waterCubicMeters,
-                fuelLiters: lastEntry.fuelLiters,
-                wasteKg: lastEntry.wasteKg,
-                createdAt: lastEntry.createdAt,
-              );
+              if (shellyLatestEntry.createdAt.isAfter(lastEntry.createdAt)) {
+                // Shelly verisi daha güncel, onu kullan
+                historyData[historyData.length - 1] = shellyLatestEntry;
+                debugPrint(
+                    '📅 Shelly verisi ESP verisinden daha güncel, Shelly kullanıldı');
+              } else {
+                // ESP verisi daha güncel, ESP'yi koru
+                debugPrint(
+                    '📅 ESP verisi Shelly verisinden daha güncel, ESP korundu');
+              }
             } else {
               // Sadece Shelly verisi varsa
               historyData.add(shellyLatestEntry);
@@ -241,8 +558,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       }
 
-      // Günlere göre grupla ve verileri birleştir
+      // Günlere göre grupla - her gün için en son (en güncel) veriyi kullan
+      // ÖNEMLİ: Aynı günde birden fazla kayıt varsa, en son kaydı kullan
+      // Çünkü her kayıt günlük toplam tüketimi temsil eder, toplanmamalı!
+      debugPrint('📊 ========== VERİ KAYNAĞI ANALİZİ ==========');
+      debugPrint('📊 Toplam ${historyData.length} veri kaydı bulundu');
+      debugPrint('📊 ESP kayıt sayısı: ${espHistoryData.length}');
+      debugPrint('📊 Shelly kayıt sayısı: ${shellyHistoryData.length}');
+
+      // ESP ve Shelly verilerini ayrı ayrı logla
+      if (espHistoryData.isNotEmpty) {
+        debugPrint('📊 ESP Verileri:');
+        for (var entry in espHistoryData) {
+          debugPrint(
+              '   ${entry.createdAt}: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³');
+        }
+      }
+      if (shellyHistoryData.isNotEmpty) {
+        debugPrint('📊 Shelly Verileri:');
+        for (var entry in shellyHistoryData) {
+          debugPrint(
+              '   ${entry.createdAt}: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³');
+        }
+      }
+
       final Map<int, ConsumptionEntry> dailyData = {};
+      final Map<int, int> dailyDataCount = {}; // Her gün için kaç kayıt var?
+      final Map<int, List<String>> dailyDataSources =
+          {}; // Her gün için veri kaynakları (ESP/Shelly)
+
+      // Verileri tarihe göre sırala (en eski -> en yeni)
+      historyData.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+      // ESP verilerinin tarihlerini bir Set'e kaydet (hızlı arama için)
+      final espTimestamps =
+          espHistoryData.map((e) => e.createdAt.millisecondsSinceEpoch).toSet();
+
       for (var entry in historyData) {
         // Tarih farkını hesapla (mutlak değer)
         final difference = now.difference(entry.createdAt);
@@ -250,40 +601,83 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
         // Son 7 gün içindeki verileri al (0-6 gün önce)
         if (dayIndex >= 0 && dayIndex < 7) {
+          // Veri kaynağını belirle (ESP veya Shelly) - tarih karşılaştırması ile
+          final isEsp =
+              espTimestamps.contains(entry.createdAt.millisecondsSinceEpoch);
+          final source = isEsp ? 'ESP' : 'Shelly';
+
           if (dailyData.containsKey(dayIndex)) {
-            // Aynı günde veri varsa, verileri birleştir
+            // Aynı günde veri varsa, en son (en güncel) veriyi kullan
+            // ÖNEMLİ: Verileri toplamıyoruz, çünkü her kayıt günlük toplamı temsil eder
             final existing = dailyData[dayIndex]!;
-            dailyData[dayIndex] = ConsumptionEntry(
-              electricityKwh: existing.electricityKwh + entry.electricityKwh,
-              waterCubicMeters:
-                  existing.waterCubicMeters + entry.waterCubicMeters,
-              fuelLiters: existing.fuelLiters + entry.fuelLiters,
-              wasteKg: existing.wasteKg + entry.wasteKg,
-              createdAt: existing.createdAt, // İlk verinin tarihini kullan
-            );
+            dailyDataCount[dayIndex] = (dailyDataCount[dayIndex] ?? 1) + 1;
+            dailyDataSources[dayIndex] = dailyDataSources[dayIndex] ?? [];
+            dailyDataSources[dayIndex]!.add(source);
+
+            // En son kaydı kullan (daha yeni tarihli olan)
+            if (entry.createdAt.isAfter(existing.createdAt)) {
+              debugPrint(
+                  '📅 Gün ${dayIndex} için daha yeni veri bulundu, güncelleniyor:');
+              debugPrint(
+                  '   Eski: E=${existing.electricityKwh.toStringAsFixed(2)} kWh, Y=${existing.fuelLiters.toStringAsFixed(2)} L, S=${existing.waterCubicMeters.toStringAsFixed(2)} m³');
+              debugPrint(
+                  '   Yeni: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³ (Kaynak: $source)');
+
+              dailyData[dayIndex] = entry; // En son veriyi kullan
+            } else {
+              debugPrint(
+                  '📅 Gün ${dayIndex} için mevcut veri daha güncel, korunuyor');
+            }
           } else {
             // İlk veri, direkt ekle
             dailyData[dayIndex] = entry;
+            dailyDataCount[dayIndex] = 1;
+            dailyDataSources[dayIndex] = [source];
+            debugPrint(
+                '📅 Gün ${dayIndex} için ilk veri eklendi: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³ (Kaynak: $source)');
           }
         }
       }
 
-      // Eğer hiç veri yoksa, latest verisini kullan (bugün için)
-      if (dailyData.isEmpty && historyData.isNotEmpty) {
-        // Tüm verileri birleştir (bugün için)
-        ConsumptionEntry combined = historyData.first;
-        for (int i = 1; i < historyData.length; i++) {
-          final entry = historyData[i];
-          combined = ConsumptionEntry(
-            electricityKwh: combined.electricityKwh + entry.electricityKwh,
-            waterCubicMeters:
-                combined.waterCubicMeters + entry.waterCubicMeters,
-            fuelLiters: combined.fuelLiters + entry.fuelLiters,
-            wasteKg: combined.wasteKg + entry.wasteKg,
-            createdAt: DateTime.now(), // Bugün olarak işaretle
-          );
+      // Özet bilgi
+      debugPrint('📊 ========== GÜNLÜK VERİ ÖZETİ ==========');
+      dailyDataCount.forEach((day, count) {
+        final sources = dailyDataSources[day] ?? [];
+        final entry = dailyData[day]!;
+        final emission = Calculation.calculateDailyEmission(entry);
+        debugPrint('📅 Gün ${day} (${6 - day} gün önce):');
+        debugPrint('   Kayıt sayısı: $count');
+        debugPrint('   Kaynaklar: ${sources.join(", ")}');
+        debugPrint(
+            '   Elektrik: ${entry.electricityKwh.toStringAsFixed(2)} kWh');
+        debugPrint('   Yakıt: ${entry.fuelLiters.toStringAsFixed(2)} L');
+        debugPrint('   Su: ${entry.waterCubicMeters.toStringAsFixed(2)} m³');
+        debugPrint('   Atık: ${entry.wasteKg.toStringAsFixed(2)} kg');
+        debugPrint('   TOPLAM EMİSYON: ${emission.toStringAsFixed(2)} kg CO2e');
+        if (count > 1) {
+          debugPrint(
+              '   ⚠️ Bu gün için $count kayıt bulundu, en güncel olan kullanıldı');
         }
-        dailyData[0] = combined;
+        if (emission > 50) {
+          debugPrint('   ⚠️⚠️⚠️ ÇOK YÜKSEK DEĞER! Normal: 4-15 kg/gün');
+        }
+      });
+      debugPrint('📊 =========================================');
+
+      // Eğer hiç veri yoksa, en son veriyi kullan (bugün için)
+      if (dailyData.isEmpty && historyData.isNotEmpty) {
+        // En son (en güncel) veriyi kullan, tüm verileri toplama!
+        // Veriler zaten tarihe göre sıralı (en eski -> en yeni)
+        final latestEntry = historyData.last;
+        dailyData[0] = ConsumptionEntry(
+          electricityKwh: latestEntry.electricityKwh,
+          waterCubicMeters: latestEntry.waterCubicMeters,
+          fuelLiters: latestEntry.fuelLiters,
+          wasteKg: latestEntry.wasteKg,
+          createdAt: DateTime.now(), // Bugün olarak işaretle
+        );
+        debugPrint(
+            '📅 Hiç günlük veri yok, en son veri bugün olarak kullanıldı');
       }
 
       // Her gün için toplam emisyonu hesapla (günlük trend grafiği için)
@@ -297,6 +691,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
         if (dailyData.containsKey(i)) {
           final entry = dailyData[i]!;
           final emission = Calculation.calculateDailyEmission(entry);
+
+          // Debug: Detaylı emisyon bilgisi
+          final electricityEmission =
+              entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
+          final fuelEmission =
+              entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+          final waterEmission =
+              entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
+          final wasteEmission = entry.wasteKg * Calculation.factorWasteKgPerKg;
+
+          debugPrint('📊 Gün ${6 - i} emisyon detayı:');
+          debugPrint(
+              '   Elektrik: ${entry.electricityKwh.toStringAsFixed(2)} kWh × 0.233 = ${electricityEmission.toStringAsFixed(2)} kg CO2e');
+          debugPrint(
+              '   Yakıt: ${entry.fuelLiters.toStringAsFixed(2)} L × 2.31 = ${fuelEmission.toStringAsFixed(2)} kg CO2e');
+          debugPrint(
+              '   Su: ${entry.waterCubicMeters.toStringAsFixed(2)} m³ × 0.344 = ${waterEmission.toStringAsFixed(2)} kg CO2e');
+          debugPrint(
+              '   Atık: ${entry.wasteKg.toStringAsFixed(2)} kg × 1.9 = ${wasteEmission.toStringAsFixed(2)} kg CO2e');
+          debugPrint('   TOPLAM: ${emission.toStringAsFixed(2)} kg CO2e');
+          debugPrint('   ⚠️ Normal değer: 4-15 kg/gün (kişi başı)');
+
           emissions.add(emission);
 
           // Kategori dağılımı için sadece bugünün (i == 0) verilerini topla
@@ -798,27 +1214,203 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           currentData;
                                                     }
 
-                                                    final maxY = normalizedData
-                                                                .isEmpty ||
-                                                            normalizedData
-                                                                .every((e) =>
-                                                                    e == 0)
-                                                        ? 10
-                                                        : (normalizedData.reduce(
-                                                                    (a, b) => a >
-                                                                            b
+                                                    // Maksimum değeri hesapla (kullanıcı + ülke verileri)
+                                                    final allValues = [
+                                                      ...normalizedData,
+                                                      if (_showCountryComparison &&
+                                                          !_showGlobalTrend)
+                                                        ..._countryTrends.values
+                                                            .expand((e) => e),
+                                                    ];
+
+                                                    // Debug: Değerleri logla
+                                                    final userMax =
+                                                        normalizedData
+                                                                .isNotEmpty
+                                                            ? normalizedData
+                                                                .reduce((a,
+                                                                        b) =>
+                                                                    a > b
                                                                         ? a
-                                                                        : b) *
-                                                                1.2)
+                                                                        : b)
+                                                            : 0.0;
+                                                    final userMin = normalizedData
+                                                            .isNotEmpty
+                                                        ? normalizedData
+                                                            .where((e) => e > 0)
+                                                            .fold(
+                                                                double.infinity,
+                                                                (a, b) => a < b
+                                                                    ? a
+                                                                    : b)
+                                                        : 0.0;
+                                                    final userAvg =
+                                                        normalizedData
+                                                                .isNotEmpty
+                                                            ? normalizedData
+                                                                    .reduce((a,
+                                                                            b) =>
+                                                                        a + b) /
+                                                                normalizedData
+                                                                    .length
+                                                            : 0.0;
+
+                                                    debugPrint(
+                                                        '📊 Kullanıcı Verileri Analizi:');
+                                                    debugPrint(
+                                                        '   Min: ${userMin.toStringAsFixed(2)} kg CO2e');
+                                                    debugPrint(
+                                                        '   Max: ${userMax.toStringAsFixed(2)} kg CO2e');
+                                                    debugPrint(
+                                                        '   Ortalama: ${userAvg.toStringAsFixed(2)} kg CO2e');
+                                                    debugPrint(
+                                                        '   Tüm değerler: ${normalizedData.map((e) => e.toStringAsFixed(2)).join(", ")}');
+
+                                                    if (_showCountryComparison &&
+                                                        !_showGlobalTrend &&
+                                                        _countryTrends
+                                                            .isNotEmpty) {
+                                                      final countryMax =
+                                                          _countryTrends.values
+                                                              .expand((e) => e)
+                                                              .fold(
+                                                                  0.0,
+                                                                  (a, b) =>
+                                                                      a > b
+                                                                          ? a
+                                                                          : b);
+                                                      debugPrint(
+                                                          '📈 Ülke max: $countryMax kg CO2e');
+                                                    }
+
+                                                    // Grafik ölçeğini hesapla
+                                                    // Kullanıcı verilerinin max değerini kullan, ama çok yüksekse sınırla
+                                                    double maxY;
+                                                    if (allValues.isEmpty ||
+                                                        allValues.every(
+                                                            (e) => e == 0)) {
+                                                      maxY = 10;
+                                                    } else {
+                                                      final maxValue = allValues
+                                                          .reduce((a, b) =>
+                                                              a > b ? a : b);
+
+                                                      // Eğer max değer çok yüksekse (100+ kg), grafik ölçeğini optimize et
+                                                      if (maxValue > 100) {
+                                                        // Çok yüksek değerler için daha iyi ölçeklendirme
+                                                        // Max değerin %15'i kadar padding ekle (daha az padding)
+                                                        maxY = (maxValue * 1.15)
                                                             .clamp(
                                                                 1.0,
                                                                 double
                                                                     .infinity);
+                                                        debugPrint(
+                                                            '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), ölçek optimize edildi: maxY=$maxY');
+                                                      } else {
+                                                        // Normal değerler için standart padding (%20)
+                                                        maxY = (maxValue * 1.2)
+                                                            .clamp(
+                                                                1.0,
+                                                                double
+                                                                    .infinity);
+                                                      }
+                                                    }
+
+                                                    debugPrint(
+                                                        '📈 Grafik maxY: $maxY (kullanıcı verileri: ${normalizedData.length} nokta)');
 
                                                     return SizedBox(
                                                       height: 200,
                                                       child: LineChart(
                                                         LineChartData(
+                                                          lineTouchData:
+                                                              LineTouchData(
+                                                            enabled: true,
+                                                            touchTooltipData:
+                                                                LineTouchTooltipData(
+                                                              getTooltipItems: (List<
+                                                                      LineBarSpot>
+                                                                  touchedSpots) {
+                                                                return touchedSpots.map(
+                                                                    (LineBarSpot
+                                                                        touchedSpot) {
+                                                                  // Her çizgi için tooltip oluştur
+                                                                  final lineIndex =
+                                                                      touchedSpot
+                                                                          .barIndex;
+                                                                  String label;
+                                                                  Color color;
+
+                                                                  if (lineIndex ==
+                                                                      0) {
+                                                                    // Kullanıcının kendi verisi
+                                                                    label =
+                                                                        'Sizin Verileriniz';
+                                                                    color = const Color(
+                                                                        0xFF304411);
+                                                                  } else {
+                                                                    // Ülke verileri
+                                                                    final countryNames =
+                                                                        _countryTrends
+                                                                            .keys
+                                                                            .toList();
+                                                                    if (lineIndex -
+                                                                            1 <
+                                                                        countryNames
+                                                                            .length) {
+                                                                      label = countryNames[
+                                                                          lineIndex -
+                                                                              1];
+                                                                      color = _getCountryColor(countryNames[
+                                                                          lineIndex -
+                                                                              1]);
+                                                                    } else {
+                                                                      label =
+                                                                          'Veri';
+                                                                      color = Colors
+                                                                          .grey;
+                                                                    }
+                                                                  }
+
+                                                                  // Tooltip içeriğini kısalt - daha kompakt göster
+                                                                  final value =
+                                                                      touchedSpot
+                                                                          .y
+                                                                          .toStringAsFixed(
+                                                                              1);
+                                                                  return LineTooltipItem(
+                                                                    '$label: $value',
+                                                                    TextStyle(
+                                                                      color:
+                                                                          color,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .bold,
+                                                                      fontSize:
+                                                                          11,
+                                                                    ),
+                                                                  );
+                                                                }).toList();
+                                                              },
+                                                              tooltipBgColor: Colors
+                                                                  .black
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.95),
+                                                              tooltipRoundedRadius:
+                                                                  8,
+                                                              tooltipPadding:
+                                                                  const EdgeInsets
+                                                                      .symmetric(
+                                                                      horizontal:
+                                                                          10,
+                                                                      vertical:
+                                                                          8),
+                                                              tooltipMargin: 8,
+                                                            ),
+                                                            handleBuiltInTouches:
+                                                                true,
+                                                          ),
                                                           gridData: FlGridData(
                                                             show: true,
                                                             drawVerticalLine:
@@ -1069,6 +1661,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           minY: 0,
                                                           maxY: maxY.toDouble(),
                                                           lineBarsData: [
+                                                            // Kullanıcının kendi verileri (ana çizgi)
                                                             LineChartBarData(
                                                               spots:
                                                                   List.generate(
@@ -1151,12 +1744,95 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                 ),
                                                               ),
                                                             ),
+                                                            // Ülke karşılaştırma çizgileri
+                                                            if (_showCountryComparison &&
+                                                                !_showGlobalTrend)
+                                                              ..._buildCountryLines(
+                                                                  normalizedData,
+                                                                  maxY.toDouble()),
                                                           ],
                                                         ),
                                                       ),
                                                     );
                                                   },
                                                 ),
+                                      // Legend (açıklama) - ülke çizgileri için
+                                      if (_showCountryComparison &&
+                                          !_showGlobalTrend &&
+                                          _countryTrends.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                              top: 12, bottom: 8),
+                                          child: Wrap(
+                                            spacing: 16,
+                                            runSpacing: 8,
+                                            alignment: WrapAlignment.center,
+                                            children: [
+                                              // Kullanıcının kendi verisi
+                                              _buildLegendItem(
+                                                'Sizin Verileriniz',
+                                                const Color(0xFF304411),
+                                              ),
+                                              // Ülke verileri
+                                              ..._countryTrends.keys.map(
+                                                (countryName) =>
+                                                    _buildLegendItem(
+                                                  countryName,
+                                                  _getCountryColor(countryName),
+                                                  isRealData:
+                                                      _countryDataSources[
+                                                              countryName] ??
+                                                          false,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      // Veri kaynağı açıklaması
+                                      if (_showCountryComparison &&
+                                          !_showGlobalTrend &&
+                                          _countryTrends.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                              top: 4, bottom: 8),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.check_circle,
+                                                size: 10,
+                                                color: Colors.green
+                                                    .withValues(alpha: 0.7),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Gerçek Veri',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.6),
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Icon(
+                                                Icons.info_outline,
+                                                size: 10,
+                                                color: Colors.orange
+                                                    .withValues(alpha: 0.7),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Tahmini Veri',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.6),
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       const SizedBox(height: 16),
                                       // Yenile butonu
                                       Row(
@@ -1432,93 +2108,117 @@ class _FootprintGauge extends StatelessWidget {
             ),
           ),
           // Inner content
-          GestureDetector(
-            onTap: onToggleChanged != null
-                ? () {
-                    onToggleChanged!(!useEspData);
-                  }
-                : null,
-            child: Container(
-              width: size - 40,
-              height: size - 40,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      tonnes.toStringAsFixed(1),
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
+          Container(
+            width: size - 40,
+            height: size - 40,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 12,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: onToggleChanged != null
+                        ? () {
+                            onToggleChanged!(!useEspData);
+                          }
+                        : null,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          tonnes.toStringAsFixed(1),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context).brightness ==
+                                        Brightness.dark
                                     ? Colors.black
                                     : Theme.of(context).colorScheme.onSurface,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      translate('tonnes_co2e', locale),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          translate('tonnes_co2e', locale),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(context).brightness ==
+                                        Brightness.dark
                                     ? Colors.black
                                     : Theme.of(context).colorScheme.onSurface,
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Flexible(
-                      child: Text(
-                        translate('greenhouse_gas_emissions', locale),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Flexible(
+                          child: Text(
+                            translate('greenhouse_gas_emissions', locale),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
                                   color: Theme.of(context).brightness ==
                                           Brightness.dark
                                       ? Colors.black
                                       : Theme.of(context).colorScheme.onSurface,
                                 ),
-                      ),
+                          ),
+                        ),
+                      ],
                     ),
-                    if (onToggleChanged != null) ...[
-                      const SizedBox(height: 12),
-                      Row(
+                  ),
+                  if (onToggleChanged != null) ...[
+                    const SizedBox(height: 12),
+                    // Switch'i GestureDetector'dan ayır - kendi tıklama alanı olsun
+                    GestureDetector(
+                      // Switch'in tıklamalarını engelleme
+                      behavior: HitTestBehavior.opaque,
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            translate('manual', locale),
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.black87
-                                      : Theme.of(context).colorScheme.onSurface,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          GestureDetector(
+                            onTap: () {
+                              if (onToggleChanged != null && useEspData) {
+                                onToggleChanged!(false);
+                              }
+                            },
+                            child: Text(
+                              translate('manual', locale),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.black87
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Switch(
@@ -1528,24 +2228,33 @@ class _FootprintGauge extends StatelessWidget {
                                 MaterialTapTargetSize.shrinkWrap,
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            'ESP',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.black87
-                                      : Theme.of(context).colorScheme.onSurface,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          GestureDetector(
+                            onTap: () {
+                              if (onToggleChanged != null && !useEspData) {
+                                onToggleChanged!(true);
+                              }
+                            },
+                            child: Text(
+                              'ESP',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.black87
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
           ),

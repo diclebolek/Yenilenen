@@ -63,8 +63,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _tipsListener = () {
       // Hem mobil hem web controller için sayfa değişikliğini kontrol et
       double? newPage;
-      // Önce web controller'ı kontrol et (varsa)
-      if (_tipsControllerWeb != null) {
+      
+      // Hangi controller aktifse onun sayfasını al
+      // Önce web controller'ı kontrol et (varsa ve aktifse)
+      if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
         try {
           final webPage = _tipsControllerWeb!.page;
           if (webPage != null) {
@@ -74,12 +76,29 @@ class _HomeScreenState extends State<HomeScreen> {
           // Web controller henüz hazır değilse mobil controller'ı kullan
         }
       }
+      
       // Web controller yoksa veya sayfa alınamazsa mobil controller'ı kullan
-      newPage ??= _tipsController.page ?? 0;
-      if ((newPage - _currentPage).abs() > 0.01) {
-        setState(() {
-          _currentPage = newPage!;
-        });
+      if (newPage == null && _tipsController.hasClients) {
+        try {
+          final mobilePage = _tipsController.page;
+          if (mobilePage != null) {
+            newPage = mobilePage;
+          }
+        } catch (e) {
+          // Mobil controller henüz hazır değilse varsayılan değer
+        }
+      }
+      
+      // Varsayılan değer
+      final currentPage = newPage ?? 0.0;
+      
+      // Sayfa değiştiyse güncelle (threshold çok düşük - her değişikliği yakala)
+      if ((currentPage - _currentPage).abs() > 0.001) {
+        if (mounted) {
+          setState(() {
+            _currentPage = currentPage;
+          });
+        }
       }
     };
 
@@ -98,46 +117,74 @@ class _HomeScreenState extends State<HomeScreen> {
     // Hero slider'ı belirli aralıklarla otomatik kaydır
     _heroAutoScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      final int current = (_heroController.page ?? 0).round();
-      const int heroCount = 3; // hero görsellerinde 3 görsel var
-      final int next = (current + 1) % heroCount;
-      _heroController.animateToPage(
-        next,
-        duration: const Duration(milliseconds: 600),
-        curve: Curves.easeInOut,
-      );
+      
+      try {
+        if (_heroController.hasClients) {
+          final double? currentPage = _heroController.page;
+          if (currentPage != null) {
+            final int current = currentPage.round();
+            const int heroCount = 3; // hero görsellerinde 3 görsel var
+            final int next = (current + 1) % heroCount;
+            _heroController.animateToPage(
+              next,
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeInOut,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Hero auto scroll error: $e');
+      }
     });
 
     // İpuçları kartlarını belirli aralıklarla otomatik kaydır
     _autoScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      final locale =
-          widget.languageProvider?.currentLocale ?? const Locale('tr');
-      final int tipsCount =
-          _getTips(locale).length; // tips listesindeki kart sayısı
+      
+      try {
+        final locale =
+            widget.languageProvider?.currentLocale ?? const Locale('tr');
+        final int tipsCount =
+            _getTipsData(locale).length; // tips listesindeki kart sayısı
 
-      // Mobil controller için
-      final int currentMobile = (_tipsController.page ?? 0).round();
-      final int nextMobile = (currentMobile + 1) % tipsCount;
-      _tipsController.animateToPage(
-        nextMobile,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+        if (tipsCount == 0) return; // Kart yoksa işlem yapma
 
-      // Web controller için (varsa)
-      if (_tipsControllerWeb != null) {
-        try {
-          final int currentWeb = (_tipsControllerWeb!.page ?? 0).round();
-          final int nextWeb = (currentWeb + 1) % tipsCount;
-          _tipsControllerWeb!.animateToPage(
-            nextWeb,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-          );
-        } catch (e) {
-          // Controller henüz hazır değilse hata verme
+        // _currentPage değişkenini kullan (onPageChanged ile güncelleniyor, daha güvenilir)
+        final int currentPage = _currentPage.round();
+        final int nextPage = (currentPage + 1) % tipsCount;
+
+        // Mobil controller için
+        if (_tipsController.hasClients) {
+          try {
+            // Her zaman bir sonraki sayfaya geç (döngüsel)
+            _tipsController.animateToPage(
+              nextPage,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+            );
+            debugPrint('🔄 Otomatik kaydırma (Mobil): $currentPage -> $nextPage');
+          } catch (e) {
+            debugPrint('Mobil controller animasyon hatası: $e');
+          }
         }
+
+        // Web controller için (varsa)
+        if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
+          try {
+            // Her zaman bir sonraki sayfaya geç (döngüsel)
+            _tipsControllerWeb!.animateToPage(
+              nextPage,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+            );
+            debugPrint('🔄 Otomatik kaydırma (Web): $currentPage -> $nextPage');
+          } catch (e) {
+            // Controller henüz hazır değilse hata verme
+            debugPrint('Web controller error: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('Auto scroll error: $e');
       }
     });
 
@@ -152,7 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeShelly() async {
     // ⚠️ KENDİ IP ADRESİNİZİ YAZIN!
     _apiService.initializeShelly(
-      deviceIp: '10.55.13.119', // 👈 Shelly cihazınızın IP adresi
+      deviceIp: '192.168.137.232', // 👈 Shelly cihazınızın IP adresi
       deviceId: _shellyDeviceId,
     );
 
@@ -170,11 +217,31 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('Veri çekme başarısız, bağlantı kontrol ediliyor...');
         final connected = await _apiService.checkShellyConnection();
         if (!connected) {
-          debugPrint('Shelly cihazına bağlanılamadı. Lütfen kontrol edin:');
-          debugPrint('1. IP adresi doğru mu? (10.55.13.119)');
-          debugPrint('2. Cihaz aynı WiFi ağında mı?');
-          debugPrint('3. Cihaz çalışıyor mu?');
-          debugPrint('4. WiFi API açık mı?');
+          debugPrint('⚠️ Shelly cihazına bağlanılamadı. Lütfen kontrol edin:');
+          debugPrint('1. IP adresi doğru mu? (192.168.137.232)');
+          debugPrint('2. AYNI WiFi AĞINDA OLMASI GEREKEN CİHAZLAR:');
+          debugPrint('   - Shelly Plus S Plug cihazı');
+          debugPrint('   - Uygulamayı çalıştıran cihaz (telefon/bilgisayar)');
+          debugPrint('');
+          debugPrint('📱 HOTSPOT YAPILANDIRMASI İÇİN:');
+          debugPrint('   ✅ Bilgisayar mobil veri + WiFi hotspot oluşturdu');
+          debugPrint('   ✅ Shelly prizi hotspot\'a bağlandı');
+          debugPrint('   ✅ Emülatör hotspot\'a bağlandı (ÖNERİLEN YÖNTEM)');
+          debugPrint('');
+          debugPrint('💡 EMÜLATÖR KULLANIMI:');
+          debugPrint('   1. Android Studio/VS Code\'da emülatörü başlatın');
+          debugPrint('   2. Emülatör ayarlarından WiFi\'ye gidin');
+          debugPrint('   3. PC\'nin oluşturduğu hotspot\'u seçin ve bağlanın');
+          debugPrint('   4. Tüm cihazlar aynı ağda olacak: PC (hotspot), Shelly, Emülatör');
+          debugPrint('   5. Bu yapılandırma ile bağlantı çalışmalı!');
+          debugPrint('');
+          debugPrint('⚠️ NOT: Chrome\'da çalıştırırken bağlantı sorunları olabilir');
+          debugPrint('   (CORS, localhost vs.). Emülatör daha güvenilir.');
+          debugPrint('');
+          debugPrint('3. Cihaz çalışıyor mu? (LED ışığı yanıyor mu?)');
+          debugPrint('4. Shelly uygulamasından cihazın IP adresini doğrulayın');
+          debugPrint('5. Firewall/Antivirus engelliyor olabilir (geçici olarak kapatıp deneyin)');
+          debugPrint('6. Windows hotspot ayarlarında "Cihazlar birbirini görebilir" seçeneği açık olmalı');
         } else {
           debugPrint(
               'Bağlantı başarılı ama veri çekilemedi. Tekrar denenecek...');
@@ -482,9 +549,18 @@ class _HomeScreenState extends State<HomeScreen> {
                             itemCount: tips.length,
                             padEnds: false,
                             clipBehavior: Clip.none,
+                            onPageChanged: (index) {
+                              if (mounted) {
+                                setState(() {
+                                  _currentPage = index.toDouble();
+                                });
+                              }
+                            },
                             itemBuilder: (context, index) {
+                              // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
+                              final roundedPage = _currentPage.round();
                               final distance = (_currentPage - index).abs();
-                              final isSelected = distance == 0;
+                              final isSelected = roundedPage == index; // Yuvarlanmış değerle karşılaştır
                               final scale = isSelected
                                   ? 1.1
                                   : (1 - (distance * 0.15)).clamp(0.85, 1.0);
@@ -502,17 +578,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 decoration: isSelected
                                     ? BoxDecoration(
                                         borderRadius: BorderRadius.circular(16),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary
-                                                .withValues(alpha: 0.4),
-                                            blurRadius: 20,
-                                            spreadRadius: 2,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
                                       )
                                     : null,
                                 child: AnimatedOpacity(
@@ -573,13 +638,21 @@ class _HomeScreenState extends State<HomeScreen> {
                           itemCount: tips.length,
                           padEnds: false,
                           clipBehavior: Clip.none,
+                          onPageChanged: (index) {
+                            if (mounted) {
+                              setState(() {
+                                _currentPage = index.toDouble();
+                              });
+                            }
+                          },
                           itemBuilder: (context, index) {
+                            // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
+                            final roundedPage = _currentPage.round();
                             final distance = (_currentPage - index).abs();
-                            final scale = (1 - (distance * 0.12)).clamp(
-                              0.88,
-                              1.0,
-                            );
-                            final isSelected = distance == 0;
+                            final isSelected = roundedPage == index; // Yuvarlanmış değerle karşılaştır
+                            final scale = isSelected
+                                ? 1.0
+                                : (1 - (distance * 0.12)).clamp(0.88, 1.0);
                             final opacity = isSelected ? 1.0 : 0.35;
                             final height = isSelected
                                 ? 210.0
@@ -588,6 +661,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             return AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
                               height: height,
+                              decoration: isSelected
+                                  ? BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                    )
+                                  : null,
                               child: AnimatedOpacity(
                                 duration: const Duration(milliseconds: 150),
                                 opacity: opacity,
