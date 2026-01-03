@@ -75,6 +75,13 @@ class GlobalCarbonService {
 
   /// Türkiye için günlük CO2 emisyon trendini getir
   Future<List<double>> getTurkeyDailyTrend() async {
+    return getCountryDailyTrend('TUR');
+  }
+
+  /// Belirli bir ülke için günlük CO2 emisyon trendini getir
+  /// Ülke kodu ISO 3166-1 alpha-3 formatında olmalı (örn: "USA", "CHN", "DEU", "TUR")
+  /// Kişi başı değerleri döndürür (kg CO₂e/gün) - karşılaştırma için normalize edilmiş
+  Future<List<double>> getCountryDailyTrend(String countryCode) async {
     try {
       final response = await http
           .get(Uri.parse(_owidBaseUrl))
@@ -83,17 +90,26 @@ class GlobalCarbonService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
 
-        // Türkiye verilerini al (key: "TUR")
-        final turkeyData = data['TUR'] as Map<String, dynamic>?;
-        if (turkeyData == null) {
-          return _getPlaceholderTrend();
+        // Ülke verilerini al
+        final countryData = data[countryCode] as Map<String, dynamic>?;
+        if (countryData == null) {
+          dev.log(
+            '$countryCode verisi bulunamadı - placeholder kullanılıyor',
+            name: 'GlobalCarbonService',
+          );
+          return _getPlaceholderPerCapitaTrend();
         }
 
-        final yearlyData = turkeyData['data'] as List<dynamic>?;
+        final yearlyData = countryData['data'] as List<dynamic>?;
         if (yearlyData == null || yearlyData.isEmpty) {
-          return _getPlaceholderTrend();
+          dev.log(
+            '$countryCode için veri listesi boş - placeholder kullanılıyor',
+            name: 'GlobalCarbonService',
+          );
+          return _getPlaceholderPerCapitaTrend();
         }
 
+        // Son 7 yılın verilerini al
         final recentYears = yearlyData.length >= 7
             ? yearlyData.sublist(yearlyData.length - 7)
             : yearlyData;
@@ -101,23 +117,62 @@ class GlobalCarbonService {
         final List<double> dailyTrends = [];
         for (var yearData in recentYears) {
           final yearMap = yearData as Map<String, dynamic>;
-          final annualEmission = (yearMap['co2'] ?? 0.0).toDouble();
-          final dailyEmissionKg = (annualEmission * 1000000000) / 365;
-          dailyTrends.add(dailyEmissionKg);
+          // Kişi başı yıllık CO2 emisyonu (ton cinsinden)
+          final annualPerCapita = (yearMap['co2_per_capita'] ?? 0.0).toDouble();
+          // Günlük ortalamaya çevir (ton -> kg, sonra günlük)
+          final dailyPerCapitaKg = (annualPerCapita * 1000) / 365;
+          dailyTrends.add(dailyPerCapitaKg);
+        }
+
+        // Veri kontrolü - tüm değerler 0 ise placeholder kullan
+        if (dailyTrends.every((e) => e == 0.0)) {
+          dev.log(
+            '$countryCode için tüm değerler 0 - placeholder kullanılıyor',
+            name: 'GlobalCarbonService',
+          );
+          return _getPlaceholderPerCapitaTrend();
         }
 
         while (dailyTrends.length < 7) {
           dailyTrends.add(dailyTrends.isNotEmpty ? dailyTrends.last : 0.0);
         }
 
+        // Debug: İlk ve son değerleri logla
+        dev.log(
+          '$countryCode verisi yüklendi: ilk=${dailyTrends.first.toStringAsFixed(2)}, son=${dailyTrends.last.toStringAsFixed(2)}, ortalama=${(dailyTrends.reduce((a, b) => a + b) / dailyTrends.length).toStringAsFixed(2)}',
+          name: 'GlobalCarbonService',
+        );
+
         return dailyTrends;
       } else {
-        return _getPlaceholderTrend();
+        dev.log(
+          '$countryCode API hatası: ${response.statusCode} - placeholder kullanılıyor',
+          name: 'GlobalCarbonService',
+        );
+        return _getPlaceholderPerCapitaTrend();
       }
     } catch (e) {
-      dev.log('Türkiye karbon trend hatası: $e', name: 'GlobalCarbonService');
-      return _getPlaceholderTrend();
+      dev.log(
+        '$countryCode karbon trend hatası: $e',
+        name: 'GlobalCarbonService',
+      );
+      return _getPlaceholderPerCapitaTrend();
     }
+  }
+
+  /// Placeholder kişi başı trend verisi (API çalışmazsa)
+  List<double> _getPlaceholderPerCapitaTrend() {
+    // Ortalama kişi başı günlük CO2 emisyonu: ~4.5 kg/gün
+    const double avgDailyPerCapita = 4.5;
+    return [
+      avgDailyPerCapita * 0.98,
+      avgDailyPerCapita * 0.99,
+      avgDailyPerCapita * 1.0,
+      avgDailyPerCapita * 1.01,
+      avgDailyPerCapita * 0.99,
+      avgDailyPerCapita * 1.02,
+      avgDailyPerCapita * 1.0,
+    ];
   }
 
   /// Ortalama kişi başı günlük CO2 emisyonu (kg CO₂e)

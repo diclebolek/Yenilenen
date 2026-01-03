@@ -158,6 +158,138 @@ lib/
 - **Calculation** - CO₂ emisyon hesaplama algoritmaları
 - **EnergyEfficiency** - Enerji verimliliği hesaplamaları
 
+## Karbon Ayak İzi Hesaplama Metodolojisi
+
+### Hesaplama Formülleri
+
+Uygulama, kullanıcıların günlük tüketim verilerini CO₂ eşdeğeri (CO₂e) cinsinden hesaplar. Hesaplama, uluslararası standartlara uygun emisyon faktörleri kullanılarak yapılmaktadır:
+
+#### 1. Elektrik Tüketimi
+```
+CO₂e (kg) = Elektrik Tüketimi (kWh) × 0.233 kg CO₂e/kWh
+```
+- **Emisyon Faktörü**: 0.233 kg CO₂e/kWh
+- **Kaynak**: Türkiye elektrik üretim karışımı ortalaması
+- **Not**: Bu değer, Türkiye'nin elektrik üretim kaynakları (kömür, doğalgaz, hidroelektrik, rüzgar, güneş vb.) dikkate alınarak hesaplanmıştır.
+
+#### 2. Yakıt Tüketimi
+```
+CO₂e (kg) = Yakıt Tüketimi (Litre) × 2.31 kg CO₂e/Litre
+```
+- **Emisyon Faktörü**: 2.31 kg CO₂e/Litre
+- **Kaynak**: Benzin/dizel yakıt yanma emisyon faktörü (IPCC standartları)
+- **Not**: Bu değer, ortalama benzin ve dizel yakıtlar için geçerlidir.
+
+#### 3. Su Tüketimi
+```
+CO₂e (kg) = Su Tüketimi (m³) × 0.344 kg CO₂e/m³
+```
+- **Emisyon Faktörü**: 0.344 kg CO₂e/m³
+- **Kaynak**: Su arıtma, dağıtım ve atık su işleme süreçlerinin toplam emisyonu
+- **Not**: Su tüketiminin karbon ayak izi, suyun arıtılması, pompalanması ve atık suyun işlenmesi süreçlerinden kaynaklanan enerji tüketimini içerir.
+
+#### 4. Atık Üretimi
+```
+CO₂e (kg) = Atık Miktarı (kg) × 1.9 kg CO₂e/kg
+```
+- **Emisyon Faktörü**: 1.9 kg CO₂e/kg
+- **Kaynak**: Atık toplama, taşıma ve bertaraf süreçlerinin ortalama emisyonu
+- **Not**: Bu değer, atığın toplanması, taşınması ve bertaraf edilmesi süreçlerinden kaynaklanan emisyonları içerir.
+
+### Toplam Günlük Emisyon
+```
+Toplam CO₂e (kg/gün) = Elektrik Emisyonu + Yakıt Emisyonu + Su Emisyonu + Atık Emisyonu
+```
+
+### Normal Değerler (Referans)
+- **Dünya Ortalaması**: ~4.1 kg CO₂e/gün (kişi başı)
+- **Türkiye Ortalaması**: ~6.8 kg CO₂e/gün (kişi başı)
+- **ABD Ortalaması**: ~15.5 kg CO₂e/gün (kişi başı)
+- **Avrupa Ortalaması**: ~8-9 kg CO₂e/gün (kişi başı)
+
+### Veri Kaynakları ve Doğruluk
+- Emisyon faktörleri, IPCC (Intergovernmental Panel on Climate Change) standartları ve ulusal enerji istatistikleri temel alınarak belirlenmiştir.
+- Elektrik emisyon faktörü, Türkiye'nin güncel elektrik üretim karışımına göre güncellenebilir.
+- Hesaplamalar, kullanıcıların günlük tüketim verilerine dayanmaktadır ve gerçek zamanlı IoT sensör verileri ile desteklenebilir.
+
+## Ülke Verileri ve Grafik Karşılaştırması
+
+### Veri Kaynağı: Our World in Data (OWID)
+
+Uygulama, grafiklerde gösterilen ülke karşılaştırma verilerini **Our World in Data (OWID)** platformundan çekmektedir. Bu platform, dünya genelinde karbon emisyon verilerini açık kaynak olarak sağlamaktadır.
+
+#### Veri Çekme Yöntemi
+- **API Endpoint**: `https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.json`
+- **Veri Formatı**: JSON
+- **Güncelleme**: Veriler düzenli olarak güncellenmektedir
+- **API Key Gereksinimi**: Yok (açık kaynak veri)
+
+#### Desteklenen Ülkeler
+Uygulama şu ülkelerin verilerini grafikte gösterir:
+- **Türkiye** (TUR) - ISO 3166-1 alpha-3 kodu
+- **ABD** (USA)
+- **Çin** (CHN)
+- **Almanya** (DEU)
+- **Fransa** (FRA)
+- **İngiltere** (GBR)
+
+#### Veri İşleme Süreci
+
+1. **Veri Çekme**: 
+   - Her ülke için ISO 3166-1 alpha-3 formatında ülke kodu kullanılarak veri çekilir
+   - Yıllık CO₂ emisyon verileri (ton CO₂e/yıl) alınır
+
+2. **Dönüştürme**:
+   - Yıllık veriler, kişi başı günlük değerlere dönüştürülür:
+   ```
+   Günlük Emisyon (kg CO₂e/gün) = (Yıllık Emisyon (ton/yıl) × 1000) / 365
+   ```
+   - Son 7 yılın verileri kullanılarak trend oluşturulur
+
+3. **Normalizasyon**:
+   - Ülke verileri kişi başı değerler olarak hesaplanır (`co2_per_capita`)
+   - Kullanıcı verileri ile karşılaştırılabilir hale getirilir
+   - Grafikte görünürlük için ölçeklendirme uygulanır (kullanıcı verileri çok yüksekse)
+
+4. **Hata Yönetimi**:
+   - API'den veri çekilemezse veya veri geçersizse, placeholder (tahmini) veriler kullanılır
+   - Placeholder veriler, ülkelere göre ortalama kişi başı günlük emisyon değerlerine dayanır:
+     - Türkiye: 4.2 kg/gün
+     - ABD: 15.5 kg/gün
+     - Çin: 7.4 kg/gün
+     - Almanya: 8.9 kg/gün
+     - Fransa: 8.0 kg/gün
+     - İngiltere: 7.8 kg/gün
+
+#### Grafik Gösterimi
+
+- **Kullanıcı Verileri**: Koyu yeşil çizgi ile gösterilir (gerçek zamanlı veya manuel giriş)
+- **Ülke Verileri**: Farklı renklerle gösterilir:
+  - Türkiye: Mavi
+  - ABD: Kırmızı
+  - Çin: Turuncu
+  - Almanya: Sarı
+  - Fransa: Mor
+  - İngiltere: Teal (turkuaz)
+
+- **Veri Kaynağı Göstergesi**:
+  - ✅ Yeşil işaret: Gerçek veri (API'den başarıyla yüklendi)
+  - ⚠️ Turuncu işaret: Tahmini veri (placeholder, API'den yüklenemedi)
+
+#### Ölçeklendirme ve Görünürlük
+
+Kullanıcı verileri ile ülke verileri arasında büyük fark olduğunda (örneğin kullanıcı verileri 900+ kg/gün, ülke verileri 4-15 kg/gün), ülke verileri grafikte görünür olması için ölçeklendirilir:
+- Ülke verileri, kullanıcı max değerinin %15'ine ölçeklendirilir
+- Her ülke çizgisi, görünürlük için farklı yükseklik offset'i ile ayrılır
+- Bu sayede tüm ülke çizgileri grafikte ayırt edilebilir şekilde görüntülenir
+
+### Veri Doğruluğu ve Güncellik
+
+- **Our World in Data** verileri, dünya genelinde kabul görmüş ve güvenilir kaynaklardan toplanmaktadır
+- Veriler düzenli olarak güncellenmektedir
+- Yıllık veriler, en son mevcut yıl için sağlanmaktadır
+- Kişi başı değerler, ülke nüfus verileri ile hesaplanmaktadır
+
 ## Önemli Notlar
 
 ### Yapılandırma

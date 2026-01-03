@@ -40,9 +40,109 @@ class ShellyData {
   });
 
   /// JSON'dan ShellyData oluştur
+  /// Hem klasik Shelly formatını hem de Gen2 (Plus) formatını destekler
   factory ShellyData.fromJson(
       Map<String, dynamic> json, String deviceIp, String deviceId) {
-    // Shelly API yanıt yapısına göre parse et
+    // Gen2 (Plus) formatını kontrol et
+    // 1. Önce direkt Gen2 formatını kontrol et (Switch.GetStatus yanıtı)
+    if (json.containsKey('output') && json.containsKey('apower')) {
+      // Relay durumu
+      final isOn = json['output'] == true;
+      
+      // Güç tüketimi (apower = anlık güç, Watt)
+      final powerWatt = (json['apower'] ?? 0.0).toDouble();
+      
+      // Voltaj
+      final voltage = (json['voltage'] ?? 0.0).toDouble();
+      
+      // Akım
+      final current = (json['current'] ?? 0.0).toDouble();
+      
+      // Enerji tüketimi (aenergy.total = toplam enerji, Wh cinsinden)
+      final aenergy = json['aenergy'] as Map<String, dynamic>?;
+      final energyKwh = aenergy != null && aenergy['total'] != null
+          ? (aenergy['total'] as num).toDouble() / 1000.0 // Wh'den kWh'ye çevir
+          : 0.0;
+      
+      // Sıcaklık (temperature.tC)
+      final tempData = json['temperature'] as Map<String, dynamic>?;
+      final temperature = tempData != null && tempData['tC'] != null
+          ? (tempData['tC'] as num).toDouble()
+          : null;
+
+      return ShellyData(
+        powerWatt: powerWatt,
+        energyKwh: energyKwh,
+        voltage: voltage,
+        current: current,
+        isOn: isOn,
+        temperature: temperature,
+        deviceIp: deviceIp,
+        deviceId: deviceId,
+        timestamp: DateTime.now(),
+      );
+    }
+    
+    // 2. switch:0 objesi içinde Gen2 formatını kontrol et
+    if (json.containsKey('switch:0')) {
+      final switchData = json['switch:0'] as Map<String, dynamic>;
+      
+      // Relay durumu
+      final isOn = switchData['output'] == true;
+      
+      // Güç tüketimi (apower = anlık güç, Watt)
+      final powerWatt = (switchData['apower'] ?? 0.0).toDouble();
+      
+      // Voltaj
+      final voltage = (switchData['voltage'] ?? 0.0).toDouble();
+      
+      // Akım
+      final current = (switchData['current'] ?? 0.0).toDouble();
+      
+      // Enerji tüketimi (aenergy.total = toplam enerji, Wh cinsinden)
+      final aenergy = switchData['aenergy'] as Map<String, dynamic>?;
+      final energyKwh = aenergy != null && aenergy['total'] != null
+          ? (aenergy['total'] as num).toDouble() / 1000.0 // Wh'den kWh'ye çevir
+          : 0.0;
+      
+      // Sıcaklık (temperature.tC)
+      final tempData = switchData['temperature'] as Map<String, dynamic>?;
+      final temperature = tempData != null && tempData['tC'] != null
+          ? (tempData['tC'] as num).toDouble()
+          : null;
+
+      return ShellyData(
+        powerWatt: powerWatt,
+        energyKwh: energyKwh,
+        voltage: voltage,
+        current: current,
+        isOn: isOn,
+        temperature: temperature,
+        deviceIp: deviceIp,
+        deviceId: deviceId,
+        timestamp: DateTime.now(),
+      );
+    }
+    
+    // 3. /relay/0 endpoint formatı (sadece relay durumu, enerji verileri yok)
+    if (json.containsKey('ison') && !json.containsKey('apower') && !json.containsKey('power')) {
+      // Bu sadece relay durumu, enerji verileri yok
+      // Varsayılan değerlerle döndür (enerji verileri için /rpc kullanılmalı)
+      // Not: debugPrint kullanılamaz çünkü bu bir model sınıfı, loglama servis katmanında yapılmalı
+      return ShellyData(
+        powerWatt: 0.0,
+        energyKwh: 0.0,
+        voltage: 0.0,
+        current: 0.0,
+        isOn: json['ison'] == true,
+        temperature: null,
+        deviceIp: deviceIp,
+        deviceId: deviceId,
+        timestamp: DateTime.now(),
+      );
+    }
+    
+    // Klasik Shelly formatı (relays ve meters)
     final relays = json['relays'] as List?;
     final meters = json['meters'] as List?;
 

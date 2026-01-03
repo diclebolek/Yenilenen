@@ -388,15 +388,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _initializeShelly() async {
+    debugPrint('🔌 Shelly başlatılıyor... IP: 192.168.137.57');
     _apiService.initializeShelly(
-      deviceIp: '192.168.137.232',
+      deviceIp: '192.168.137.57',
       deviceId: _shellyDeviceId,
     );
     try {
+      debugPrint('📡 Shelly verisi çekiliyor...');
       await _apiService.getShellyData(saveToFirebase: true);
+      debugPrint('✅ Shelly verisi başarıyla alındı!');
     } catch (e) {
       // Hata olsa bile devam et
-      debugPrint('Shelly bağlantı hatası: $e');
+      debugPrint('❌ Shelly bağlantı hatası: $e');
+      debugPrint('🔍 Bağlantı kontrolü yapılıyor...');
+      try {
+        final connected = await _apiService.checkShellyConnection();
+        if (connected) {
+          debugPrint('✅ Bağlantı başarılı ama veri çekilemedi. Tekrar denenecek...');
+        } else {
+          debugPrint('❌ Shelly cihazına bağlanılamadı!');
+          debugPrint('📋 Kontrol listesi:');
+          debugPrint('   1. IP adresi doğru mu? (192.168.137.57)');
+          debugPrint('   2. Cihaz aynı WiFi ağında mı?');
+          debugPrint('   3. Cihaz çalışıyor mu? (LED ışığı yanıyor mu?)');
+          debugPrint('   4. Firewall/Antivirus engelliyor olabilir');
+          debugPrint('   5. Tarayıcıda http://192.168.137.57/status adresini açmayı deneyin');
+        }
+      } catch (checkError) {
+        debugPrint('❌ Bağlantı kontrolü hatası: $checkError');
+      }
     }
   }
 
@@ -1224,16 +1244,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     ];
 
                                                     // Debug: Değerleri logla
-                                                    final userMax =
-                                                        normalizedData
-                                                                .isNotEmpty
-                                                            ? normalizedData
-                                                                .reduce((a,
-                                                                        b) =>
-                                                                    a > b
-                                                                        ? a
-                                                                        : b)
-                                                            : 0.0;
+                                                      final userMax =
+                                                          normalizedData
+                                                                  .isNotEmpty
+                                                              ? normalizedData
+                                                                  .reduce((a,
+                                                                          b) =>
+                                                                      a > b
+                                                                          ? a
+                                                                          : b)
+                                                              : 0.0;
                                                     final userMin = normalizedData
                                                             .isNotEmpty
                                                         ? normalizedData
@@ -1287,7 +1307,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     // Kullanıcı verilerinin max değerini kullan, ama çok yüksekse sınırla
                                                     double maxY;
                                                     if (allValues.isEmpty ||
-                                                        allValues.every(
+                                                            allValues.every(
                                                             (e) => e == 0)) {
                                                       maxY = 10;
                                                     } else {
@@ -1322,38 +1342,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     return SizedBox(
                                                       height: 200,
                                                       child: LineChart(
-                                                        LineChartData(
-                                                          lineTouchData:
-                                                              LineTouchData(
-                                                            enabled: true,
-                                                            touchTooltipData:
-                                                                LineTouchTooltipData(
+                                                              LineChartData(
+                                                                lineTouchData:
+                                                                    LineTouchData(
+                                                                  enabled: true,
+                                                                  touchTooltipData:
+                                                                      LineTouchTooltipData(
                                                               getTooltipItems: (List<
                                                                       LineBarSpot>
-                                                                  touchedSpots) {
-                                                                return touchedSpots.map(
-                                                                    (LineBarSpot
-                                                                        touchedSpot) {
-                                                                  // Her çizgi için tooltip oluştur
-                                                                  final lineIndex =
+                                                                            touchedSpots) {
+                                                                      return touchedSpots.map(
+                                                                          (LineBarSpot
+                                                                              touchedSpot) {
+                                                                        // Her çizgi için tooltip oluştur
+                                                                        final lineIndex =
                                                                       touchedSpot
                                                                           .barIndex;
                                                                   String label;
                                                                   Color color;
 
-                                                                  if (lineIndex ==
-                                                                      0) {
-                                                                    // Kullanıcının kendi verisi
-                                                                    label =
-                                                                        'Sizin Verileriniz';
+                                                                        if (lineIndex ==
+                                                                            0) {
+                                                                          // Kullanıcının kendi verisi
+                                                                          label =
+                                                                              'Sizin Verileriniz';
                                                                     color = const Color(
                                                                         0xFF304411);
-                                                                  } else {
-                                                                    // Ülke verileri
+                                                                        } else {
+                                                                          // Ülke verileri
                                                                     final countryNames =
                                                                         _countryTrends
-                                                                            .keys
-                                                                            .toList();
+                                                                              .keys
+                                                                              .toList();
                                                                     if (lineIndex -
                                                                             1 <
                                                                         countryNames
@@ -1364,312 +1384,312 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                       color = _getCountryColor(countryNames[
                                                                           lineIndex -
                                                                               1]);
-                                                                    } else {
-                                                                      label =
-                                                                          'Veri';
+                                                                          } else {
+                                                                            label =
+                                                                                'Veri';
                                                                       color = Colors
                                                                           .grey;
-                                                                    }
-                                                                  }
+                                                                          }
+                                                                        }
 
-                                                                  // Tooltip içeriğini kısalt - daha kompakt göster
+                                                                        // Tooltip içeriğini kısalt - daha kompakt göster
                                                                   final value =
                                                                       touchedSpot
-                                                                          .y
+                                                                            .y
                                                                           .toStringAsFixed(
                                                                               1);
-                                                                  return LineTooltipItem(
-                                                                    '$label: $value',
-                                                                    TextStyle(
-                                                                      color:
-                                                                          color,
-                                                                      fontWeight:
+                                                                        return LineTooltipItem(
+                                                                          '$label: $value',
+                                                                          TextStyle(
+                                                                            color:
+                                                                                color,
+                                                                            fontWeight:
                                                                           FontWeight
                                                                               .bold,
-                                                                      fontSize:
-                                                                          11,
-                                                                    ),
-                                                                  );
-                                                                }).toList();
-                                                              },
-                                                              tooltipBgColor: Colors
-                                                                  .black
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.95),
-                                                              tooltipRoundedRadius:
-                                                                  8,
+                                                                            fontSize:
+                                                                                11,
+                                                                          ),
+                                                                        );
+                                                                      }).toList();
+                                                                    },
+                                                                    tooltipBgColor: Colors
+                                                                        .black
+                                                                        .withValues(
+                                                                            alpha:
+                                                                                0.95),
+                                                                    tooltipRoundedRadius:
+                                                                        8,
                                                               tooltipPadding:
                                                                   const EdgeInsets
-                                                                      .symmetric(
-                                                                      horizontal:
-                                                                          10,
-                                                                      vertical:
-                                                                          8),
+                                                                        .symmetric(
+                                                                        horizontal:
+                                                                            10,
+                                                                        vertical:
+                                                                            8),
                                                               tooltipMargin: 8,
-                                                            ),
-                                                            handleBuiltInTouches:
-                                                                true,
-                                                          ),
+                                                                  ),
+                                                                  handleBuiltInTouches:
+                                                                      true,
+                                                                ),
                                                           gridData: FlGridData(
-                                                            show: true,
-                                                            drawVerticalLine:
-                                                                true,
-                                                            horizontalInterval:
-                                                                maxY / 5,
+                                                                  show: true,
+                                                                  drawVerticalLine:
+                                                                      true,
+                                                                  horizontalInterval:
+                                                                      maxY / 5,
                                                             verticalInterval: 1,
-                                                            getDrawingHorizontalLine:
-                                                                (value) {
-                                                              return FlLine(
-                                                                color: Colors
-                                                                    .white
-                                                                    .withValues(
+                                                                  getDrawingHorizontalLine:
+                                                                      (value) {
+                                                                    return FlLine(
+                                                                      color: Colors
+                                                                          .white
+                                                                          .withValues(
                                                                   alpha: 0.1,
-                                                                ),
+                                                                      ),
                                                                 strokeWidth: 1,
-                                                              );
-                                                            },
-                                                            getDrawingVerticalLine:
-                                                                (value) {
-                                                              return FlLine(
-                                                                color: Colors
-                                                                    .white
-                                                                    .withValues(
+                                                                    );
+                                                                  },
+                                                                  getDrawingVerticalLine:
+                                                                      (value) {
+                                                                    return FlLine(
+                                                                      color: Colors
+                                                                          .white
+                                                                          .withValues(
                                                                   alpha: 0.1,
-                                                                ),
+                                                                      ),
                                                                 strokeWidth: 1,
-                                                              );
-                                                            },
-                                                          ),
-                                                          titlesData:
-                                                              FlTitlesData(
-                                                            show: true,
-                                                            rightTitles:
-                                                                const AxisTitles(
-                                                              sideTitles:
-                                                                  SideTitles(
-                                                                showTitles:
-                                                                    false,
-                                                              ),
-                                                            ),
-                                                            topTitles:
-                                                                const AxisTitles(
-                                                              sideTitles:
-                                                                  SideTitles(
-                                                                showTitles:
-                                                                    false,
-                                                              ),
-                                                            ),
-                                                            bottomTitles:
-                                                                AxisTitles(
-                                                              sideTitles:
-                                                                  SideTitles(
-                                                                showTitles:
-                                                                    true,
-                                                                reservedSize:
-                                                                    30,
+                                                                    );
+                                                                  },
+                                                                ),
+                                                                titlesData:
+                                                                    FlTitlesData(
+                                                                  show: true,
+                                                                  rightTitles:
+                                                                      const AxisTitles(
+                                                                    sideTitles:
+                                                                        SideTitles(
+                                                                      showTitles:
+                                                                          false,
+                                                                    ),
+                                                                  ),
+                                                                  topTitles:
+                                                                      const AxisTitles(
+                                                                    sideTitles:
+                                                                        SideTitles(
+                                                                      showTitles:
+                                                                          false,
+                                                                    ),
+                                                                  ),
+                                                                  bottomTitles:
+                                                                      AxisTitles(
+                                                                    sideTitles:
+                                                                        SideTitles(
+                                                                      showTitles:
+                                                                          true,
+                                                                      reservedSize:
+                                                                          30,
                                                                 interval: 1,
-                                                                getTitlesWidget:
-                                                                    (
+                                                                      getTitlesWidget:
+                                                                          (
                                                                   double value,
-                                                                  TitleMeta
-                                                                      meta,
-                                                                ) {
-                                                                  const style =
-                                                                      TextStyle(
+                                                                        TitleMeta
+                                                                            meta,
+                                                                      ) {
+                                                                        const style =
+                                                                            TextStyle(
                                                                     color: Colors
                                                                         .white,
-                                                                    fontWeight:
+                                                                          fontWeight:
                                                                         FontWeight
                                                                             .bold,
-                                                                    fontSize:
-                                                                        12,
-                                                                  );
+                                                                          fontSize:
+                                                                              12,
+                                                                        );
                                                                   Widget text;
                                                                   switch (value
                                                                       .toInt()) {
-                                                                    case 0:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'mon',
-                                                                          locale,
-                                                                        ),
+                                                                          case 0:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'mon',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    case 1:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'tue',
-                                                                          locale,
-                                                                        ),
+                                                                            );
+                                                                            break;
+                                                                          case 1:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'tue',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    case 2:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'wed',
-                                                                          locale,
-                                                                        ),
+                                                                            );
+                                                                            break;
+                                                                          case 2:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'wed',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    case 3:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'thu',
-                                                                          locale,
-                                                                        ),
+                                                                            );
+                                                                            break;
+                                                                          case 3:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'thu',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    case 4:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'fri',
-                                                                          locale,
-                                                                        ),
+                                                                            );
+                                                                            break;
+                                                                          case 4:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'fri',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    case 5:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'sat',
-                                                                          locale,
-                                                                        ),
+                                                                            );
+                                                                            break;
+                                                                          case 5:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'sat',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    case 6:
-                                                                      text =
-                                                                          Text(
-                                                                        translate(
-                                                                          'sun',
-                                                                          locale,
-                                                                        ),
+                                                                            );
+                                                                            break;
+                                                                          case 6:
+                                                                            text =
+                                                                                Text(
+                                                                              translate(
+                                                                                'sun',
+                                                                                locale,
+                                                                              ),
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                    default:
-                                                                      text =
-                                                                          const Text(
-                                                                        '',
+                                                                            );
+                                                                            break;
+                                                                          default:
+                                                                            text =
+                                                                                const Text(
+                                                                              '',
                                                                         style:
                                                                             style,
-                                                                      );
-                                                                      break;
-                                                                  }
-                                                                  return SideTitleWidget(
+                                                                            );
+                                                                            break;
+                                                                        }
+                                                                        return SideTitleWidget(
                                                                     axisSide: meta
                                                                         .axisSide,
                                                                     space: 8,
                                                                     child: text,
-                                                                  );
-                                                                },
-                                                              ),
-                                                            ),
-                                                            leftTitles:
-                                                                AxisTitles(
-                                                              sideTitles:
-                                                                  SideTitles(
-                                                                showTitles:
-                                                                    true,
-                                                                interval:
+                                                                        );
+                                                                      },
+                                                                    ),
+                                                                  ),
+                                                                  leftTitles:
+                                                                      AxisTitles(
+                                                                    sideTitles:
+                                                                        SideTitles(
+                                                                      showTitles:
+                                                                          true,
+                                                                      interval:
                                                                     maxY / 5,
-                                                                getTitlesWidget:
-                                                                    (
+                                                                      getTitlesWidget:
+                                                                          (
                                                                   double value,
-                                                                  TitleMeta
-                                                                      meta,
-                                                                ) {
+                                                                        TitleMeta
+                                                                            meta,
+                                                                      ) {
                                                                   String label;
-                                                                  if (_showGlobalTrend &&
-                                                                      maxY >
-                                                                          1000) {
-                                                                    // Milyar kg cinsinden göster
-                                                                    label =
-                                                                        '${(value / 1000000000).toStringAsFixed(1)}B';
-                                                                  } else {
-                                                                    label =
-                                                                        '${value.toInt()}';
-                                                                  }
-                                                                  return Padding(
-                                                                    padding: const EdgeInsets
-                                                                        .only(
+                                                                        if (_showGlobalTrend &&
+                                                                            maxY >
+                                                                                1000) {
+                                                                          // Milyar kg cinsinden göster
+                                                                          label =
+                                                                              '${(value / 1000000000).toStringAsFixed(1)}B';
+                                                                        } else {
+                                                                          label =
+                                                                              '${value.toInt()}';
+                                                                        }
+                                                                        return Padding(
+                                                                          padding: const EdgeInsets
+                                                                              .only(
                                                                         right:
                                                                             8),
                                                                     child: Text(
-                                                                      label,
-                                                                      style:
-                                                                          const TextStyle(
+                                                                            label,
+                                                                            style:
+                                                                                const TextStyle(
                                                                         color: Colors
                                                                             .white,
                                                                         fontWeight:
                                                                             FontWeight.bold,
                                                                         fontSize:
                                                                             12,
-                                                                        shadows: [
-                                                                          Shadow(
+                                                                              shadows: [
+                                                                                Shadow(
                                                                             color:
                                                                                 Colors.black,
                                                                             blurRadius:
                                                                                 3,
                                                                             offset:
                                                                                 Offset(1, 1),
-                                                                          ),
-                                                                        ],
-                                                                      ),
-                                                                      textAlign:
+                                                                                ),
+                                                                              ],
+                                                                            ),
+                                                                            textAlign:
                                                                           TextAlign
                                                                               .right,
+                                                                          ),
+                                                                        );
+                                                                      },
+                                                                      reservedSize:
+                                                                          50,
                                                                     ),
-                                                                  );
-                                                                },
-                                                                reservedSize:
-                                                                    50,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                          borderData:
-                                                              FlBorderData(
-                                                            show: true,
+                                                                  ),
+                                                                ),
+                                                                borderData:
+                                                                    FlBorderData(
+                                                                  show: true,
                                                             border: Border.all(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.2),
-                                                            ),
-                                                          ),
-                                                          minX: 0,
-                                                          maxX: 6,
-                                                          minY: 0,
+                                                                    color: Colors
+                                                                        .white
+                                                                        .withValues(
+                                                                            alpha:
+                                                                                0.2),
+                                                                  ),
+                                                                ),
+                                                                minX: 0,
+                                                                maxX: 6,
+                                                                minY: 0,
                                                           maxY: maxY.toDouble(),
-                                                          lineBarsData: [
-                                                            // Kullanıcının kendi verileri (ana çizgi)
-                                                            LineChartBarData(
+                                                                lineBarsData: [
+                                                                  // Kullanıcının kendi verileri (ana çizgi)
+                                                                  LineChartBarData(
                                                               spots:
                                                                   List.generate(
-                                                                7,
-                                                                (index) =>
-                                                                    FlSpot(
-                                                                  index
-                                                                      .toDouble(),
+                                                                      7,
+                                                                      (index) =>
+                                                                          FlSpot(
+                                                                        index
+                                                                            .toDouble(),
                                                                   normalizedData
                                                                               .isNotEmpty &&
                                                                           index <
@@ -1679,77 +1699,77 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                           0.0,
                                                                           double
                                                                               .infinity)
-                                                                      : 0.0,
-                                                                ),
-                                                              ),
+                                                                            : 0.0,
+                                                                      ),
+                                                                    ),
                                                               isCurved: true,
-                                                              gradient:
-                                                                  const LinearGradient(
-                                                                colors: [
-                                                                  Color(
-                                                                      0xFF304411),
-                                                                  Color(
-                                                                      0xFF48631F),
-                                                                ],
-                                                              ),
-                                                              barWidth: 3,
-                                                              isStrokeCapRound:
-                                                                  true,
-                                                              dotData:
-                                                                  FlDotData(
+                                                                    gradient:
+                                                                        const LinearGradient(
+                                                                      colors: [
+                                                                        Color(
+                                                                            0xFF304411),
+                                                                        Color(
+                                                                            0xFF48631F),
+                                                                      ],
+                                                                    ),
+                                                                    barWidth: 3,
+                                                                    isStrokeCapRound:
+                                                                        true,
+                                                                    dotData:
+                                                                        FlDotData(
                                                                 show: true,
                                                                 getDotPainter: (
-                                                                  spot,
-                                                                  percent,
-                                                                  barData,
-                                                                  index,
-                                                                ) {
-                                                                  return FlDotCirclePainter(
+                                                                        spot,
+                                                                        percent,
+                                                                        barData,
+                                                                        index,
+                                                                      ) {
+                                                                        return FlDotCirclePainter(
                                                                     radius: 4,
-                                                                    color:
-                                                                        const Color(
-                                                                      0xFF304411,
-                                                                    ),
-                                                                    strokeWidth:
-                                                                        2,
-                                                                    strokeColor:
+                                                                          color:
+                                                                              const Color(
+                                                                            0xFF304411,
+                                                                          ),
+                                                                          strokeWidth:
+                                                                              2,
+                                                                          strokeColor:
                                                                         Colors
                                                                             .white,
-                                                                  );
-                                                                },
-                                                              ),
-                                                              belowBarData:
-                                                                  BarAreaData(
+                                                                        );
+                                                                      },
+                                                                    ),
+                                                                    belowBarData:
+                                                                        BarAreaData(
                                                                 show: true,
-                                                                gradient:
-                                                                    LinearGradient(
-                                                                  colors: [
-                                                                    const Color(
-                                                                      0xFF304411,
-                                                                    ).withValues(
-                                                                      alpha:
-                                                                          0.3,
+                                                                      gradient:
+                                                                          LinearGradient(
+                                                                        colors: [
+                                                                          const Color(
+                                                                            0xFF304411,
+                                                                          ).withValues(
+                                                                            alpha:
+                                                                                0.3,
+                                                                          ),
+                                                                          const Color(
+                                                                            0xFF48631F,
+                                                                          ).withValues(
+                                                                            alpha:
+                                                                                0.1,
+                                                                          ),
+                                                                        ],
+                                                                        begin: Alignment
+                                                                            .topCenter,
+                                                                        end: Alignment
+                                                                            .bottomCenter,
+                                                                      ),
                                                                     ),
-                                                                    const Color(
-                                                                      0xFF48631F,
-                                                                    ).withValues(
-                                                                      alpha:
-                                                                          0.1,
-                                                                    ),
-                                                                  ],
-                                                                  begin: Alignment
-                                                                      .topCenter,
-                                                                  end: Alignment
-                                                                      .bottomCenter,
-                                                                ),
-                                                              ),
-                                                            ),
-                                                            // Ülke karşılaştırma çizgileri
-                                                            if (_showCountryComparison &&
-                                                                !_showGlobalTrend)
-                                                              ..._buildCountryLines(
-                                                                  normalizedData,
-                                                                  maxY.toDouble()),
+                                                                  ),
+                                                                  // Ülke karşılaştırma çizgileri
+                                                                  if (_showCountryComparison &&
+                                                                      !_showGlobalTrend)
+                                                                    ..._buildCountryLines(
+                                                                        normalizedData,
+                                                                        maxY.toDouble()),
                                                           ],
                                                         ),
                                                       ),

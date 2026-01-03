@@ -46,6 +46,16 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
       child: Card(
         color: cardColor,
         surfaceTintColor: cardColor,
+        elevation: widget.isSelected ? 8 : 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: widget.isSelected
+              ? BorderSide(
+                  color: colorScheme.onPrimary.withValues(alpha: 0.6),
+                  width: 2.5,
+                )
+              : BorderSide.none,
+        ),
         child: InkWell(
           onTap: _toggle,
           borderRadius: BorderRadius.circular(16),
@@ -58,6 +68,9 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                   widget.frontTitle,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: colorScheme.onPrimary,
+                        fontWeight: widget.isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                       ),
                 ),
                 const SizedBox(height: 6),

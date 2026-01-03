@@ -445,11 +445,9 @@ class _LoginScreenState extends State<LoginScreen>
                                                     style: ElevatedButton
                                                         .styleFrom(
                                                       backgroundColor: Colors
-                                                          .white, // Her zaman beyaz
-                                                      foregroundColor: Theme.of(
-                                                              context)
-                                                          .colorScheme
-                                                          .primary, // Metin mavi
+                                                          .black, // Her zaman siyah
+                                                      foregroundColor: Colors
+                                                          .white, // Metin beyaz
                                                       padding: EdgeInsets.zero,
                                                       shape:
                                                           RoundedRectangleBorder(
@@ -457,6 +455,17 @@ class _LoginScreenState extends State<LoginScreen>
                                                             BorderRadius
                                                                 .circular(
                                                           12,
+                                                        ),
+                                                        side: BorderSide(
+                                                          color: _fillAnimation
+                                                                      .value >
+                                                                  0
+                                                              ? Colors.blue
+                                                              : Theme.of(
+                                                                  context,
+                                                                ).colorScheme
+                                                                    .primary,
+                                                          width: 2,
                                                         ),
                                                       ),
                                                       elevation: 8,
@@ -489,15 +498,8 @@ class _LoginScreenState extends State<LoginScreen>
                                                               fontWeight:
                                                                   FontWeight
                                                                       .w600,
-                                                              // Metin rengi: su doldukça beyaz, değilse mavi
-                                                              color: _fillAnimation
-                                                                          .value >
-                                                                      0.4
-                                                                  ? Colors.white
-                                                                  : Theme.of(
-                                                                          context)
-                                                                      .colorScheme
-                                                                      .primary,
+                                                              // Metin rengi: her zaman beyaz
+                                                              color: Colors.white,
                                                             ),
                                                           ),
                                                   ),

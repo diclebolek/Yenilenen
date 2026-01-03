@@ -95,9 +95,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // Sayfa değiştiyse güncelle (threshold çok düşük - her değişikliği yakala)
       if ((currentPage - _currentPage).abs() > 0.001) {
         if (mounted) {
-          setState(() {
+        setState(() {
             _currentPage = currentPage;
-          });
+        });
         }
       }
     };
@@ -172,11 +172,11 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
           try {
             // Her zaman bir sonraki sayfaya geç (döngüsel)
-            _tipsControllerWeb!.animateToPage(
+              _tipsControllerWeb!.animateToPage(
               nextPage,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
             debugPrint('🔄 Otomatik kaydırma (Web): $currentPage -> $nextPage');
           } catch (e) {
             // Controller henüz hazır değilse hata verme
@@ -199,7 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeShelly() async {
     // ⚠️ KENDİ IP ADRESİNİZİ YAZIN!
     _apiService.initializeShelly(
-      deviceIp: '192.168.137.232', // 👈 Shelly cihazınızın IP adresi
+      deviceIp: '192.168.137.57', // 👈 Shelly cihazınızın IP adresi
       deviceId: _shellyDeviceId,
     );
 
@@ -218,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final connected = await _apiService.checkShellyConnection();
         if (!connected) {
           debugPrint('⚠️ Shelly cihazına bağlanılamadı. Lütfen kontrol edin:');
-          debugPrint('1. IP adresi doğru mu? (192.168.137.232)');
+          debugPrint('1. IP adresi doğru mu? (192.168.137.57)');
           debugPrint('2. AYNI WiFi AĞINDA OLMASI GEREKEN CİHAZLAR:');
           debugPrint('   - Shelly Plus S Plug cihazı');
           debugPrint('   - Uygulamayı çalıştıran cihaz (telefon/bilgisayar)');
