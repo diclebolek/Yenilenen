@@ -493,7 +493,7 @@ class _LoginScreenState extends State<LoginScreen>
                                                         : Text(
                                                             translate('login',
                                                                 locale),
-                                                            style: TextStyle(
+                                                            style: const TextStyle(
                                                               fontSize: 16,
                                                               fontWeight:
                                                                   FontWeight

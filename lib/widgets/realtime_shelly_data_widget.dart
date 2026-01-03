@@ -231,6 +231,46 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                         fontSize: 12,
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    // Yenileme butonu
+                    IconButton(
+                      onPressed: () async {
+                        try {
+                          await widget.apiService.getShellyData(
+                            saveToFirebase: true,
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Veri yenilendi!'),
+                                backgroundColor: Colors.green,
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            String errorMessage = 'Shelly bağlantı hatası: $e';
+                            if (e.toString().contains('TimeoutException')) {
+                              errorMessage = 'Zaman aşımı! Lütfen kontrol edin:\n'
+                                  '• IP adresi doğru mu?\n'
+                                  '• Aynı WiFi ağında mı?\n'
+                                  '• Cihaz çalışıyor mu?';
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(errorMessage),
+                                backgroundColor: Colors.red,
+                                duration: const Duration(seconds: 5),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.refresh),
+                      color: Colors.white,
+                      tooltip: 'Yenile',
+                    ),
                   ],
                 ),
                 Divider(color: Colors.white.withValues(alpha: 0.3)),
@@ -290,10 +330,17 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                     ElevatedButton.icon(
                       onPressed: () async {
                         try {
+                          // Cihazı aç/kapat
                           final newState =
                               await widget.apiService.setShellyRelayState(
                             turn: data.isOn ? 'off' : 'on',
                           );
+                          
+                          // Durum değişikliğinden sonra veriyi yenile
+                          await widget.apiService.getShellyData(
+                            saveToFirebase: true,
+                          );
+                          
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -301,15 +348,24 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                                   newState ? 'Cihaz açıldı' : 'Cihaz kapatıldı',
                                 ),
                                 backgroundColor: Colors.green,
+                                duration: const Duration(seconds: 2),
                               ),
                             );
                           }
                         } catch (e) {
                           if (context.mounted) {
+                            String errorMessage = 'Hata: $e';
+                            if (e.toString().contains('TimeoutException')) {
+                              errorMessage = 'Zaman aşımı! Lütfen kontrol edin:\n'
+                                  '• IP adresi doğru mu?\n'
+                                  '• Aynı WiFi ağında mı?\n'
+                                  '• Cihaz çalışıyor mu?';
+                            }
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('Hata: $e'),
+                                content: Text(errorMessage),
                                 backgroundColor: Colors.red,
+                                duration: const Duration(seconds: 5),
                               ),
                             );
                           }

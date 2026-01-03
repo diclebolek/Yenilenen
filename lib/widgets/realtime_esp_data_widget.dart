@@ -158,14 +158,6 @@ class RealtimeEspDataWidget extends StatelessWidget {
                 Divider(color: Colors.white.withValues(alpha: 0.3)),
                 const SizedBox(height: 8),
                 _DataRow(
-                  icon: Icons.bolt,
-                  label: 'Elektrik',
-                  value: '${data.electricityKwh.toStringAsFixed(2)} kWh',
-                  color: Colors.amber,
-                  isDarkBackground: true,
-                ),
-                const SizedBox(height: 12),
-                _DataRow(
                   icon: Icons.water_drop,
                   label: 'Su',
                   value: data.waterCubicMeters < 0.01

@@ -29,7 +29,8 @@ enum _InputMode { none, manual, raspberry }
 class _ReportsScreenState extends State<ReportsScreen> {
   double? _lastCalculatedKgCo2e;
   double? _manualCalculatedKgCo2e; // Manuel hesaplama sonucu
-  double? _espCalculatedKgCo2e; // ESP hesaplama sonucu
+  ConsumptionEntry? _espEntry; // ESP ham verisi (su+gaz için)
+  ConsumptionEntry? _shellyEntry; // Shelly ham verisi (elektrik için)
   bool _useEspData = false; // Gauge'da ESP verisi mi gösterilecek?
   _InputMode _selectedMode = _InputMode.none;
   final FirebaseRealtimeService _firebaseService =
@@ -43,6 +44,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   };
   bool _isLoadingTrends = false;
   StreamSubscription<ConsumptionEntry?>? _espDataSubscription;
+  StreamSubscription<ShellyData?>? _shellyDataSubscription;
   final ApiService _apiService = ApiService();
   final String _shellyDeviceId = 'shelly_plug_001';
   final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
@@ -52,7 +54,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Map<String, List<double>> _countryTrends = {};
   // Her ülke için veri kaynağını takip et (true = gerçek veri, false = placeholder)
   Map<String, bool> _countryDataSources = {};
-  bool _showCountryComparison = true; // Ülke karşılaştırması gösterilsin mi?
+  final bool _showCountryComparison =
+      true; // Ülke karşılaştırması gösterilsin mi?
 
   @override
   void initState() {
@@ -68,6 +71,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _listenToEspData();
     // Shelly'yi başlat
     _initializeShelly();
+    // Shelly verilerini real-time dinle ve otomatik güncelle
+    _listenToShellyData();
   }
 
   /// Ülke verilerini yükle (karşılaştırma için)
@@ -254,13 +259,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
         '📊 Normalizasyon: userMax=$userMax, userAvg=$userAvg, countryMax=$countryMax, scaleFactor=$scaleFactor');
 
     // Her ülke için farklı bir yükseklik offset'i belirle (çizgilerin üst üste binmemesi için)
+    // maxY'ye göre offset hesapla - böylece çizgiler daha iyi ayrılır
+    final baseOffset = maxY * 0.08; // maxY'nin %8'i kadar base offset
     final countryOffsets = {
       'Türkiye': 0.0,
-      'ABD': userMax * 0.02, // Kullanıcı max'inin %2'si kadar yukarı
-      'Çin': userMax * 0.04, // Kullanıcı max'inin %4'ü kadar yukarı
-      'Almanya': userMax * 0.06, // Kullanıcı max'inin %6'sı kadar yukarı
-      'Fransa': userMax * 0.08, // Kullanıcı max'inin %8'i kadar yukarı
-      'İngiltere': userMax * 0.10, // Kullanıcı max'inin %10'u kadar yukarı
+      'ABD': baseOffset * 1.0, // maxY'nin %8'i kadar yukarı
+      'Çin': baseOffset * 2.0, // maxY'nin %16'sı kadar yukarı
+      'Almanya': baseOffset * 3.0, // maxY'nin %24'ü kadar yukarı
+      'Fransa': baseOffset * 4.0, // maxY'nin %32'si kadar yukarı
+      'İngiltere': baseOffset * 5.0, // maxY'nin %40'ı kadar yukarı
     };
 
     // Her ülke için bir çizgi oluştur
@@ -404,7 +411,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       try {
         final connected = await _apiService.checkShellyConnection();
         if (connected) {
-          debugPrint('✅ Bağlantı başarılı ama veri çekilemedi. Tekrar denenecek...');
+          debugPrint(
+              '✅ Bağlantı başarılı ama veri çekilemedi. Tekrar denenecek...');
         } else {
           debugPrint('❌ Shelly cihazına bağlanılamadı!');
           debugPrint('📋 Kontrol listesi:');
@@ -412,7 +420,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
           debugPrint('   2. Cihaz aynı WiFi ağında mı?');
           debugPrint('   3. Cihaz çalışıyor mu? (LED ışığı yanıyor mu?)');
           debugPrint('   4. Firewall/Antivirus engelliyor olabilir');
-          debugPrint('   5. Tarayıcıda http://192.168.137.57/status adresini açmayı deneyin');
+          debugPrint(
+              '   5. Tarayıcıda http://192.168.137.57/status adresini açmayı deneyin');
         }
       } catch (checkError) {
         debugPrint('❌ Bağlantı kontrolü hatası: $checkError');
@@ -423,6 +432,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void dispose() {
     _espDataSubscription?.cancel();
+    _shellyDataSubscription?.cancel();
     super.dispose();
   }
 
@@ -432,17 +442,86 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _espDataSubscription =
         _firebaseService.listenToEsp8266Data('esp8266_001').listen((entry) {
       if (entry != null && mounted) {
-        // ESP'den gelen verilerle emisyonu hesapla
-        final emission = Calculation.calculateDailyEmission(entry);
+        // ESP ham verisini sakla (su+gaz için)
         setState(() {
-          _espCalculatedKgCo2e = emission;
-          // Eğer ESP verisi seçiliyse, gauge'ı güncelle
+          _espEntry = entry;
+          // Eğer ESP verisi seçiliyse, Shelly elektrik + ESP su+gaz toplamını göster
           if (_useEspData) {
-            _lastCalculatedKgCo2e = emission;
+            _updateCombinedEmission();
           }
         });
       }
     });
+  }
+
+  /// Shelly verilerini real-time dinle ve emisyonu otomatik hesapla
+  void _listenToShellyData() {
+    _shellyDataSubscription?.cancel(); // Önceki subscription'ı iptal et
+    _shellyDataSubscription = _apiService
+        .listenToFirebaseShellyData(_shellyDeviceId)
+        .listen((shellyData) {
+      if (shellyData != null && mounted) {
+        // Shelly verilerini ConsumptionEntry'ye dönüştür
+        final entry = _apiService.shellyDataToConsumptionEntry(shellyData);
+        // Shelly ham verisini sakla (elektrik için)
+        setState(() {
+          _shellyEntry = entry;
+          // Eğer ESP verisi seçiliyse, Shelly elektrik + ESP su+gaz toplamını göster
+          if (_useEspData) {
+            _updateCombinedEmission();
+          }
+        });
+      }
+    });
+  }
+
+  /// ESP ve Shelly verilerini topla ve gauge'ı güncelle
+  /// ESP toggle açıkken: Shelly'den sadece elektrik, ESP'den sadece su+gaz
+  void _updateCombinedEmission() {
+    double totalEmission = 0.0;
+
+    // Shelly'den sadece elektrik emisyonu (Shelly sadece elektrik ölçüyor)
+    if (_shellyEntry != null) {
+      final electricityEmission =
+          _shellyEntry!.electricityKwh * Calculation.factorElectricityKgPerKwh;
+      totalEmission += electricityEmission;
+      debugPrint(
+        '📊 Shelly Elektrik: ${_shellyEntry!.electricityKwh.toStringAsFixed(2)} kWh × ${Calculation.factorElectricityKgPerKwh} = ${electricityEmission.toStringAsFixed(2)} kg CO2e',
+      );
+    }
+
+    // ESP'den sadece su+gaz emisyonu (elektrik ve atık hariç)
+    if (_espEntry != null) {
+      final waterEmission =
+          _espEntry!.waterCubicMeters * Calculation.factorWaterKgPerM3;
+      final fuelEmission =
+          _espEntry!.fuelLiters * Calculation.factorFuelKgPerLiter;
+      final espWaterGasEmission = waterEmission + fuelEmission;
+      totalEmission += espWaterGasEmission;
+      debugPrint(
+        '📊 ESP Su+Gaz: Su=${_espEntry!.waterCubicMeters.toStringAsFixed(2)} m³ × ${Calculation.factorWaterKgPerM3} = ${waterEmission.toStringAsFixed(2)} kg, Gaz=${_espEntry!.fuelLiters.toStringAsFixed(2)} L × ${Calculation.factorFuelKgPerLiter} = ${fuelEmission.toStringAsFixed(2)} kg, Toplam=${espWaterGasEmission.toStringAsFixed(2)} kg CO2e',
+      );
+    }
+
+    // Toplam emisyonu gauge'a aktar
+    _lastCalculatedKgCo2e = totalEmission > 0 ? totalEmission : null;
+
+    // Grafikteki bugünün değerini (son gün, index 6) anlık hesaplanan değerle güncelle
+    if (mounted &&
+        _lastCalculatedKgCo2e != null &&
+        _dailyEmissions.length == 7) {
+      setState(() {
+        // Bugünün değerini anlık hesaplanan değerle güncelle (son gün = index 6)
+        _dailyEmissions[6] = _lastCalculatedKgCo2e!;
+        debugPrint(
+          '📊 Grafikteki bugünün değeri güncellendi: ${_lastCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
+        );
+      });
+    }
+
+    debugPrint(
+      '📊 Anlık CO2 Hesaplaması (Toggle ESP): Shelly Elektrik + ESP Su+Gaz = ${totalEmission.toStringAsFixed(2)} kg CO2e',
+    );
   }
 
   /// Son 7 günün verilerini Firebase'den çek ve grafik için hazırla
@@ -637,7 +716,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             // En son kaydı kullan (daha yeni tarihli olan)
             if (entry.createdAt.isAfter(existing.createdAt)) {
               debugPrint(
-                  '📅 Gün ${dayIndex} için daha yeni veri bulundu, güncelleniyor:');
+                  '📅 Gün $dayIndex için daha yeni veri bulundu, güncelleniyor:');
               debugPrint(
                   '   Eski: E=${existing.electricityKwh.toStringAsFixed(2)} kWh, Y=${existing.fuelLiters.toStringAsFixed(2)} L, S=${existing.waterCubicMeters.toStringAsFixed(2)} m³');
               debugPrint(
@@ -646,7 +725,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               dailyData[dayIndex] = entry; // En son veriyi kullan
             } else {
               debugPrint(
-                  '📅 Gün ${dayIndex} için mevcut veri daha güncel, korunuyor');
+                  '📅 Gün $dayIndex için mevcut veri daha güncel, korunuyor');
             }
           } else {
             // İlk veri, direkt ekle
@@ -654,7 +733,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             dailyDataCount[dayIndex] = 1;
             dailyDataSources[dayIndex] = [source];
             debugPrint(
-                '📅 Gün ${dayIndex} için ilk veri eklendi: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³ (Kaynak: $source)');
+                '📅 Gün $dayIndex için ilk veri eklendi: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³ (Kaynak: $source)');
           }
         }
       }
@@ -665,7 +744,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final sources = dailyDataSources[day] ?? [];
         final entry = dailyData[day]!;
         final emission = Calculation.calculateDailyEmission(entry);
-        debugPrint('📅 Gün ${day} (${6 - day} gün önce):');
+        debugPrint('📅 Gün $day (${6 - day} gün önce):');
         debugPrint('   Kayıt sayısı: $count');
         debugPrint('   Kaynaklar: ${sources.join(", ")}');
         debugPrint(
@@ -705,6 +784,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       double totalElectricity = 0;
       double totalGas = 0;
       double totalWater = 0;
+      double totalWaste = 0;
 
       for (int i = 6; i >= 0; i--) {
         // En eski günden en yeni güne (Pazartesi'den Pazar'a)
@@ -742,6 +822,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             totalGas += entry.fuelLiters * Calculation.factorFuelKgPerLiter;
             totalWater +=
                 entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
+            totalWaste += entry.wasteKg * Calculation.factorWasteKgPerKg;
           }
         } else {
           emissions.add(0.0);
@@ -749,7 +830,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
 
       // Kategori yüzdelerini hesapla
-      final double totalEmission = totalElectricity + totalGas + totalWater;
+      final double totalEmission =
+          totalElectricity + totalGas + totalWater + totalWaste;
 
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
@@ -764,6 +846,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         double electricityPercent = (totalElectricity / totalEmission * 100);
         double gasPercent = (totalGas / totalEmission * 100);
         double waterPercent = (totalWater / totalEmission * 100);
+        double wastePercent = (totalWaste / totalEmission * 100);
 
         // Eğer bir kategori 0 ise, minimum %2 göster (görünürlük için)
         // Diğer kategorilerden orantılı olarak azalt
@@ -785,6 +868,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
           zeroCount++;
         } else {
           nonZeroTotal += gasPercent;
+        }
+        if (wastePercent == 0) {
+          zeroCount++;
+        } else {
+          nonZeroTotal += wastePercent;
         }
 
         if (zeroCount > 0 && nonZeroTotal > 0) {
@@ -810,6 +898,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           } else {
             gasPercent = minPercent;
           }
+
+          if (wastePercent > 0) {
+            wastePercent = (wastePercent / nonZeroTotal) * remaining;
+          } else {
+            wastePercent = minPercent;
+          }
         }
 
         setState(() {
@@ -818,7 +912,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             'electricity': electricityPercent,
             'gas': gasPercent,
             'water': waterPercent,
-            'waste': 0.0,
+            'waste': wastePercent,
           };
           // ESP verilerinden hesaplanan bugünün toplam emisyonunu gauge'a aktar
           _lastCalculatedKgCo2e =
@@ -826,14 +920,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
           _isLoadingTrends = false;
         });
       } else {
-        // Veri olmadığında bile grafiği göstermek için eşit dağılım göster (3 kategori)
+        // Veri olmadığında bile grafiği göstermek için eşit dağılım göster (4 kategori)
         setState(() {
           _dailyEmissions = emissions;
           _categoryDistribution = {
-            'electricity': 33.33,
-            'gas': 33.33,
-            'water': 33.34,
-            'waste': 0.0,
+            'electricity': 25.0,
+            'gas': 25.0,
+            'water': 25.0,
+            'waste': 25.0,
           };
           // Veri yoksa bugünün emisyonunu da sıfırla
           _lastCalculatedKgCo2e =
@@ -900,6 +994,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         maxWidth: isWide ? 900 : double.infinity,
                       ),
                       child: ListView(
+                        clipBehavior: Clip.none,
                         padding: listViewPadding, // Üst padding azaltıldı
                         children: [
                           // Üst alan: artık arka plan tüm sayfada, burada görsel yer tutucu ve ölçerin konumlandırılması var
@@ -924,11 +1019,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                         _useEspData = value;
                                         // Toggle değiştiğinde gösterilecek veriyi güncelle
                                         if (value) {
-                                          _lastCalculatedKgCo2e =
-                                              _espCalculatedKgCo2e;
+                                          // ESP verisi seçildiğinde ESP + Shelly toplamını göster
+                                          _updateCombinedEmission();
                                         } else {
+                                          // Manuel veri seçildiğinde manuel hesaplamayı göster
                                           _lastCalculatedKgCo2e =
                                               _manualCalculatedKgCo2e;
+                                          // Grafikteki bugünün değerini de güncelle
+                                          if (_manualCalculatedKgCo2e != null &&
+                                              _dailyEmissions.length == 7) {
+                                            _dailyEmissions[6] =
+                                                _manualCalculatedKgCo2e!;
+                                            debugPrint(
+                                              '📊 Toggle Manuel: Grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
+                                            );
+                                          }
                                         }
                                       });
                                     },
@@ -938,8 +1043,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ],
                           ),
                           SizedBox(
-                            height: gaugeSize / 3 + 16,
-                          ), // Daha az boşluk - widget yukarıda olduğu için
+                            height: gaugeSize / 3 + 24,
+                          ), // Gauge'ın altındaki toggle için yeterli boşluk
                           // Mode selector buttons
                           Row(
                             children: [
@@ -1031,6 +1136,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                           // Eğer manuel veri seçiliyse, gauge'ı güncelle
                                           if (!_useEspData) {
                                             _lastCalculatedKgCo2e = valueKgCo2e;
+                                            // Grafikteki bugünün değerini de güncelle
+                                            if (_dailyEmissions.length == 7) {
+                                              _dailyEmissions[6] = valueKgCo2e;
+                                              debugPrint(
+                                                '📊 Manuel hesaplama: Grafikteki bugünün değeri güncellendi: ${valueKgCo2e.toStringAsFixed(2)} kg CO2e',
+                                              );
+                                            }
                                           }
                                         });
                                       },
@@ -1097,41 +1209,801 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ),
                           ],
                           const SizedBox(height: 16),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                              child: Container(
-                                color: Colors.black.withValues(alpha: 0.28),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: BackdropFilter(
+                                  filter:
+                                      ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Stack(
+                                        clipBehavior: Clip.none,
                                         children: [
-                                          Text(
-                                            _showGlobalTrend
-                                                ? translate(
-                                                    'global_trend', locale)
-                                                : translate(
-                                                    'daily_trends', locale),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium
-                                                ?.copyWith(color: Colors.white),
-                                          ),
-                                          Row(
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    _showGlobalTrend
+                                                        ? translate(
+                                                            'global_trend',
+                                                            locale)
+                                                        : translate(
+                                                            'daily_trends',
+                                                            locale),
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .titleMedium
+                                                        ?.copyWith(
+                                                            color:
+                                                                Colors.white),
+                                                  ),
+                                                  Row(
+                                                    children: [
+                                                      // Yenile butonu - toggle'ın solunda
+                                                      IconButton(
+                                                        onPressed: () {
+                                                          if (_showGlobalTrend) {
+                                                            _loadGlobalTrendData();
+                                                          } else {
+                                                            _loadTrendData();
+                                                          }
+                                                        },
+                                                        icon: const Icon(
+                                                          Icons.refresh,
+                                                          size: 20,
+                                                        ),
+                                                        color: Colors.white70,
+                                                        tooltip: translate(
+                                                            'refresh', locale),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        _showGlobalTrend
+                                                            ? translate(
+                                                                'global_trend',
+                                                                locale)
+                                                            : translate(
+                                                                'personal_trend',
+                                                                locale),
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .bodySmall
+                                                            ?.copyWith(
+                                                              color: Colors
+                                                                  .white
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.7),
+                                                            ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Switch(
+                                                        value: _showGlobalTrend,
+                                                        onChanged: (value) {
+                                                          setState(() {
+                                                            _showGlobalTrend =
+                                                                value;
+                                                          });
+                                                        },
+                                                        activeThumbColor:
+                                                            Colors.green,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 16),
+                                              // Çizgi grafiği
+                                              _isLoadingTrends
+                                                  ? const SizedBox(
+                                                      height: 200,
+                                                      child: Center(
+                                                        child:
+                                                            CircularProgressIndicator(),
+                                                      ),
+                                                    )
+                                                  : (_showGlobalTrend
+                                                                  ? _globalDailyTrends
+                                                                  : _dailyEmissions)
+                                                              .isEmpty ||
+                                                          (_showGlobalTrend
+                                                                  ? _globalDailyTrends
+                                                                  : _dailyEmissions)
+                                                              .every(
+                                                                  (e) => e == 0)
+                                                      ? SizedBox(
+                                                          height: 200,
+                                                          child: Center(
+                                                            child: Text(
+                                                              translate(
+                                                                  'no_data_available',
+                                                                  locale),
+                                                              style: Theme.of(
+                                                                      context)
+                                                                  .textTheme
+                                                                  .bodyMedium
+                                                                  ?.copyWith(
+                                                                    color: Colors
+                                                                        .white
+                                                                        .withValues(
+                                                                      alpha:
+                                                                          0.7,
+                                                                    ),
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                        )
+                                                      : Builder(
+                                                          builder: (context) {
+                                                            // Toggle'a göre veri seç
+                                                            final currentData =
+                                                                _showGlobalTrend
+                                                                    ? _globalDailyTrends
+                                                                    : _dailyEmissions;
+
+                                                            // Dünya geneli veriler çok büyük, normalize et
+                                                            // Kişisel verilerle karşılaştırılabilir hale getir
+                                                            List<double>
+                                                                normalizedData;
+
+                                                            if (_showGlobalTrend) {
+                                                              // Dünya geneli verileri normalize et
+                                                              // Ortalama kişi başı günlük emisyon: ~4.5 kg
+                                                              // Dünya nüfusu: ~8 milyar
+                                                              // Toplam: ~36 milyar kg/gün
+                                                              // Bu değerleri kişisel verilerle karşılaştırmak için
+                                                              // milyar kg cinsinden gösterelim veya normalize edelim
+                                                              final maxValue =
+                                                                  currentData.reduce((a,
+                                                                          b) =>
+                                                                      a > b
+                                                                          ? a
+                                                                          : b);
+                                                              // Eğer çok büyükse (milyar kg), normalize et
+                                                              if (maxValue >
+                                                                  1000000) {
+                                                                // Milyar kg cinsinden göster
+                                                                normalizedData =
+                                                                    currentData
+                                                                        .map((e) =>
+                                                                            e /
+                                                                            1000000000)
+                                                                        .toList();
+                                                              } else {
+                                                                normalizedData =
+                                                                    currentData;
+                                                              }
+                                                            } else {
+                                                              // Kişisel veriler: Bugünün anlık hesaplanan değerini ekle
+                                                              normalizedData =
+                                                                  List.from(
+                                                                      currentData);
+                                                              // Bugünün değerini (son gün, index 6) toggle durumuna göre güncelle
+                                                              // ESP toggle açıksa: ESP+Shelly toplamı, değilse: Manuel hesaplama
+                                                              double?
+                                                                  todayValue;
+                                                              if (_useEspData) {
+                                                                // ESP verisi seçiliyse: ESP+Shelly toplamı
+                                                                todayValue =
+                                                                    _lastCalculatedKgCo2e;
+                                                              } else {
+                                                                // Manuel veri seçiliyse: Manuel hesaplama
+                                                                todayValue =
+                                                                    _manualCalculatedKgCo2e;
+                                                              }
+
+                                                              if (todayValue !=
+                                                                      null &&
+                                                                  normalizedData
+                                                                          .length ==
+                                                                      7) {
+                                                                normalizedData[
+                                                                        6] =
+                                                                    todayValue;
+                                                                debugPrint(
+                                                                  '📊 Grafik verisi güncellendi: Bugünün değeri ${normalizedData[6].toStringAsFixed(2)} kg CO2e (${_useEspData ? "ESP+Shelly" : "Manuel"}: ${todayValue.toStringAsFixed(2)} kg)',
+                                                                );
+                                                              }
+                                                            }
+
+                                                            // Maksimum değeri hesapla (kullanıcı + ülke verileri)
+                                                            final allValues = [
+                                                              ...normalizedData,
+                                                              if (_showCountryComparison &&
+                                                                  !_showGlobalTrend)
+                                                                ..._countryTrends
+                                                                    .values
+                                                                    .expand(
+                                                                        (e) =>
+                                                                            e),
+                                                            ];
+
+                                                            // Debug: Değerleri logla
+                                                            final userMax = normalizedData
+                                                                    .isNotEmpty
+                                                                ? normalizedData
+                                                                    .reduce((a,
+                                                                            b) =>
+                                                                        a > b
+                                                                            ? a
+                                                                            : b)
+                                                                : 0.0;
+                                                            final userMin = normalizedData
+                                                                    .isNotEmpty
+                                                                ? normalizedData
+                                                                    .where(
+                                                                        (e) =>
+                                                                            e >
+                                                                            0)
+                                                                    .fold(
+                                                                        double
+                                                                            .infinity,
+                                                                        (a, b) => a <
+                                                                                b
+                                                                            ? a
+                                                                            : b)
+                                                                : 0.0;
+                                                            final userAvg = normalizedData
+                                                                    .isNotEmpty
+                                                                ? normalizedData
+                                                                        .reduce((a,
+                                                                                b) =>
+                                                                            a +
+                                                                            b) /
+                                                                    normalizedData
+                                                                        .length
+                                                                : 0.0;
+
+                                                            debugPrint(
+                                                                '📊 Kullanıcı Verileri Analizi:');
+                                                            debugPrint(
+                                                                '   Min: ${userMin.toStringAsFixed(2)} kg CO2e');
+                                                            debugPrint(
+                                                                '   Max: ${userMax.toStringAsFixed(2)} kg CO2e');
+                                                            debugPrint(
+                                                                '   Ortalama: ${userAvg.toStringAsFixed(2)} kg CO2e');
+                                                            debugPrint(
+                                                                '   Tüm değerler: ${normalizedData.map((e) => e.toStringAsFixed(2)).join(", ")}');
+
+                                                            if (_showCountryComparison &&
+                                                                !_showGlobalTrend &&
+                                                                _countryTrends
+                                                                    .isNotEmpty) {
+                                                              final countryMax =
+                                                                  _countryTrends
+                                                                      .values
+                                                                      .expand(
+                                                                          (e) =>
+                                                                              e)
+                                                                      .fold(
+                                                                          0.0,
+                                                                          (a, b) => a > b
+                                                                              ? a
+                                                                              : b);
+                                                              debugPrint(
+                                                                  '📈 Ülke max: $countryMax kg CO2e');
+                                                            }
+
+                                                            // Grafik ölçeğini hesapla
+                                                            // Kullanıcı verilerinin max değerini kullan, ama çok yüksekse sınırla
+                                                            double maxY;
+                                                            if (allValues
+                                                                    .isEmpty ||
+                                                                allValues.every(
+                                                                    (e) =>
+                                                                        e ==
+                                                                        0)) {
+                                                              maxY = 10;
+                                                            } else {
+                                                              final maxValue =
+                                                                  allValues.reduce((a,
+                                                                          b) =>
+                                                                      a > b
+                                                                          ? a
+                                                                          : b);
+
+                                                              // Eğer max değer çok yüksekse (100+ kg), grafik ölçeğini optimize et
+                                                              if (maxValue >
+                                                                  100) {
+                                                                // Çok yüksek değerler için daha iyi ölçeklendirme
+                                                                // Max değerin %15'i kadar padding ekle (daha az padding)
+                                                                maxY = (maxValue *
+                                                                        1.15)
+                                                                    .clamp(
+                                                                        1.0,
+                                                                        double
+                                                                            .infinity);
+                                                                debugPrint(
+                                                                    '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), ölçek optimize edildi: maxY=$maxY');
+                                                              } else {
+                                                                // Normal değerler için standart padding (%20)
+                                                                maxY = (maxValue *
+                                                                        1.2)
+                                                                    .clamp(
+                                                                        1.0,
+                                                                        double
+                                                                            .infinity);
+                                                              }
+                                                            }
+
+                                                            debugPrint(
+                                                                '📈 Grafik maxY: $maxY (kullanıcı verileri: ${normalizedData.length} nokta)');
+
+                                                            return Stack(
+                                                              clipBehavior:
+                                                                  Clip.none,
+                                                              children: [
+                                                                SizedBox(
+                                                                  height: 200,
+                                                                  child:
+                                                                      LineChart(
+                                                                    LineChartData(
+                                                                      lineTouchData:
+                                                                          LineTouchData(
+                                                                        enabled:
+                                                                            true,
+                                                                        touchTooltipData:
+                                                                            LineTouchTooltipData(
+                                                                          getTooltipItems:
+                                                                              (List<LineBarSpot> touchedSpots) {
+                                                                            return touchedSpots.map((LineBarSpot
+                                                                                touchedSpot) {
+                                                                              // Her çizgi için tooltip oluştur
+                                                                              final lineIndex = touchedSpot.barIndex;
+                                                                              String label;
+                                                                              Color color;
+
+                                                                              if (lineIndex == 0) {
+                                                                                // Kullanıcının kendi verisi
+                                                                                label = 'Sizin Verileriniz';
+                                                                                color = const Color(0xFF304411);
+                                                                              } else {
+                                                                                // Ülke verileri
+                                                                                final countryNames = _countryTrends.keys.toList();
+                                                                                if (lineIndex - 1 < countryNames.length) {
+                                                                                  label = countryNames[lineIndex - 1];
+                                                                                  color = _getCountryColor(countryNames[lineIndex - 1]);
+                                                                                } else {
+                                                                                  label = 'Veri';
+                                                                                  color = Colors.grey;
+                                                                                }
+                                                                              }
+
+                                                                              // Tooltip içeriğini kısalt - daha kompakt göster
+                                                                              final value = touchedSpot.y.toStringAsFixed(1);
+                                                                              return LineTooltipItem(
+                                                                                '$label: $value',
+                                                                                TextStyle(
+                                                                                  color: color,
+                                                                                  fontWeight: FontWeight.bold,
+                                                                                  fontSize: 11,
+                                                                                ),
+                                                                              );
+                                                                            }).toList();
+                                                                          },
+                                                                          tooltipBgColor: Colors
+                                                                              .black
+                                                                              .withValues(alpha: 0.95),
+                                                                          tooltipRoundedRadius:
+                                                                              8,
+                                                                          tooltipPadding: const EdgeInsets
+                                                                              .symmetric(
+                                                                              horizontal: 12,
+                                                                              vertical: 10),
+                                                                          tooltipMargin:
+                                                                              0, // Margin'i kaldır - container dışına çıkabilmesi için
+                                                                          fitInsideHorizontally:
+                                                                              false, // Tooltip container dışına çıkabilsin
+                                                                          fitInsideVertically:
+                                                                              false, // Tooltip container dışına çıkabilsin
+                                                                        ),
+                                                                        handleBuiltInTouches:
+                                                                            true,
+                                                                      ),
+                                                                      gridData:
+                                                                          FlGridData(
+                                                                        show:
+                                                                            true,
+                                                                        drawVerticalLine:
+                                                                            true,
+                                                                        horizontalInterval:
+                                                                            maxY /
+                                                                                5,
+                                                                        verticalInterval:
+                                                                            1,
+                                                                        getDrawingHorizontalLine:
+                                                                            (value) {
+                                                                          return FlLine(
+                                                                            color:
+                                                                                Colors.white.withValues(
+                                                                              alpha: 0.1,
+                                                                            ),
+                                                                            strokeWidth:
+                                                                                1,
+                                                                          );
+                                                                        },
+                                                                        getDrawingVerticalLine:
+                                                                            (value) {
+                                                                          return FlLine(
+                                                                            color:
+                                                                                Colors.white.withValues(
+                                                                              alpha: 0.1,
+                                                                            ),
+                                                                            strokeWidth:
+                                                                                1,
+                                                                          );
+                                                                        },
+                                                                      ),
+                                                                      titlesData:
+                                                                          FlTitlesData(
+                                                                        show:
+                                                                            true,
+                                                                        rightTitles:
+                                                                            const AxisTitles(
+                                                                          sideTitles:
+                                                                              SideTitles(
+                                                                            showTitles:
+                                                                                false,
+                                                                          ),
+                                                                        ),
+                                                                        topTitles:
+                                                                            const AxisTitles(
+                                                                          sideTitles:
+                                                                              SideTitles(
+                                                                            showTitles:
+                                                                                false,
+                                                                          ),
+                                                                        ),
+                                                                        bottomTitles:
+                                                                            AxisTitles(
+                                                                          sideTitles:
+                                                                              SideTitles(
+                                                                            showTitles:
+                                                                                true,
+                                                                            reservedSize:
+                                                                                30,
+                                                                            interval:
+                                                                                1,
+                                                                            getTitlesWidget:
+                                                                                (
+                                                                              double value,
+                                                                              TitleMeta meta,
+                                                                            ) {
+                                                                              const style = TextStyle(
+                                                                                color: Colors.white,
+                                                                                fontWeight: FontWeight.bold,
+                                                                                fontSize: 12,
+                                                                              );
+                                                                              Widget text;
+                                                                              switch (value.toInt()) {
+                                                                                case 0:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'mon',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                case 1:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'tue',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                case 2:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'wed',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                case 3:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'thu',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                case 4:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'fri',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                case 5:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'sat',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                case 6:
+                                                                                  text = Text(
+                                                                                    translate(
+                                                                                      'sun',
+                                                                                      locale,
+                                                                                    ),
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                                default:
+                                                                                  text = const Text(
+                                                                                    '',
+                                                                                    style: style,
+                                                                                  );
+                                                                                  break;
+                                                                              }
+                                                                              return SideTitleWidget(
+                                                                                axisSide: meta.axisSide,
+                                                                                space: 8,
+                                                                                child: text,
+                                                                              );
+                                                                            },
+                                                                          ),
+                                                                        ),
+                                                                        leftTitles:
+                                                                            AxisTitles(
+                                                                          sideTitles:
+                                                                              SideTitles(
+                                                                            showTitles:
+                                                                                true,
+                                                                            interval:
+                                                                                maxY / 5,
+                                                                            getTitlesWidget:
+                                                                                (
+                                                                              double value,
+                                                                              TitleMeta meta,
+                                                                            ) {
+                                                                              String label;
+                                                                              if (_showGlobalTrend && maxY > 1000) {
+                                                                                // Milyar kg cinsinden göster
+                                                                                label = '${(value / 1000000000).toStringAsFixed(1)}B';
+                                                                              } else {
+                                                                                label = '${value.toInt()}';
+                                                                              }
+                                                                              return Padding(
+                                                                                padding: const EdgeInsets.only(right: 8),
+                                                                                child: Text(
+                                                                                  label,
+                                                                                  style: const TextStyle(
+                                                                                    color: Colors.white,
+                                                                                    fontWeight: FontWeight.bold,
+                                                                                    fontSize: 12,
+                                                                                    shadows: [
+                                                                                      Shadow(
+                                                                                        color: Colors.black,
+                                                                                        blurRadius: 3,
+                                                                                        offset: Offset(1, 1),
+                                                                                      ),
+                                                                                    ],
+                                                                                  ),
+                                                                                  textAlign: TextAlign.right,
+                                                                                ),
+                                                                              );
+                                                                            },
+                                                                            reservedSize:
+                                                                                50,
+                                                                          ),
+                                                                        ),
+                                                                      ),
+                                                                      borderData:
+                                                                          FlBorderData(
+                                                                        show:
+                                                                            true,
+                                                                        border:
+                                                                            Border.all(
+                                                                          color: Colors
+                                                                              .white
+                                                                              .withValues(alpha: 0.2),
+                                                                        ),
+                                                                      ),
+                                                                      minX: 0,
+                                                                      maxX: 6,
+                                                                      minY: 0,
+                                                                      maxY: maxY
+                                                                          .toDouble(),
+                                                                      lineBarsData: [
+                                                                        // Kullanıcının kendi verileri (ana çizgi)
+                                                                        LineChartBarData(
+                                                                          spots:
+                                                                              List.generate(
+                                                                            7,
+                                                                            (index) =>
+                                                                                FlSpot(
+                                                                              index.toDouble(),
+                                                                              normalizedData.isNotEmpty && index < normalizedData.length ? normalizedData[index].clamp(0.0, double.infinity) : 0.0,
+                                                                            ),
+                                                                          ),
+                                                                          isCurved:
+                                                                              true,
+                                                                          gradient:
+                                                                              const LinearGradient(
+                                                                            colors: [
+                                                                              Color(0xFF304411),
+                                                                              Color(0xFF48631F),
+                                                                            ],
+                                                                          ),
+                                                                          barWidth:
+                                                                              3,
+                                                                          isStrokeCapRound:
+                                                                              true,
+                                                                          dotData:
+                                                                              FlDotData(
+                                                                            show:
+                                                                                true,
+                                                                            getDotPainter:
+                                                                                (
+                                                                              spot,
+                                                                              percent,
+                                                                              barData,
+                                                                              index,
+                                                                            ) {
+                                                                              return FlDotCirclePainter(
+                                                                                radius: 4,
+                                                                                color: const Color(
+                                                                                  0xFF304411,
+                                                                                ),
+                                                                                strokeWidth: 2,
+                                                                                strokeColor: Colors.white,
+                                                                              );
+                                                                            },
+                                                                          ),
+                                                                          belowBarData:
+                                                                              BarAreaData(
+                                                                            show:
+                                                                                true,
+                                                                            gradient:
+                                                                                LinearGradient(
+                                                                              colors: [
+                                                                                const Color(
+                                                                                  0xFF304411,
+                                                                                ).withValues(
+                                                                                  alpha: 0.3,
+                                                                                ),
+                                                                                const Color(
+                                                                                  0xFF48631F,
+                                                                                ).withValues(
+                                                                                  alpha: 0.1,
+                                                                                ),
+                                                                              ],
+                                                                              begin: Alignment.topCenter,
+                                                                              end: Alignment.bottomCenter,
+                                                                            ),
+                                                                          ),
+                                                                        ),
+                                                                        // Ülke karşılaştırma çizgileri
+                                                                        if (_showCountryComparison &&
+                                                                            !_showGlobalTrend)
+                                                                          ..._buildCountryLines(
+                                                                              normalizedData,
+                                                                              maxY.toDouble()),
+                                                                      ],
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            );
+                                                          },
+                                                        ),
+                                              // Legend (açıklama) - ülke çizgileri için
+                                              if (_showCountryComparison &&
+                                                  !_showGlobalTrend &&
+                                                  _countryTrends.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 12, bottom: 8),
+                                                  child: Wrap(
+                                                    spacing: 16,
+                                                    runSpacing: 8,
+                                                    alignment:
+                                                        WrapAlignment.center,
+                                                    children: [
+                                                      // Kullanıcının kendi verisi
+                                                      _buildLegendItem(
+                                                        'Sizin Verileriniz',
+                                                        const Color(0xFF304411),
+                                                      ),
+                                                      // Ülke verileri
+                                                      ..._countryTrends.keys
+                                                          .map(
+                                                        (countryName) =>
+                                                            _buildLegendItem(
+                                                          countryName,
+                                                          _getCountryColor(
+                                                              countryName),
+                                                          isRealData:
+                                                              _countryDataSources[
+                                                                      countryName] ??
+                                                                  false,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              // Veri kaynağı açıklaması
+                                              if (_showCountryComparison &&
+                                                  !_showGlobalTrend &&
+                                                  _countryTrends.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 4, bottom: 8),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.check_circle,
+                                                        size: 10,
+                                                        color: Colors.green
+                                                            .withValues(
+                                                                alpha: 0.7),
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        'Gerçek Veri',
+                                                        style: TextStyle(
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                  alpha: 0.6),
+                                                          fontSize: 10,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 12),
+                                                      Icon(
+                                                        Icons.info_outline,
+                                                        size: 10,
+                                                        color: Colors.orange
+                                                            .withValues(
+                                                                alpha: 0.7),
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        'Tahmini Veri',
+                                                        style: TextStyle(
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                  alpha: 0.6),
+                                                          fontSize: 10,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              const SizedBox(height: 16),
                                               Text(
                                                 _showGlobalTrend
                                                     ? translate(
-                                                        'global_trend', locale)
+                                                        'global_trend_description',
+                                                        locale)
                                                     : translate(
-                                                        'personal_trend',
+                                                        'last_7_days_trend',
                                                         locale),
                                                 style: Theme.of(context)
                                                     .textTheme
@@ -1139,769 +2011,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     ?.copyWith(
                                                       color: Colors.white
                                                           .withValues(
-                                                              alpha: 0.7),
-                                                    ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Switch(
-                                                value: _showGlobalTrend,
-                                                onChanged: (value) {
-                                                  setState(() {
-                                                    _showGlobalTrend = value;
-                                                  });
-                                                },
-                                                activeThumbColor: Colors.green,
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 16),
-                                      // Çizgi grafiği
-                                      _isLoadingTrends
-                                          ? const SizedBox(
-                                              height: 200,
-                                              child: Center(
-                                                child:
-                                                    CircularProgressIndicator(),
-                                              ),
-                                            )
-                                          : (_showGlobalTrend
-                                                          ? _globalDailyTrends
-                                                          : _dailyEmissions)
-                                                      .isEmpty ||
-                                                  (_showGlobalTrend
-                                                          ? _globalDailyTrends
-                                                          : _dailyEmissions)
-                                                      .every((e) => e == 0)
-                                              ? SizedBox(
-                                                  height: 200,
-                                                  child: Center(
-                                                    child: Text(
-                                                      translate(
-                                                          'no_data_available',
-                                                          locale),
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .bodyMedium
-                                                          ?.copyWith(
-                                                            color: Colors.white
-                                                                .withValues(
-                                                              alpha: 0.7,
-                                                            ),
-                                                          ),
-                                                    ),
-                                                  ),
-                                                )
-                                              : Builder(
-                                                  builder: (context) {
-                                                    // Toggle'a göre veri seç
-                                                    final currentData =
-                                                        _showGlobalTrend
-                                                            ? _globalDailyTrends
-                                                            : _dailyEmissions;
-
-                                                    // Dünya geneli veriler çok büyük, normalize et
-                                                    // Kişisel verilerle karşılaştırılabilir hale getir
-                                                    List<double> normalizedData;
-
-                                                    if (_showGlobalTrend) {
-                                                      // Dünya geneli verileri normalize et
-                                                      // Ortalama kişi başı günlük emisyon: ~4.5 kg
-                                                      // Dünya nüfusu: ~8 milyar
-                                                      // Toplam: ~36 milyar kg/gün
-                                                      // Bu değerleri kişisel verilerle karşılaştırmak için
-                                                      // milyar kg cinsinden gösterelim veya normalize edelim
-                                                      final maxValue =
-                                                          currentData.reduce((a,
-                                                                  b) =>
-                                                              a > b ? a : b);
-                                                      // Eğer çok büyükse (milyar kg), normalize et
-                                                      if (maxValue > 1000000) {
-                                                        // Milyar kg cinsinden göster
-                                                        normalizedData =
-                                                            currentData
-                                                                .map((e) =>
-                                                                    e /
-                                                                    1000000000)
-                                                                .toList();
-                                                      } else {
-                                                        normalizedData =
-                                                            currentData;
-                                                      }
-                                                    } else {
-                                                      normalizedData =
-                                                          currentData;
-                                                    }
-
-                                                    // Maksimum değeri hesapla (kullanıcı + ülke verileri)
-                                                    final allValues = [
-                                                      ...normalizedData,
-                                                      if (_showCountryComparison &&
-                                                          !_showGlobalTrend)
-                                                        ..._countryTrends.values
-                                                            .expand((e) => e),
-                                                    ];
-
-                                                    // Debug: Değerleri logla
-                                                      final userMax =
-                                                          normalizedData
-                                                                  .isNotEmpty
-                                                              ? normalizedData
-                                                                  .reduce((a,
-                                                                          b) =>
-                                                                      a > b
-                                                                          ? a
-                                                                          : b)
-                                                              : 0.0;
-                                                    final userMin = normalizedData
-                                                            .isNotEmpty
-                                                        ? normalizedData
-                                                            .where((e) => e > 0)
-                                                            .fold(
-                                                                double.infinity,
-                                                                (a, b) => a < b
-                                                                    ? a
-                                                                    : b)
-                                                        : 0.0;
-                                                    final userAvg =
-                                                        normalizedData
-                                                                .isNotEmpty
-                                                            ? normalizedData
-                                                                    .reduce((a,
-                                                                            b) =>
-                                                                        a + b) /
-                                                                normalizedData
-                                                                    .length
-                                                            : 0.0;
-
-                                                    debugPrint(
-                                                        '📊 Kullanıcı Verileri Analizi:');
-                                                    debugPrint(
-                                                        '   Min: ${userMin.toStringAsFixed(2)} kg CO2e');
-                                                    debugPrint(
-                                                        '   Max: ${userMax.toStringAsFixed(2)} kg CO2e');
-                                                    debugPrint(
-                                                        '   Ortalama: ${userAvg.toStringAsFixed(2)} kg CO2e');
-                                                    debugPrint(
-                                                        '   Tüm değerler: ${normalizedData.map((e) => e.toStringAsFixed(2)).join(", ")}');
-
-                                                    if (_showCountryComparison &&
-                                                        !_showGlobalTrend &&
-                                                        _countryTrends
-                                                            .isNotEmpty) {
-                                                      final countryMax =
-                                                          _countryTrends.values
-                                                              .expand((e) => e)
-                                                              .fold(
-                                                                  0.0,
-                                                                  (a, b) =>
-                                                                      a > b
-                                                                          ? a
-                                                                          : b);
-                                                      debugPrint(
-                                                          '📈 Ülke max: $countryMax kg CO2e');
-                                                    }
-
-                                                    // Grafik ölçeğini hesapla
-                                                    // Kullanıcı verilerinin max değerini kullan, ama çok yüksekse sınırla
-                                                    double maxY;
-                                                    if (allValues.isEmpty ||
-                                                            allValues.every(
-                                                            (e) => e == 0)) {
-                                                      maxY = 10;
-                                                    } else {
-                                                      final maxValue = allValues
-                                                          .reduce((a, b) =>
-                                                              a > b ? a : b);
-
-                                                      // Eğer max değer çok yüksekse (100+ kg), grafik ölçeğini optimize et
-                                                      if (maxValue > 100) {
-                                                        // Çok yüksek değerler için daha iyi ölçeklendirme
-                                                        // Max değerin %15'i kadar padding ekle (daha az padding)
-                                                        maxY = (maxValue * 1.15)
-                                                            .clamp(
-                                                                1.0,
-                                                                double
-                                                                    .infinity);
-                                                        debugPrint(
-                                                            '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), ölçek optimize edildi: maxY=$maxY');
-                                                      } else {
-                                                        // Normal değerler için standart padding (%20)
-                                                        maxY = (maxValue * 1.2)
-                                                            .clamp(
-                                                                1.0,
-                                                                double
-                                                                    .infinity);
-                                                      }
-                                                    }
-
-                                                    debugPrint(
-                                                        '📈 Grafik maxY: $maxY (kullanıcı verileri: ${normalizedData.length} nokta)');
-
-                                                    return SizedBox(
-                                                      height: 200,
-                                                      child: LineChart(
-                                                              LineChartData(
-                                                                lineTouchData:
-                                                                    LineTouchData(
-                                                                  enabled: true,
-                                                                  touchTooltipData:
-                                                                      LineTouchTooltipData(
-                                                              getTooltipItems: (List<
-                                                                      LineBarSpot>
-                                                                            touchedSpots) {
-                                                                      return touchedSpots.map(
-                                                                          (LineBarSpot
-                                                                              touchedSpot) {
-                                                                        // Her çizgi için tooltip oluştur
-                                                                        final lineIndex =
-                                                                      touchedSpot
-                                                                          .barIndex;
-                                                                  String label;
-                                                                  Color color;
-
-                                                                        if (lineIndex ==
-                                                                            0) {
-                                                                          // Kullanıcının kendi verisi
-                                                                          label =
-                                                                              'Sizin Verileriniz';
-                                                                    color = const Color(
-                                                                        0xFF304411);
-                                                                        } else {
-                                                                          // Ülke verileri
-                                                                    final countryNames =
-                                                                        _countryTrends
-                                                                              .keys
-                                                                              .toList();
-                                                                    if (lineIndex -
-                                                                            1 <
-                                                                        countryNames
-                                                                            .length) {
-                                                                      label = countryNames[
-                                                                          lineIndex -
-                                                                              1];
-                                                                      color = _getCountryColor(countryNames[
-                                                                          lineIndex -
-                                                                              1]);
-                                                                          } else {
-                                                                            label =
-                                                                                'Veri';
-                                                                      color = Colors
-                                                                          .grey;
-                                                                          }
-                                                                        }
-
-                                                                        // Tooltip içeriğini kısalt - daha kompakt göster
-                                                                  final value =
-                                                                      touchedSpot
-                                                                            .y
-                                                                          .toStringAsFixed(
-                                                                              1);
-                                                                        return LineTooltipItem(
-                                                                          '$label: $value',
-                                                                          TextStyle(
-                                                                            color:
-                                                                                color,
-                                                                            fontWeight:
-                                                                          FontWeight
-                                                                              .bold,
-                                                                            fontSize:
-                                                                                11,
-                                                                          ),
-                                                                        );
-                                                                      }).toList();
-                                                                    },
-                                                                    tooltipBgColor: Colors
-                                                                        .black
-                                                                        .withValues(
-                                                                            alpha:
-                                                                                0.95),
-                                                                    tooltipRoundedRadius:
-                                                                        8,
-                                                              tooltipPadding:
-                                                                  const EdgeInsets
-                                                                        .symmetric(
-                                                                        horizontal:
-                                                                            10,
-                                                                        vertical:
-                                                                            8),
-                                                              tooltipMargin: 8,
-                                                                  ),
-                                                                  handleBuiltInTouches:
-                                                                      true,
-                                                                ),
-                                                          gridData: FlGridData(
-                                                                  show: true,
-                                                                  drawVerticalLine:
-                                                                      true,
-                                                                  horizontalInterval:
-                                                                      maxY / 5,
-                                                            verticalInterval: 1,
-                                                                  getDrawingHorizontalLine:
-                                                                      (value) {
-                                                                    return FlLine(
-                                                                      color: Colors
-                                                                          .white
-                                                                          .withValues(
-                                                                  alpha: 0.1,
-                                                                      ),
-                                                                strokeWidth: 1,
-                                                                    );
-                                                                  },
-                                                                  getDrawingVerticalLine:
-                                                                      (value) {
-                                                                    return FlLine(
-                                                                      color: Colors
-                                                                          .white
-                                                                          .withValues(
-                                                                  alpha: 0.1,
-                                                                      ),
-                                                                strokeWidth: 1,
-                                                                    );
-                                                                  },
-                                                                ),
-                                                                titlesData:
-                                                                    FlTitlesData(
-                                                                  show: true,
-                                                                  rightTitles:
-                                                                      const AxisTitles(
-                                                                    sideTitles:
-                                                                        SideTitles(
-                                                                      showTitles:
-                                                                          false,
-                                                                    ),
-                                                                  ),
-                                                                  topTitles:
-                                                                      const AxisTitles(
-                                                                    sideTitles:
-                                                                        SideTitles(
-                                                                      showTitles:
-                                                                          false,
-                                                                    ),
-                                                                  ),
-                                                                  bottomTitles:
-                                                                      AxisTitles(
-                                                                    sideTitles:
-                                                                        SideTitles(
-                                                                      showTitles:
-                                                                          true,
-                                                                      reservedSize:
-                                                                          30,
-                                                                interval: 1,
-                                                                      getTitlesWidget:
-                                                                          (
-                                                                  double value,
-                                                                        TitleMeta
-                                                                            meta,
-                                                                      ) {
-                                                                        const style =
-                                                                            TextStyle(
-                                                                    color: Colors
-                                                                        .white,
-                                                                          fontWeight:
-                                                                        FontWeight
-                                                                            .bold,
-                                                                          fontSize:
-                                                                              12,
-                                                                        );
-                                                                  Widget text;
-                                                                  switch (value
-                                                                      .toInt()) {
-                                                                          case 0:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'mon',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          case 1:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'tue',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          case 2:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'wed',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          case 3:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'thu',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          case 4:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'fri',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          case 5:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'sat',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          case 6:
-                                                                            text =
-                                                                                Text(
-                                                                              translate(
-                                                                                'sun',
-                                                                                locale,
-                                                                              ),
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                          default:
-                                                                            text =
-                                                                                const Text(
-                                                                              '',
-                                                                        style:
-                                                                            style,
-                                                                            );
-                                                                            break;
-                                                                        }
-                                                                        return SideTitleWidget(
-                                                                    axisSide: meta
-                                                                        .axisSide,
-                                                                    space: 8,
-                                                                    child: text,
-                                                                        );
-                                                                      },
-                                                                    ),
-                                                                  ),
-                                                                  leftTitles:
-                                                                      AxisTitles(
-                                                                    sideTitles:
-                                                                        SideTitles(
-                                                                      showTitles:
-                                                                          true,
-                                                                      interval:
-                                                                    maxY / 5,
-                                                                      getTitlesWidget:
-                                                                          (
-                                                                  double value,
-                                                                        TitleMeta
-                                                                            meta,
-                                                                      ) {
-                                                                  String label;
-                                                                        if (_showGlobalTrend &&
-                                                                            maxY >
-                                                                                1000) {
-                                                                          // Milyar kg cinsinden göster
-                                                                          label =
-                                                                              '${(value / 1000000000).toStringAsFixed(1)}B';
-                                                                        } else {
-                                                                          label =
-                                                                              '${value.toInt()}';
-                                                                        }
-                                                                        return Padding(
-                                                                          padding: const EdgeInsets
-                                                                              .only(
-                                                                        right:
-                                                                            8),
-                                                                    child: Text(
-                                                                            label,
-                                                                            style:
-                                                                                const TextStyle(
-                                                                        color: Colors
-                                                                            .white,
-                                                                        fontWeight:
-                                                                            FontWeight.bold,
-                                                                        fontSize:
-                                                                            12,
-                                                                              shadows: [
-                                                                                Shadow(
-                                                                            color:
-                                                                                Colors.black,
-                                                                            blurRadius:
-                                                                                3,
-                                                                            offset:
-                                                                                Offset(1, 1),
-                                                                                ),
-                                                                              ],
-                                                                            ),
-                                                                            textAlign:
-                                                                          TextAlign
-                                                                              .right,
-                                                                          ),
-                                                                        );
-                                                                      },
-                                                                      reservedSize:
-                                                                          50,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                                borderData:
-                                                                    FlBorderData(
-                                                                  show: true,
-                                                            border: Border.all(
-                                                                    color: Colors
-                                                                        .white
-                                                                        .withValues(
-                                                                            alpha:
-                                                                                0.2),
-                                                                  ),
-                                                                ),
-                                                                minX: 0,
-                                                                maxX: 6,
-                                                                minY: 0,
-                                                          maxY: maxY.toDouble(),
-                                                                lineBarsData: [
-                                                                  // Kullanıcının kendi verileri (ana çizgi)
-                                                                  LineChartBarData(
-                                                              spots:
-                                                                  List.generate(
-                                                                      7,
-                                                                      (index) =>
-                                                                          FlSpot(
-                                                                        index
-                                                                            .toDouble(),
-                                                                  normalizedData
-                                                                              .isNotEmpty &&
-                                                                          index <
-                                                                              normalizedData
-                                                                                  .length
-                                                                      ? normalizedData[index].clamp(
-                                                                          0.0,
-                                                                          double
-                                                                              .infinity)
-                                                                            : 0.0,
-                                                                      ),
-                                                                    ),
-                                                              isCurved: true,
-                                                                    gradient:
-                                                                        const LinearGradient(
-                                                                      colors: [
-                                                                        Color(
-                                                                            0xFF304411),
-                                                                        Color(
-                                                                            0xFF48631F),
-                                                                      ],
-                                                                    ),
-                                                                    barWidth: 3,
-                                                                    isStrokeCapRound:
-                                                                        true,
-                                                                    dotData:
-                                                                        FlDotData(
-                                                                show: true,
-                                                                getDotPainter: (
-                                                                        spot,
-                                                                        percent,
-                                                                        barData,
-                                                                        index,
-                                                                      ) {
-                                                                        return FlDotCirclePainter(
-                                                                    radius: 4,
-                                                                          color:
-                                                                              const Color(
-                                                                            0xFF304411,
-                                                                          ),
-                                                                          strokeWidth:
-                                                                              2,
-                                                                          strokeColor:
-                                                                        Colors
-                                                                            .white,
-                                                                        );
-                                                                      },
-                                                                    ),
-                                                                    belowBarData:
-                                                                        BarAreaData(
-                                                                show: true,
-                                                                      gradient:
-                                                                          LinearGradient(
-                                                                        colors: [
-                                                                          const Color(
-                                                                            0xFF304411,
-                                                                          ).withValues(
-                                                                            alpha:
-                                                                                0.3,
-                                                                          ),
-                                                                          const Color(
-                                                                            0xFF48631F,
-                                                                          ).withValues(
-                                                                            alpha:
-                                                                                0.1,
-                                                                          ),
-                                                                        ],
-                                                                        begin: Alignment
-                                                                            .topCenter,
-                                                                        end: Alignment
-                                                                            .bottomCenter,
-                                                                      ),
-                                                                    ),
-                                                                  ),
-                                                                  // Ülke karşılaştırma çizgileri
-                                                                  if (_showCountryComparison &&
-                                                                      !_showGlobalTrend)
-                                                                    ..._buildCountryLines(
-                                                                        normalizedData,
-                                                                        maxY.toDouble()),
-                                                          ],
-                                                        ),
+                                                        alpha: 0.7,
                                                       ),
-                                                    );
-                                                  },
-                                                ),
-                                      // Legend (açıklama) - ülke çizgileri için
-                                      if (_showCountryComparison &&
-                                          !_showGlobalTrend &&
-                                          _countryTrends.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                              top: 12, bottom: 8),
-                                          child: Wrap(
-                                            spacing: 16,
-                                            runSpacing: 8,
-                                            alignment: WrapAlignment.center,
-                                            children: [
-                                              // Kullanıcının kendi verisi
-                                              _buildLegendItem(
-                                                'Sizin Verileriniz',
-                                                const Color(0xFF304411),
-                                              ),
-                                              // Ülke verileri
-                                              ..._countryTrends.keys.map(
-                                                (countryName) =>
-                                                    _buildLegendItem(
-                                                  countryName,
-                                                  _getCountryColor(countryName),
-                                                  isRealData:
-                                                      _countryDataSources[
-                                                              countryName] ??
-                                                          false,
-                                                ),
+                                                    ),
                                               ),
                                             ],
-                                          ),
-                                        ),
-                                      // Veri kaynağı açıklaması
-                                      if (_showCountryComparison &&
-                                          !_showGlobalTrend &&
-                                          _countryTrends.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                              top: 4, bottom: 8),
-                                          child: Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              Icon(
-                                                Icons.check_circle,
-                                                size: 10,
-                                                color: Colors.green
-                                                    .withValues(alpha: 0.7),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                'Gerçek Veri',
-                                                style: TextStyle(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.6),
-                                                  fontSize: 10,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              Icon(
-                                                Icons.info_outline,
-                                                size: 10,
-                                                color: Colors.orange
-                                                    .withValues(alpha: 0.7),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                'Tahmini Veri',
-                                                style: TextStyle(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.6),
-                                                  fontSize: 10,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      const SizedBox(height: 16),
-                                      // Yenile butonu
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          TextButton.icon(
-                                            onPressed: () {
-                                              if (_showGlobalTrend) {
-                                                _loadGlobalTrendData();
-                                              } else {
-                                                _loadTrendData();
-                                              }
-                                            },
-                                            icon: const Icon(
-                                              Icons.refresh,
-                                              size: 18,
-                                            ),
-                                            label: Text(
-                                              translate('refresh', locale),
-                                            ),
-                                            style: TextButton.styleFrom(
-                                              foregroundColor: Colors.white70,
-                                            ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        _showGlobalTrend
-                                            ? translate(
-                                                'global_trend_description',
-                                                locale)
-                                            : translate(
-                                                'last_7_days_trend', locale),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.7,
-                                              ),
-                                            ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           ClipRRect(
@@ -2144,7 +2266,7 @@ class _FootprintGauge extends StatelessWidget {
             ),
             child: Padding(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
@@ -2158,45 +2280,33 @@ class _FootprintGauge extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          tonnes.toStringAsFixed(1),
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? Colors.black
-                                    : Theme.of(context).colorScheme.onSurface,
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          translate('tonnes_co2e', locale),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? Colors.black
-                                    : Theme.of(context).colorScheme.onSurface,
-                              ),
-                        ),
-                        const SizedBox(height: 6),
-                        Flexible(
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
                           child: Text(
-                            translate('greenhouse_gas_emissions', locale),
+                            tonnes.toStringAsFixed(1),
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Colors.black
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            translate('tonnes_co2e', locale),
                             textAlign: TextAlign.center,
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context)
                                 .textTheme
-                                .labelMedium
+                                .bodySmall
                                 ?.copyWith(
                                   color: Theme.of(context).brightness ==
                                           Brightness.dark
@@ -2205,69 +2315,123 @@ class _FootprintGauge extends StatelessWidget {
                                 ),
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              translate('greenhouse_gas_emissions', locale),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.black
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                  ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   if (onToggleChanged != null) ...[
-                    const SizedBox(height: 12),
-                    // Switch'i GestureDetector'dan ayır - kendi tıklama alanı olsun
-                    GestureDetector(
-                      // Switch'in tıklamalarını engelleme
-                      behavior: HitTestBehavior.opaque,
+                    const SizedBox(height: 8),
+                    // Switch ve label'ları daha tıklanabilir yap - kompakt versiyon
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          GestureDetector(
+                          // Manuel label - tıklanabilir
+                          InkWell(
                             onTap: () {
                               if (onToggleChanged != null && useEspData) {
                                 onToggleChanged!(false);
                               }
                             },
-                            child: Text(
-                              translate('manual', locale),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.black87
-                                        : Theme.of(context)
-                                            .colorScheme
-                                            .onSurface,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6.0, vertical: 2.0),
+                              child: Text(
+                                translate('manual', locale),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      fontSize: 11,
+                                      color: Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.black87
+                                          : Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Switch(
-                            value: useEspData,
-                            onChanged: onToggleChanged,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
+                          const SizedBox(width: 6),
+                          // Switch - direkt tıklanabilir, GestureDetector engellemesin
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () {
+                                if (onToggleChanged != null) {
+                                  onToggleChanged!(!useEspData);
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Padding(
+                                padding: const EdgeInsets.all(2.0),
+                                child: Transform.scale(
+                                  scale: 0.85,
+                                  child: Switch(
+                                    value: useEspData,
+                                    onChanged: onToggleChanged,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
+                          const SizedBox(width: 6),
+                          // ESP label - tıklanabilir
+                          InkWell(
                             onTap: () {
                               if (onToggleChanged != null && !useEspData) {
                                 onToggleChanged!(true);
                               }
                             },
-                            child: Text(
-                              'ESP',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.black87
-                                        : Theme.of(context)
-                                            .colorScheme
-                                            .onSurface,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6.0, vertical: 2.0),
+                              child: Text(
+                                'ESP',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      fontSize: 11,
+                                      color: Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.black87
+                                          : Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
                             ),
                           ),
                         ],
