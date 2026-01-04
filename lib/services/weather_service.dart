@@ -3,58 +3,66 @@ import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 
 /// Hava durumu ve iklim verileri servisi
-/// Placeholder/mock veri kullanıyor (API key gerektirmez)
+/// Open-Meteo API kullanıyor (tamamen ücretsiz, API key gerektirmez)
 class WeatherService {
-  // API key yoksa placeholder veri döndürülür
-  static const String _apiKey = 'YOUR_API_KEY_HERE';
-  static const String _baseUrl = 'https://api.openweathermap.org/data/2.5';
-
-  // Hava kalitesi için placeholder veri kullanılıyor
-  static const String _aqiApiKey = 'YOUR_AQI_API_KEY_HERE';
-  static const String _aqiBaseUrl = 'https://api.airvisual.com/v2';
+  // Open-Meteo API - tamamen ücretsiz, API key gerektirmiyor
+  static const String _weatherBaseUrl = 'https://api.open-meteo.com/v1';
+  static const String _geocodingBaseUrl = 'https://geocoding-api.open-meteo.com/v1';
+  static const String _airQualityBaseUrl = 'https://air-quality-api.open-meteo.com/v1';
 
   WeatherService();
 
   /// Şehir için hava durumu verilerini çek
-  /// [cityName] şehir adı (örn: "Istanbul,TR")
+  /// [cityName] şehir adı (örn: "Istanbul,TR" veya "Sakarya,TR")
   Future<Map<String, dynamic>> getWeatherData(String cityName) async {
     try {
-      // Eğer API key yoksa placeholder döndür
-      if (_apiKey == 'YOUR_API_KEY_HERE') {
+      // Önce şehir adından koordinatları al
+      final coordinates = await _getCityCoordinates(cityName);
+      if (coordinates == null) {
         dev.log(
-          'OpenWeatherMap API key bulunamadı, placeholder veri döndürülüyor',
+          'Şehir koordinatları bulunamadı: $cityName',
           name: 'WeatherService',
         );
         return _getPlaceholderWeather(cityName);
       }
 
+      final lat = coordinates['latitude'];
+      final lon = coordinates['longitude'];
+      final city = coordinates['name'] ?? cityName.split(',')[0];
+
+      // Open-Meteo hava durumu API'sini çağır
       final response = await http
           .get(
             Uri.parse(
-              '$_baseUrl/weather?q=$cityName&appid=$_apiKey&units=metric&lang=tr',
+              '$_weatherBaseUrl/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto',
             ),
           )
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return {
-          'success': true,
-          'city': data['name'] ?? cityName,
-          'temperature': (data['main']?['temp'] ?? 0.0).toDouble(),
-          'condition': _getWeatherCondition(data['weather']?[0]?['main']),
-          'description': data['weather']?[0]?['description'] ?? '',
-          'humidity': data['main']?['humidity'] ?? 0,
-          'windSpeed': (data['wind']?['speed'] ?? 0.0).toDouble(),
-          'icon': data['weather']?[0]?['icon'] ?? '',
-        };
-      } else {
-        dev.log(
-          'Hava durumu API hatası: ${response.statusCode}',
-          name: 'WeatherService',
-        );
-        return _getPlaceholderWeather(cityName);
+        final current = data['current'];
+
+        if (current != null) {
+          final weatherCode = current['weather_code'] ?? 0;
+          return {
+            'success': true,
+            'city': city,
+            'temperature': (current['temperature_2m'] ?? 0.0).toDouble(),
+            'condition': _getWeatherConditionFromCode(weatherCode),
+            'description': _getWeatherDescriptionFromCode(weatherCode),
+            'humidity': current['relative_humidity_2m'] ?? 0,
+            'windSpeed': (current['wind_speed_10m'] ?? 0.0).toDouble(),
+            'icon': _getWeatherIconFromCode(weatherCode),
+          };
+        }
       }
+
+      dev.log(
+        'Hava durumu API hatası: ${response.statusCode}',
+        name: 'WeatherService',
+      );
+      return _getPlaceholderWeather(cityName);
     } catch (e) {
       dev.log('Hava durumu çekme hatası: $e', name: 'WeatherService');
       return _getPlaceholderWeather(cityName);
@@ -64,37 +72,58 @@ class WeatherService {
   /// 5 günlük hava durumu tahmini
   Future<List<Map<String, dynamic>>> getWeatherForecast(String cityName) async {
     try {
-      if (_apiKey == 'YOUR_API_KEY_HERE') {
+      // Önce şehir adından koordinatları al
+      final coordinates = await _getCityCoordinates(cityName);
+      if (coordinates == null) {
         return _getPlaceholderForecast();
       }
 
+      final lat = coordinates['latitude'];
+      final lon = coordinates['longitude'];
+
+      // Open-Meteo tahmin API'sini çağır (günlük veriler)
       final response = await http
           .get(
             Uri.parse(
-              '$_baseUrl/forecast?q=$cityName&appid=$_apiKey&units=metric&lang=tr',
+              '$_weatherBaseUrl/forecast?latitude=$lat&longitude=$lon&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5',
             ),
           )
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final List<dynamic> list = data['list'] ?? [];
+        final daily = data['daily'];
 
-        // İlk 3 günü al (bugün, yarın, 2 gün sonra)
-        return list.take(3).map((item) {
-          return {
-            'date': DateTime.fromMillisecondsSinceEpoch(
-              (item['dt'] ?? 0) * 1000,
-            ),
-            'temperature': (item['main']?['temp'] ?? 0.0).toDouble(),
-            'condition': _getWeatherCondition(item['weather']?[0]?['main']),
-            'description': item['weather']?[0]?['description'] ?? '',
-            'icon': item['weather']?[0]?['icon'] ?? '',
-          };
-        }).toList();
-      } else {
-        return _getPlaceholderForecast();
+        if (daily != null) {
+          final List<dynamic> timeList = daily['time'] ?? [];
+          final List<dynamic> weatherCodeList = daily['weather_code'] ?? [];
+          final List<dynamic> tempMaxList = daily['temperature_2m_max'] ?? [];
+          final List<dynamic> tempMinList = daily['temperature_2m_min'] ?? [];
+
+          // İlk 3 günü al (bugün, yarın, 2 gün sonra)
+          return List.generate(
+            timeList.length > 3 ? 3 : timeList.length,
+            (index) {
+              final dateStr = timeList[index] as String;
+              final date = DateTime.parse(dateStr);
+              final weatherCode = weatherCodeList[index] ?? 0;
+              final tempMax = tempMaxList[index] ?? 0.0;
+              final tempMin = tempMinList[index] ?? 0.0;
+              final avgTemp = ((tempMax + tempMin) / 2).toDouble();
+
+              return {
+                'date': date,
+                'temperature': avgTemp,
+                'condition': _getWeatherConditionFromCode(weatherCode),
+                'description': _getWeatherDescriptionFromCode(weatherCode),
+                'icon': _getWeatherIconFromCode(weatherCode),
+              };
+            },
+          );
+        }
       }
+
+      return _getPlaceholderForecast();
     } catch (e) {
       dev.log('Hava durumu tahmini hatası: $e', name: 'WeatherService');
       return _getPlaceholderForecast();
@@ -102,38 +131,52 @@ class WeatherService {
   }
 
   /// Hava kalitesi (AQI) verilerini çek
+  /// Open-Meteo Air Quality API kullanıyor (ücretsiz)
   Future<Map<String, dynamic>> getAirQuality(
     String city,
     String state,
     String country,
   ) async {
     try {
-      if (_aqiApiKey == 'YOUR_AQI_API_KEY_HERE') {
-        dev.log(
-          'AirVisual API key bulunamadı, placeholder veri döndürülüyor',
-          name: 'WeatherService',
-        );
+      // Şehir adını birleştir
+      final cityName = '$city,$country';
+      final coordinates = await _getCityCoordinates(cityName);
+      if (coordinates == null) {
         return _getPlaceholderAQI();
       }
 
-      // Önce şehir koordinatlarını al
-      final cityResponse = await http
+      final lat = coordinates['latitude'];
+      final lon = coordinates['longitude'];
+
+      // Open-Meteo Air Quality API'sini çağır
+      final response = await http
           .get(
             Uri.parse(
-              '$_aqiBaseUrl/city?city=$city&state=$state&country=$country&key=$_aqiApiKey',
+              '$_airQualityBaseUrl/air-quality?latitude=$lat&longitude=$lon&current=us_aqi,pm10,pm2_5',
             ),
           )
           .timeout(const Duration(seconds: 10));
 
-      if (cityResponse.statusCode == 200) {
-        final data = json.decode(cityResponse.body);
-        final aqi = data['data']?['current']?['pollution']?['aqius'] ?? 0;
-        final aqiText = _getAQIText(aqi);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final current = data['current'];
 
-        return {'success': true, 'aqi': aqi, 'aqiText': aqiText, 'city': city};
-      } else {
-        return _getPlaceholderAQI();
+        if (current != null) {
+          final aqi = current['us_aqi'] ?? 0;
+          final aqiText = _getAQIText(aqi);
+
+          return {
+            'success': true,
+            'aqi': aqi,
+            'aqiText': aqiText,
+            'city': city,
+            'pm10': current['pm10'] ?? 0,
+            'pm2_5': current['pm2_5'] ?? 0,
+          };
+        }
       }
+
+      return _getPlaceholderAQI();
     } catch (e) {
       dev.log('AQI çekme hatası: $e', name: 'WeatherService');
       return _getPlaceholderAQI();
@@ -155,23 +198,107 @@ class WeatherService {
     return countryAverages[country] ?? 400.0;
   }
 
-  /// Hava durumu koşulunu Türkçe'ye çevir
-  String _getWeatherCondition(String? condition) {
-    if (condition == null) return 'Bilinmiyor';
+  /// Şehir adından koordinatları al (Open-Meteo Geocoding API)
+  Future<Map<String, dynamic>?> _getCityCoordinates(String cityName) async {
+    try {
+      // Şehir adını temizle (örn: "Istanbul,TR" -> "Istanbul")
+      final cleanCityName = cityName.split(',')[0].trim();
 
-    const Map<String, String> conditions = {
-      'Clear': 'Açık',
-      'Clouds': 'Bulutlu',
-      'Rain': 'Yağmurlu',
-      'Drizzle': 'Çiseleyen Yağmur',
-      'Thunderstorm': 'Fırtına',
-      'Snow': 'Karlı',
-      'Mist': 'Sisli',
-      'Fog': 'Sisli',
-      'Haze': 'Puslu',
+      final response = await http
+          .get(
+            Uri.parse(
+              '$_geocodingBaseUrl/search?name=$cleanCityName&count=1&language=tr&format=json',
+            ),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final results = data['results'] as List?;
+
+        if (results != null && results.isNotEmpty) {
+          final result = results[0];
+          return {
+            'latitude': result['latitude'] ?? 0.0,
+            'longitude': result['longitude'] ?? 0.0,
+            'name': result['name'] ?? cleanCityName,
+          };
+        }
+      }
+
+      return null;
+    } catch (e) {
+      dev.log('Koordinat bulma hatası: $e', name: 'WeatherService');
+      return null;
+    }
+  }
+
+  /// Open-Meteo weather code'undan hava durumu koşulunu al
+  /// WMO Weather interpretation codes (WW) kullanılıyor
+  String _getWeatherConditionFromCode(int code) {
+    // WMO Weather interpretation codes
+    if (code == 0) return 'Açık';
+    if (code <= 3) return 'Az Bulutlu';
+    if (code <= 48) return 'Bulutlu';
+    if (code <= 57) return 'Yağmurlu';
+    if (code <= 67) return 'Yağmurlu';
+    if (code <= 77) return 'Karlı';
+    if (code <= 82) return 'Yağmurlu';
+    if (code <= 86) return 'Karlı';
+    if (code <= 99) return 'Fırtına';
+    return 'Bilinmiyor';
+  }
+
+  /// Open-Meteo weather code'undan açıklama al
+  String _getWeatherDescriptionFromCode(int code) {
+    // WMO Weather interpretation codes açıklamaları
+    const Map<int, String> descriptions = {
+      0: 'Açık gökyüzü',
+      1: 'Çoğunlukla açık',
+      2: 'Kısmen bulutlu',
+      3: 'Kapalı',
+      45: 'Sisli',
+      48: 'Donlu sis',
+      51: 'Hafif çiseleyen yağmur',
+      53: 'Orta çiseleyen yağmur',
+      55: 'Yoğun çiseleyen yağmur',
+      56: 'Hafif donlu çiseleyen yağmur',
+      57: 'Yoğun donlu çiseleyen yağmur',
+      61: 'Hafif yağmur',
+      63: 'Orta yağmur',
+      65: 'Yoğun yağmur',
+      66: 'Hafif donlu yağmur',
+      67: 'Yoğun donlu yağmur',
+      71: 'Hafif kar',
+      73: 'Orta kar',
+      75: 'Yoğun kar',
+      77: 'Kar taneleri',
+      80: 'Hafif sağanak yağmur',
+      81: 'Orta sağanak yağmur',
+      82: 'Yoğun sağanak yağmur',
+      85: 'Hafif kar sağanağı',
+      86: 'Yoğun kar sağanağı',
+      95: 'Fırtına',
+      96: 'Dolu ile fırtına',
+      99: 'Şiddetli dolu ile fırtına',
     };
 
-    return conditions[condition] ?? condition;
+    return descriptions[code] ?? 'Bilinmiyor';
+  }
+
+  /// Open-Meteo weather code'undan icon kodu al
+  String _getWeatherIconFromCode(int code) {
+    // Basit icon mapping (OpenWeatherMap icon formatına benzer)
+    if (code == 0) return '01d'; // Açık
+    if (code <= 3) return '02d'; // Az bulutlu
+    if (code <= 48) return '03d'; // Bulutlu
+    if (code <= 57) return '09d'; // Yağmurlu
+    if (code <= 67) return '10d'; // Yağmurlu
+    if (code <= 77) return '13d'; // Karlı
+    if (code <= 82) return '09d'; // Sağanak
+    if (code <= 86) return '13d'; // Kar sağanağı
+    if (code <= 99) return '11d'; // Fırtına
+    return '01d';
   }
 
   /// AQI değerini metne çevir

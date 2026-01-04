@@ -134,6 +134,161 @@ class FirebaseRealtimeService {
     }
   }
 
+  /// Manuel verileri getir (geçmiş veriler)
+  /// Path: /manual_data/{userId}/history
+  Future<List<ConsumptionEntry>> getManualHistoryData({
+    required String userId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      final startKey = startDate.toIso8601String().split('T')[0];
+      final endKey = endDate.toIso8601String().split('T')[0];
+
+      final snapshot = await _databaseRef
+          .child('manual_data')
+          .child(userId)
+          .child('history')
+          .get();
+
+      if (snapshot.value == null) {
+        return [];
+      }
+
+      final historyData = Map<String, dynamic>.from(
+        snapshot.value as Map<Object?, Object?>,
+      );
+
+      final List<ConsumptionEntry> entries = [];
+
+      historyData.forEach((dateKey, timestamps) {
+        if (dateKey.compareTo(startKey) >= 0 &&
+            dateKey.compareTo(endKey) <= 0) {
+          final timestampMap = Map<String, dynamic>.from(
+            timestamps as Map<Object?, Object?>,
+          );
+
+          timestampMap.forEach((timestamp, data) {
+            final entryData = Map<String, dynamic>.from(
+              data as Map<Object?, Object?>,
+            );
+
+            // Tarih oluştur
+            DateTime createdAt;
+            if (entryData['created_at'] != null &&
+                entryData['created_at'].toString().isNotEmpty &&
+                entryData['created_at'] != '') {
+              try {
+                createdAt = DateTime.parse(entryData['created_at']);
+              } catch (e) {
+                final timestampValue = entryData['timestamp'] ?? timestamp;
+                createdAt = timestampValue is int
+                    ? DateTime.fromMillisecondsSinceEpoch(timestampValue)
+                    : DateTime.tryParse(dateKey) ?? DateTime.now();
+              }
+            } else {
+              final timestampValue = entryData['timestamp'] ?? timestamp;
+              if (timestampValue is int) {
+                createdAt = DateTime.fromMillisecondsSinceEpoch(timestampValue);
+              } else {
+                createdAt = DateTime.tryParse(dateKey) ?? DateTime.now();
+              }
+            }
+
+            entries.add(
+              ConsumptionEntry(
+                electricityKwh: (entryData['electricity'] ?? 0.0).toDouble(),
+                waterCubicMeters: (entryData['water'] ?? 0.0).toDouble(),
+                fuelLiters: (entryData['fuel'] ?? 0.0).toDouble(),
+                wasteKg: (entryData['waste'] ?? 0.0).toDouble(),
+                createdAt: createdAt,
+              ),
+            );
+          });
+        }
+      });
+
+      // Tarihe göre sırala
+      entries.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+      return entries;
+    } catch (e, st) {
+      dev.log(
+        'Firebase manuel geçmiş veri hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return [];
+    }
+  }
+
+  /// Manuel verilerin en son kaydını getir
+  /// Path: /manual_data/{userId}/latest
+  Future<ConsumptionEntry?> getLatestManualData(String userId) async {
+    try {
+      final snapshot = await _databaseRef
+          .child('manual_data')
+          .child(userId)
+          .child('latest')
+          .get();
+
+      if (snapshot.value == null) {
+        return null;
+      }
+
+      final data = Map<String, dynamic>.from(
+        snapshot.value as Map<Object?, Object?>,
+      );
+
+      // Tarih oluştur
+      DateTime createdAt;
+      if (data['created_at'] != null &&
+          data['created_at'].toString().isNotEmpty &&
+          data['created_at'] != '') {
+        try {
+          createdAt = DateTime.parse(data['created_at']);
+        } catch (e) {
+          final timestamp =
+              data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
+          createdAt = DateTime.fromMillisecondsSinceEpoch(
+            timestamp is int
+                ? timestamp
+                : int.tryParse(timestamp.toString()) ??
+                    DateTime.now().millisecondsSinceEpoch,
+          );
+        }
+      } else {
+        final timestamp =
+            data['timestamp'] ?? DateTime.now().millisecondsSinceEpoch;
+        createdAt = DateTime.fromMillisecondsSinceEpoch(
+          timestamp is int
+              ? timestamp
+              : int.tryParse(timestamp.toString()) ??
+                  DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+
+      return ConsumptionEntry(
+        electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
+        waterCubicMeters: (data['water'] ?? 0.0).toDouble(),
+        fuelLiters: (data['fuel'] ?? 0.0).toDouble(),
+        wasteKg: (data['waste'] ?? 0.0).toDouble(),
+        createdAt: createdAt,
+      );
+    } catch (e, st) {
+      dev.log(
+        'Firebase manuel latest veri hatası: $e',
+        name: 'FirebaseRealtimeService',
+        level: 1000,
+        error: e,
+        stackTrace: st,
+      );
+      return null;
+    }
+  }
+
   /// Real-time dinleme - ESP8266 verilerini anlık olarak dinle
   /// Stream döndürür, widget'ta StreamBuilder ile kullanılabilir
   Stream<ConsumptionEntry?> listenToEsp8266Data(String deviceId) {

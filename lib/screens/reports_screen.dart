@@ -11,6 +11,7 @@ import '../providers/language_provider.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
+import '../services/firebase_auth_service.dart';
 import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
 import '../algorithms/calculation.dart';
@@ -29,13 +30,32 @@ enum _InputMode { none, manual, raspberry }
 class _ReportsScreenState extends State<ReportsScreen> {
   double? _lastCalculatedKgCo2e;
   double? _manualCalculatedKgCo2e; // Manuel hesaplama sonucu
+  ConsumptionEntry?
+      _manualEntry; // Manuel giriş verisi (kategori dağılımı için)
   ConsumptionEntry? _espEntry; // ESP ham verisi (su+gaz için)
   ConsumptionEntry? _shellyEntry; // Shelly ham verisi (elektrik için)
   bool _useEspData = false; // Gauge'da ESP verisi mi gösterilecek?
   _InputMode _selectedMode = _InputMode.none;
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
-  List<double> _dailyEmissions = [0, 0, 0, 0, 0, 0, 0]; // Son 7 gün
+  List<double> _dailyEmissions = [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ]; // Son 7 gün (ESP verileri)
+  List<double> _manualDailyEmissions = [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ]; // Son 7 gün (Manuel veriler)
   Map<String, double> _categoryDistribution = {
     'electricity': 0.0,
     'gas': 0.0,
@@ -260,6 +280,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     // Her ülke için farklı bir yükseklik offset'i belirle (çizgilerin üst üste binmemesi için)
     // maxY'ye göre offset hesapla - böylece çizgiler daha iyi ayrılır
+    // Offset'ler maxY'nin %8'i kadar base offset ile hesaplanıyor
     final baseOffset = maxY * 0.08; // maxY'nin %8'i kadar base offset
     final countryOffsets = {
       'Türkiye': 0.0,
@@ -267,8 +288,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       'Çin': baseOffset * 2.0, // maxY'nin %16'sı kadar yukarı
       'Almanya': baseOffset * 3.0, // maxY'nin %24'ü kadar yukarı
       'Fransa': baseOffset * 4.0, // maxY'nin %32'si kadar yukarı
-      'İngiltere': baseOffset * 5.0, // maxY'nin %40'ı kadar yukarı
+      'İngiltere': baseOffset * 5.0, // maxY'nin %40'ı kadar yukarı (en yüksek)
     };
+
+    // En yüksek offset değerini logla (debug için)
+    final maxOffsetValue = baseOffset * 5.0;
+    debugPrint(
+        '📊 Offset hesaplama: baseOffset=${baseOffset.toStringAsFixed(2)}, maxOffset=${maxOffsetValue.toStringAsFixed(2)} (maxY=$maxY)');
 
     // Her ülke için bir çizgi oluştur
     int countryIndex = 0;
@@ -475,6 +501,40 @@ class _ReportsScreenState extends State<ReportsScreen> {
     });
   }
 
+  /// Firebase'den en son manuel veriyi yükle
+  Future<void> _loadManualDataFromFirebase() async {
+    try {
+      final userId = FirebaseAuthService.instance.currentUser?.uid;
+      if (userId != null) {
+        final manualLatestEntry =
+            await _firebaseService.getLatestManualData(userId);
+        if (manualLatestEntry != null && mounted) {
+          setState(() {
+            _manualEntry = manualLatestEntry;
+            _manualCalculatedKgCo2e =
+                Calculation.calculateDailyEmission(manualLatestEntry);
+            // Manuel veri seçiliyse, gauge'ı güncelle
+            if (!_useEspData) {
+              _lastCalculatedKgCo2e = _manualCalculatedKgCo2e;
+              // Grafikteki bugünün değerini de güncelle (manuel veriler listesine)
+              if (_manualDailyEmissions.length == 7) {
+                _manualDailyEmissions[6] = _manualCalculatedKgCo2e!;
+              }
+              // Kategori dağılımını güncelle
+              _updateCategoryDistributionFromEntry(manualLatestEntry);
+            }
+            debugPrint(
+                '📊 Manuel hesaplama değerleri yüklendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e');
+          });
+        } else {
+          debugPrint('📊 Manuel veri bulunamadı');
+        }
+      }
+    } catch (e) {
+      debugPrint('Manuel veri yükleme hatası: $e');
+    }
+  }
+
   /// ESP ve Shelly verilerini topla ve gauge'ı güncelle
   /// ESP toggle açıkken: Shelly'den sadece elektrik, ESP'den sadece su+gaz
   void _updateCombinedEmission() {
@@ -519,9 +579,189 @@ class _ReportsScreenState extends State<ReportsScreen> {
       });
     }
 
+    // ESP verilerinden kategori dağılımını güncelle
+    _updateCategoryDistributionFromEsp();
+
     debugPrint(
       '📊 Anlık CO2 Hesaplaması (Toggle ESP): Shelly Elektrik + ESP Su+Gaz = ${totalEmission.toStringAsFixed(2)} kg CO2e',
     );
+  }
+
+  /// Manuel entry'den kategori dağılımını güncelle
+  void _updateCategoryDistributionFromEntry(ConsumptionEntry entry) {
+    final electricityEmission =
+        entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
+    final gasEmission = entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+    final waterEmission =
+        entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
+    final wasteEmission = entry.wasteKg * Calculation.factorWasteKgPerKg;
+
+    final totalEmission =
+        electricityEmission + gasEmission + waterEmission + wasteEmission;
+
+    if (totalEmission > 0 && mounted) {
+      double electricityPercent = (electricityEmission / totalEmission * 100);
+      double gasPercent = (gasEmission / totalEmission * 100);
+      double waterPercent = (waterEmission / totalEmission * 100);
+      double wastePercent = (wasteEmission / totalEmission * 100);
+
+      // Minimum %2 göster (görünürlük için)
+      const double minPercent = 2.0;
+      double nonZeroTotal = 0;
+      int zeroCount = 0;
+
+      if (electricityPercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += electricityPercent;
+      }
+      if (waterPercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += waterPercent;
+      }
+      if (gasPercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += gasPercent;
+      }
+      if (wastePercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += wastePercent;
+      }
+
+      if (zeroCount > 0 && nonZeroTotal > 0) {
+        final double remaining = 100 - (minPercent * zeroCount);
+        if (electricityPercent > 0) {
+          electricityPercent = (electricityPercent / nonZeroTotal) * remaining;
+        } else {
+          electricityPercent = minPercent;
+        }
+        if (waterPercent > 0) {
+          waterPercent = (waterPercent / nonZeroTotal) * remaining;
+        } else {
+          waterPercent = minPercent;
+        }
+        if (gasPercent > 0) {
+          gasPercent = (gasPercent / nonZeroTotal) * remaining;
+        } else {
+          gasPercent = minPercent;
+        }
+        if (wastePercent > 0) {
+          wastePercent = (wastePercent / nonZeroTotal) * remaining;
+        } else {
+          wastePercent = minPercent;
+        }
+      }
+
+      setState(() {
+        _categoryDistribution = {
+          'electricity': electricityPercent,
+          'gas': gasPercent,
+          'water': waterPercent,
+          'waste': wastePercent,
+        };
+      });
+
+      debugPrint(
+        '📊 Manuel kategori dağılımı güncellendi: E=${electricityPercent.toStringAsFixed(1)}%, G=${gasPercent.toStringAsFixed(1)}%, S=${waterPercent.toStringAsFixed(1)}%, A=${wastePercent.toStringAsFixed(1)}%',
+      );
+    }
+  }
+
+  /// ESP verilerinden kategori dağılımını güncelle
+  void _updateCategoryDistributionFromEsp() {
+    double totalElectricity = 0.0;
+    double totalGas = 0.0;
+    double totalWater = 0.0;
+    double totalWaste = 0.0;
+
+    // Shelly'den elektrik
+    if (_shellyEntry != null) {
+      totalElectricity +=
+          _shellyEntry!.electricityKwh * Calculation.factorElectricityKgPerKwh;
+    }
+
+    // ESP'den su ve gaz
+    if (_espEntry != null) {
+      totalWater +=
+          _espEntry!.waterCubicMeters * Calculation.factorWaterKgPerM3;
+      totalGas += _espEntry!.fuelLiters * Calculation.factorFuelKgPerLiter;
+      totalWaste += _espEntry!.wasteKg * Calculation.factorWasteKgPerKg;
+    }
+
+    final totalEmission = totalElectricity + totalGas + totalWater + totalWaste;
+
+    if (totalEmission > 0 && mounted) {
+      double electricityPercent = (totalElectricity / totalEmission * 100);
+      double gasPercent = (totalGas / totalEmission * 100);
+      double waterPercent = (totalWater / totalEmission * 100);
+      double wastePercent = (totalWaste / totalEmission * 100);
+
+      // Minimum %2 göster (görünürlük için)
+      const double minPercent = 2.0;
+      double nonZeroTotal = 0;
+      int zeroCount = 0;
+
+      if (electricityPercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += electricityPercent;
+      }
+      if (waterPercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += waterPercent;
+      }
+      if (gasPercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += gasPercent;
+      }
+      if (wastePercent == 0) {
+        zeroCount++;
+      } else {
+        nonZeroTotal += wastePercent;
+      }
+
+      if (zeroCount > 0 && nonZeroTotal > 0) {
+        final double remaining = 100 - (minPercent * zeroCount);
+        if (electricityPercent > 0) {
+          electricityPercent = (electricityPercent / nonZeroTotal) * remaining;
+        } else {
+          electricityPercent = minPercent;
+        }
+        if (waterPercent > 0) {
+          waterPercent = (waterPercent / nonZeroTotal) * remaining;
+        } else {
+          waterPercent = minPercent;
+        }
+        if (gasPercent > 0) {
+          gasPercent = (gasPercent / nonZeroTotal) * remaining;
+        } else {
+          gasPercent = minPercent;
+        }
+        if (wastePercent > 0) {
+          wastePercent = (wastePercent / nonZeroTotal) * remaining;
+        } else {
+          wastePercent = minPercent;
+        }
+      }
+
+      setState(() {
+        _categoryDistribution = {
+          'electricity': electricityPercent,
+          'gas': gasPercent,
+          'water': waterPercent,
+          'waste': wastePercent,
+        };
+      });
+
+      debugPrint(
+        '📊 ESP kategori dağılımı güncellendi: E=${electricityPercent.toStringAsFixed(1)}%, G=${gasPercent.toStringAsFixed(1)}%, S=${waterPercent.toStringAsFixed(1)}%, A=${wastePercent.toStringAsFixed(1)}%',
+      );
+    }
   }
 
   /// Son 7 günün verilerini Firebase'den çek ve grafik için hazırla
@@ -573,12 +813,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Shelly verisi alınamazsa devam et
       }
 
+      // Firebase'den manuel geçmiş verileri çek - timeout ile
+      List<ConsumptionEntry> manualHistoryData = [];
+      try {
+        // Kullanıcı giriş yapmışsa manuel verileri yükle
+        final userId = FirebaseAuthService.instance.currentUser?.uid;
+        if (userId != null) {
+          manualHistoryData = await _firebaseService
+              .getManualHistoryData(
+                userId: userId,
+                startDate: startDate,
+                endDate: endDate,
+              )
+              .timeout(
+                const Duration(seconds: 10),
+                onTimeout: () => <ConsumptionEntry>[],
+              );
+          debugPrint(
+              '📊 Manuel geçmiş veri yüklendi: ${manualHistoryData.length} kayıt');
+        }
+      } catch (e) {
+        debugPrint('Manuel geçmiş veri hatası: $e');
+        // Manuel verisi alınamazsa devam et
+      }
+
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
-      // ESP ve Shelly verilerini birleştir
+      // ESP, Shelly ve Manuel verilerini birleştir
       List<ConsumptionEntry> historyData = [
         ...espHistoryData,
-        ...shellyHistoryData
+        ...shellyHistoryData,
+        ...manualHistoryData,
       ];
 
       // Eğer history'de veri yoksa, latest verilerini de kontrol et
@@ -599,6 +864,31 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }
           } catch (e) {
             debugPrint('Shelly latest veri hatası: $e');
+          }
+
+          // Manuel latest verisini al
+          ConsumptionEntry? manualLatestEntry;
+          try {
+            final userId = FirebaseAuthService.instance.currentUser?.uid;
+            if (userId != null) {
+              manualLatestEntry =
+                  await _firebaseService.getLatestManualData(userId);
+              if (manualLatestEntry != null) {
+                debugPrint('📊 Manuel latest veri yüklendi');
+                // Manuel hesaplama değerlerini güncelle
+                if (mounted) {
+                  setState(() {
+                    _manualEntry = manualLatestEntry;
+                    _manualCalculatedKgCo2e =
+                        Calculation.calculateDailyEmission(manualLatestEntry!);
+                    debugPrint(
+                        '📊 Manuel hesaplama değerleri yüklendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e');
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Manuel latest veri hatası: $e');
           }
 
           if (espLatestEntry != null && mounted) {
@@ -635,6 +925,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }
           }
 
+          // Manuel latest verisini de ekle (en güncel olanı kullan)
+          if (manualLatestEntry != null && mounted) {
+            if (historyData.isNotEmpty) {
+              // Mevcut veriler varsa, hangisi daha güncelse onu kullan
+              final lastEntry = historyData.last;
+              if (manualLatestEntry.createdAt.isAfter(lastEntry.createdAt)) {
+                // Manuel verisi daha güncel, onu kullan
+                historyData[historyData.length - 1] = manualLatestEntry;
+                debugPrint(
+                    '📅 Manuel verisi diğer verilerden daha güncel, Manuel kullanıldı');
+              } else {
+                debugPrint(
+                    '📅 Mevcut veri Manuel verisinden daha güncel, mevcut veri korundu');
+              }
+            } else {
+              // Sadece Manuel verisi varsa
+              historyData.add(manualLatestEntry);
+            }
+          }
+
           if (historyData.isEmpty) {
             // Veri yoksa, varsayılan değerleri kullan
             if (mounted) {
@@ -664,6 +974,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       debugPrint('📊 Toplam ${historyData.length} veri kaydı bulundu');
       debugPrint('📊 ESP kayıt sayısı: ${espHistoryData.length}');
       debugPrint('📊 Shelly kayıt sayısı: ${shellyHistoryData.length}');
+      debugPrint('📊 Manuel kayıt sayısı: ${manualHistoryData.length}');
 
       // ESP ve Shelly verilerini ayrı ayrı logla
       if (espHistoryData.isNotEmpty) {
@@ -680,61 +991,115 @@ class _ReportsScreenState extends State<ReportsScreen> {
               '   ${entry.createdAt}: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³');
         }
       }
+      if (manualHistoryData.isNotEmpty) {
+        debugPrint('📊 Manuel Verileri:');
+        for (var entry in manualHistoryData) {
+          debugPrint(
+              '   ${entry.createdAt}: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³, A=${entry.wasteKg.toStringAsFixed(2)} kg');
+        }
+      }
 
-      final Map<int, ConsumptionEntry> dailyData = {};
-      final Map<int, int> dailyDataCount = {}; // Her gün için kaç kayıt var?
-      final Map<int, List<String>> dailyDataSources =
-          {}; // Her gün için veri kaynakları (ESP/Shelly)
+      // Önce ESP ve Shelly verilerini günlere göre grupla
+      final Map<int, ConsumptionEntry?> espDailyData = {};
+      final Map<int, ConsumptionEntry?> shellyDailyData = {};
+      final Map<int, ConsumptionEntry?> manualDailyData = {};
+
+      // Veri kaynaklarını belirlemek için timestamp set'leri oluştur
+      final espTimestamps =
+          espHistoryData.map((e) => e.createdAt.millisecondsSinceEpoch).toSet();
+      final shellyTimestamps = shellyHistoryData
+          .map((e) => e.createdAt.millisecondsSinceEpoch)
+          .toSet();
+      final manualTimestamps = manualHistoryData
+          .map((e) => e.createdAt.millisecondsSinceEpoch)
+          .toSet();
 
       // Verileri tarihe göre sırala (en eski -> en yeni)
       historyData.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-      // ESP verilerinin tarihlerini bir Set'e kaydet (hızlı arama için)
-      final espTimestamps =
-          espHistoryData.map((e) => e.createdAt.millisecondsSinceEpoch).toSet();
-
+      // Her veriyi kaynağına göre günlere ayır
       for (var entry in historyData) {
-        // Tarih farkını hesapla (mutlak değer)
         final difference = now.difference(entry.createdAt);
         final dayIndex = difference.inDays;
 
-        // Son 7 gün içindeki verileri al (0-6 gün önce)
         if (dayIndex >= 0 && dayIndex < 7) {
-          // Veri kaynağını belirle (ESP veya Shelly) - tarih karşılaştırması ile
-          final isEsp =
-              espTimestamps.contains(entry.createdAt.millisecondsSinceEpoch);
-          final source = isEsp ? 'ESP' : 'Shelly';
+          final timestamp = entry.createdAt.millisecondsSinceEpoch;
 
-          if (dailyData.containsKey(dayIndex)) {
-            // Aynı günde veri varsa, en son (en güncel) veriyi kullan
-            // ÖNEMLİ: Verileri toplamıyoruz, çünkü her kayıt günlük toplamı temsil eder
-            final existing = dailyData[dayIndex]!;
-            dailyDataCount[dayIndex] = (dailyDataCount[dayIndex] ?? 1) + 1;
-            dailyDataSources[dayIndex] = dailyDataSources[dayIndex] ?? [];
-            dailyDataSources[dayIndex]!.add(source);
-
-            // En son kaydı kullan (daha yeni tarihli olan)
-            if (entry.createdAt.isAfter(existing.createdAt)) {
-              debugPrint(
-                  '📅 Gün $dayIndex için daha yeni veri bulundu, güncelleniyor:');
-              debugPrint(
-                  '   Eski: E=${existing.electricityKwh.toStringAsFixed(2)} kWh, Y=${existing.fuelLiters.toStringAsFixed(2)} L, S=${existing.waterCubicMeters.toStringAsFixed(2)} m³');
-              debugPrint(
-                  '   Yeni: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³ (Kaynak: $source)');
-
-              dailyData[dayIndex] = entry; // En son veriyi kullan
-            } else {
-              debugPrint(
-                  '📅 Gün $dayIndex için mevcut veri daha güncel, korunuyor');
+          if (espTimestamps.contains(timestamp)) {
+            // ESP verisi - en güncel olanı kullan
+            if (!espDailyData.containsKey(dayIndex) ||
+                entry.createdAt.isAfter(espDailyData[dayIndex]!.createdAt)) {
+              espDailyData[dayIndex] = entry;
             }
-          } else {
-            // İlk veri, direkt ekle
-            dailyData[dayIndex] = entry;
-            dailyDataCount[dayIndex] = 1;
-            dailyDataSources[dayIndex] = [source];
-            debugPrint(
-                '📅 Gün $dayIndex için ilk veri eklendi: E=${entry.electricityKwh.toStringAsFixed(2)} kWh, Y=${entry.fuelLiters.toStringAsFixed(2)} L, S=${entry.waterCubicMeters.toStringAsFixed(2)} m³ (Kaynak: $source)');
+          } else if (shellyTimestamps.contains(timestamp)) {
+            // Shelly verisi - en güncel olanı kullan
+            if (!shellyDailyData.containsKey(dayIndex) ||
+                entry.createdAt.isAfter(shellyDailyData[dayIndex]!.createdAt)) {
+              shellyDailyData[dayIndex] = entry;
+            }
+          } else if (manualTimestamps.contains(timestamp)) {
+            // Manuel verisi - en güncel olanı kullan
+            if (!manualDailyData.containsKey(dayIndex) ||
+                entry.createdAt.isAfter(manualDailyData[dayIndex]!.createdAt)) {
+              manualDailyData[dayIndex] = entry;
+            }
           }
+        }
+      }
+
+      // ESP ve Shelly verilerini birleştir
+      final Map<int, ConsumptionEntry> dailyData = {};
+      final Map<int, int> dailyDataCount = {};
+      final Map<int, List<String>> dailyDataSources = {};
+
+      for (int dayIndex = 0; dayIndex < 7; dayIndex++) {
+        final espEntry = espDailyData[dayIndex];
+        final shellyEntry = shellyDailyData[dayIndex];
+        final manualEntry = manualDailyData[dayIndex];
+
+        // Öncelik: Manuel > ESP+Shelly > ESP > Shelly
+        if (manualEntry != null) {
+          // Manuel veri varsa onu kullan
+          dailyData[dayIndex] = manualEntry;
+          dailyDataCount[dayIndex] = 1;
+          dailyDataSources[dayIndex] = ['Manuel'];
+          debugPrint(
+              '📅 Gün $dayIndex: Manuel veri kullanıldı: E=${manualEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${manualEntry.fuelLiters.toStringAsFixed(2)} L, S=${manualEntry.waterCubicMeters.toStringAsFixed(2)} m³');
+        } else if (espEntry != null && shellyEntry != null) {
+          // ESP + Shelly birleştir
+          final combinedEntry = ConsumptionEntry(
+            electricityKwh: shellyEntry.electricityKwh, // Shelly'den elektrik
+            waterCubicMeters: espEntry.waterCubicMeters, // ESP'den su
+            fuelLiters: espEntry.fuelLiters, // ESP'den gaz
+            wasteKg: (espEntry.wasteKg + shellyEntry.wasteKg) / 2, // Ortalama
+            createdAt: shellyEntry.createdAt.isAfter(espEntry.createdAt)
+                ? shellyEntry.createdAt
+                : espEntry.createdAt, // En güncel tarih
+          );
+          dailyData[dayIndex] = combinedEntry;
+          dailyDataCount[dayIndex] = 2;
+          dailyDataSources[dayIndex] = ['ESP', 'Shelly'];
+          debugPrint('📅 Gün $dayIndex: ESP + Shelly birleştirildi:');
+          debugPrint(
+              '   ESP: E=${espEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${espEntry.fuelLiters.toStringAsFixed(2)} L, S=${espEntry.waterCubicMeters.toStringAsFixed(2)} m³');
+          debugPrint(
+              '   Shelly: E=${shellyEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${shellyEntry.fuelLiters.toStringAsFixed(2)} L, S=${shellyEntry.waterCubicMeters.toStringAsFixed(2)} m³');
+          debugPrint(
+              '   Birleşik: E=${combinedEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${combinedEntry.fuelLiters.toStringAsFixed(2)} L, S=${combinedEntry.waterCubicMeters.toStringAsFixed(2)} m³');
+        } else if (espEntry != null) {
+          // Sadece ESP verisi
+          dailyData[dayIndex] = espEntry;
+          dailyDataCount[dayIndex] = 1;
+          dailyDataSources[dayIndex] = ['ESP'];
+          debugPrint(
+              '📅 Gün $dayIndex: Sadece ESP verisi: E=${espEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${espEntry.fuelLiters.toStringAsFixed(2)} L, S=${espEntry.waterCubicMeters.toStringAsFixed(2)} m³');
+        } else if (shellyEntry != null) {
+          // Sadece Shelly verisi
+          dailyData[dayIndex] = shellyEntry;
+          dailyDataCount[dayIndex] = 1;
+          dailyDataSources[dayIndex] = ['Shelly'];
+          debugPrint(
+              '📅 Gün $dayIndex: Sadece Shelly verisi: E=${shellyEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${shellyEntry.fuelLiters.toStringAsFixed(2)} L, S=${shellyEntry.waterCubicMeters.toStringAsFixed(2)} m³');
         }
       }
 
@@ -779,13 +1144,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
             '📅 Hiç günlük veri yok, en son veri bugün olarak kullanıldı');
       }
 
-      // Her gün için toplam emisyonu hesapla (günlük trend grafiği için)
+      // Manuel veriler zaten yukarıda işlendi (manualDailyData map'inde)
+
+      // ESP/Shelly verileri için günlük emisyonları hesapla
       final List<double> emissions = [];
+      // Manuel veriler için ayrı günlük emisyonları hesapla
+      final List<double> manualEmissions = [];
       double totalElectricity = 0;
       double totalGas = 0;
       double totalWater = 0;
       double totalWaste = 0;
 
+      // ESP/Shelly verileri için döngü
       for (int i = 6; i >= 0; i--) {
         // En eski günden en yeni güne (Pazartesi'den Pazar'a)
         if (dailyData.containsKey(i)) {
@@ -829,9 +1199,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       }
 
-      // Kategori yüzdelerini hesapla
+      // Manuel veriler için döngü
+      double manualTotalElectricity = 0.0;
+      double manualTotalGas = 0.0;
+      double manualTotalWater = 0.0;
+      double manualTotalWaste = 0.0;
+
+      for (int i = 6; i >= 0; i--) {
+        if (manualDailyData.containsKey(i)) {
+          final entry = manualDailyData[i]!;
+          final emission = Calculation.calculateDailyEmission(entry);
+          manualEmissions.add(emission);
+
+          // Manuel veriler için kategori dağılımı için sadece bugünün (i == 0) verilerini topla
+          if (i == 0) {
+            manualTotalElectricity +=
+                entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
+            manualTotalGas +=
+                entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+            manualTotalWater +=
+                entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
+            manualTotalWaste += entry.wasteKg * Calculation.factorWasteKgPerKg;
+          }
+        } else {
+          manualEmissions.add(0.0);
+        }
+      }
+
+      // Kategori yüzdelerini hesapla (ESP verileri için)
       final double totalEmission =
           totalElectricity + totalGas + totalWater + totalWaste;
+
+      // Manuel veriler için kategori yüzdelerini hesapla
+      final double manualTotalEmission = manualTotalElectricity +
+          manualTotalGas +
+          manualTotalWater +
+          manualTotalWaste;
 
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
@@ -906,14 +1309,105 @@ class _ReportsScreenState extends State<ReportsScreen> {
           }
         }
 
+        // Manuel veriler için kategori yüzdelerini hesapla
+        double manualElectricityPercent = 0.0;
+        double manualGasPercent = 0.0;
+        double manualWaterPercent = 0.0;
+        double manualWastePercent = 0.0;
+
+        if (manualTotalEmission > 0) {
+          manualElectricityPercent =
+              (manualTotalElectricity / manualTotalEmission * 100);
+          manualGasPercent = (manualTotalGas / manualTotalEmission * 100);
+          manualWaterPercent = (manualTotalWater / manualTotalEmission * 100);
+          manualWastePercent = (manualTotalWaste / manualTotalEmission * 100);
+
+          // Minimum %2 göster (görünürlük için)
+          const double minPercent = 2.0;
+          double manualNonZeroTotal = 0;
+          int manualZeroCount = 0;
+
+          if (manualElectricityPercent == 0) {
+            manualZeroCount++;
+          } else {
+            manualNonZeroTotal += manualElectricityPercent;
+          }
+          if (manualWaterPercent == 0) {
+            manualZeroCount++;
+          } else {
+            manualNonZeroTotal += manualWaterPercent;
+          }
+          if (manualGasPercent == 0) {
+            manualZeroCount++;
+          } else {
+            manualNonZeroTotal += manualGasPercent;
+          }
+          if (manualWastePercent == 0) {
+            manualZeroCount++;
+          } else {
+            manualNonZeroTotal += manualWastePercent;
+          }
+
+          if (manualZeroCount > 0 && manualNonZeroTotal > 0) {
+            final double remaining = 100 - (minPercent * manualZeroCount);
+            if (manualElectricityPercent > 0) {
+              manualElectricityPercent =
+                  (manualElectricityPercent / manualNonZeroTotal) * remaining;
+            } else {
+              manualElectricityPercent = minPercent;
+            }
+            if (manualWaterPercent > 0) {
+              manualWaterPercent =
+                  (manualWaterPercent / manualNonZeroTotal) * remaining;
+            } else {
+              manualWaterPercent = minPercent;
+            }
+            if (manualGasPercent > 0) {
+              manualGasPercent =
+                  (manualGasPercent / manualNonZeroTotal) * remaining;
+            } else {
+              manualGasPercent = minPercent;
+            }
+            if (manualWastePercent > 0) {
+              manualWastePercent =
+                  (manualWastePercent / manualNonZeroTotal) * remaining;
+            } else {
+              manualWastePercent = minPercent;
+            }
+          }
+        }
+
         setState(() {
           _dailyEmissions = emissions;
-          _categoryDistribution = {
-            'electricity': electricityPercent,
-            'gas': gasPercent,
-            'water': waterPercent,
-            'waste': wastePercent,
-          };
+          _manualDailyEmissions = manualEmissions;
+          // Toggle durumuna göre kategori dağılımını seç
+          // ESP seçiliyse ESP verilerinden, Manuel seçiliyse Manuel verilerinden
+          if (_useEspData) {
+            _categoryDistribution = {
+              'electricity': electricityPercent,
+              'gas': gasPercent,
+              'water': waterPercent,
+              'waste': wastePercent,
+            };
+          } else {
+            // Manuel veriler için kategori dağılımı
+            if (manualTotalEmission > 0) {
+              _categoryDistribution = {
+                'electricity': manualElectricityPercent,
+                'gas': manualGasPercent,
+                'water': manualWaterPercent,
+                'waste': manualWastePercent,
+              };
+            } else {
+              // Manuel veri yoksa ESP verilerini göster
+              _categoryDistribution = {
+                'electricity': electricityPercent,
+                'gas': gasPercent,
+                'water': waterPercent,
+                'waste': wastePercent,
+              };
+            }
+          }
           // ESP verilerinden hesaplanan bugünün toplam emisyonunu gauge'a aktar
           _lastCalculatedKgCo2e =
               todayTotalEmission > 0 ? todayTotalEmission : null;
@@ -923,6 +1417,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Veri olmadığında bile grafiği göstermek için eşit dağılım göster (4 kategori)
         setState(() {
           _dailyEmissions = emissions;
+          _manualDailyEmissions = manualEmissions;
           _categoryDistribution = {
             'electricity': 25.0,
             'gas': 25.0,
@@ -940,6 +1435,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       if (mounted) {
         setState(() {
           _dailyEmissions = [0, 0, 0, 0, 0, 0, 0];
+          _manualDailyEmissions = [0, 0, 0, 0, 0, 0, 0];
           _isLoadingTrends = false;
         });
       }
@@ -1023,19 +1519,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                           _updateCombinedEmission();
                                         } else {
                                           // Manuel veri seçildiğinde manuel hesaplamayı göster
-                                          _lastCalculatedKgCo2e =
-                                              _manualCalculatedKgCo2e;
-                                          // Grafikteki bugünün değerini de güncelle
+                                          // Eğer manuel veri varsa, gauge'ı güncelle
                                           if (_manualCalculatedKgCo2e != null &&
-                                              _dailyEmissions.length == 7) {
-                                            _dailyEmissions[6] =
-                                                _manualCalculatedKgCo2e!;
-                                            debugPrint(
-                                              '📊 Toggle Manuel: Grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
-                                            );
+                                              _manualEntry != null) {
+                                            _lastCalculatedKgCo2e =
+                                                _manualCalculatedKgCo2e;
+                                            // Grafikteki bugünün değerini de güncelle (manuel veriler listesine)
+                                            if (_manualDailyEmissions.length ==
+                                                7) {
+                                              _manualDailyEmissions[6] =
+                                                  _manualCalculatedKgCo2e!;
+                                              debugPrint(
+                                                '📊 Toggle Manuel: Manuel grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
+                                              );
+                                            }
+                                            // Manuel veri seçildiğinde kategori dağılımını güncelle
+                                            _updateCategoryDistributionFromEntry(
+                                                _manualEntry!);
                                           }
                                         }
                                       });
+                                      // Manuel veri yoksa Firebase'den yükle (setState dışında)
+                                      if (!value &&
+                                          (_manualCalculatedKgCo2e == null ||
+                                              _manualEntry == null)) {
+                                        _loadManualDataFromFirebase();
+                                      }
                                     },
                                   ),
                                 ),
@@ -1136,13 +1645,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                           // Eğer manuel veri seçiliyse, gauge'ı güncelle
                                           if (!_useEspData) {
                                             _lastCalculatedKgCo2e = valueKgCo2e;
-                                            // Grafikteki bugünün değerini de güncelle
-                                            if (_dailyEmissions.length == 7) {
-                                              _dailyEmissions[6] = valueKgCo2e;
+                                            // Grafikteki bugünün değerini de güncelle (manuel veriler listesine)
+                                            if (_manualDailyEmissions.length ==
+                                                7) {
+                                              _manualDailyEmissions[6] =
+                                                  valueKgCo2e;
                                               debugPrint(
-                                                '📊 Manuel hesaplama: Grafikteki bugünün değeri güncellendi: ${valueKgCo2e.toStringAsFixed(2)} kg CO2e',
+                                                '📊 Manuel hesaplama: Manuel grafikteki bugünün değeri güncellendi: ${valueKgCo2e.toStringAsFixed(2)} kg CO2e',
                                               );
                                             }
+                                          }
+                                        });
+                                      },
+                                      onEntryCalculated: (valueKgCo2e, entry) {
+                                        // Manuel entry'yi sakla (kategori dağılımı için)
+                                        setState(() {
+                                          _manualEntry = entry;
+                                          _manualCalculatedKgCo2e = valueKgCo2e;
+                                          // Eğer manuel veri seçiliyse, kategori dağılımını güncelle
+                                          if (!_useEspData) {
+                                            _updateCategoryDistributionFromEntry(
+                                                entry);
                                           }
                                         });
                                       },
@@ -1243,7 +1766,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             locale),
                                                     style: Theme.of(context)
                                                         .textTheme
-                                                        .titleMedium
+                                                        .titleLarge
                                                         ?.copyWith(
                                                             color:
                                                                 Colors.white),
@@ -1315,11 +1838,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     )
                                                   : (_showGlobalTrend
                                                                   ? _globalDailyTrends
-                                                                  : _dailyEmissions)
+                                                                  : (_useEspData
+                                                                      ? _dailyEmissions
+                                                                      : _manualDailyEmissions))
                                                               .isEmpty ||
                                                           (_showGlobalTrend
                                                                   ? _globalDailyTrends
-                                                                  : _dailyEmissions)
+                                                                  : (_useEspData
+                                                                      ? _dailyEmissions
+                                                                      : _manualDailyEmissions))
                                                               .every(
                                                                   (e) => e == 0)
                                                       ? SizedBox(
@@ -1345,12 +1872,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           ),
                                                         )
                                                       : Builder(
+                                                          key: ValueKey(
+                                                              'trend_chart_${_useEspData}_${_showGlobalTrend}'), // Toggle değiştiğinde yeniden çiz
                                                           builder: (context) {
                                                             // Toggle'a göre veri seç
+                                                            // ESP/Manuel toggle'a göre doğru veriyi seç
                                                             final currentData =
                                                                 _showGlobalTrend
                                                                     ? _globalDailyTrends
-                                                                    : _dailyEmissions;
+                                                                    : (_useEspData
+                                                                        ? _dailyEmissions
+                                                                        : _manualDailyEmissions);
 
                                                             // Dünya geneli veriler çok büyük, normalize et
                                                             // Kişisel verilerle karşılaştırılabilir hale getir
@@ -1513,27 +2045,82 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                           ? a
                                                                           : b);
 
+                                                              // Ülke çizgileri için offset hesapla (eğer ülke karşılaştırması açıksa)
+                                                              // Offset'ler maxY'ye bağlı olduğu için iteratif hesaplama yapıyoruz
+                                                              double maxOffset =
+                                                                  0.0;
+                                                              if (_showCountryComparison &&
+                                                                  !_showGlobalTrend &&
+                                                                  _countryTrends
+                                                                      .isNotEmpty) {
+                                                                // İteratif hesaplama: offset'ler maxY'ye bağlı, maxY offset'e bağlı
+                                                                // İlk tahmin: maxValue'ya göre maxY tahmin et (offset olmadan)
+                                                                double
+                                                                    tempMaxY =
+                                                                    maxValue >
+                                                                            100
+                                                                        ? (maxValue *
+                                                                            1.15)
+                                                                        : (maxValue *
+                                                                            1.2);
+
+                                                                // İkinci iterasyon: Offset'i hesapla ve maxY'yi güncelle
+                                                                for (int i = 0;
+                                                                    i < 3;
+                                                                    i++) {
+                                                                  // 3 iterasyon yeterli
+                                                                  final baseOffset =
+                                                                      tempMaxY *
+                                                                          0.08;
+                                                                  maxOffset =
+                                                                      baseOffset *
+                                                                          5.0; // İngiltere offset'i (en yüksek)
+
+                                                                  // Offset'i hesaba katarak maxY'yi yeniden hesapla
+                                                                  tempMaxY = maxValue >
+                                                                          100
+                                                                      ? ((maxValue +
+                                                                              maxOffset) *
+                                                                          1.15)
+                                                                      : ((maxValue +
+                                                                              maxOffset) *
+                                                                          1.2);
+                                                                }
+
+                                                                // Son offset değerini al
+                                                                final finalBaseOffset =
+                                                                    tempMaxY *
+                                                                        0.08;
+                                                                maxOffset =
+                                                                    finalBaseOffset *
+                                                                        5.0;
+                                                              }
+
                                                               // Eğer max değer çok yüksekse (100+ kg), grafik ölçeğini optimize et
                                                               if (maxValue >
                                                                   100) {
                                                                 // Çok yüksek değerler için daha iyi ölçeklendirme
-                                                                // Max değerin %15'i kadar padding ekle (daha az padding)
-                                                                maxY = (maxValue *
+                                                                // Max değerin %15'i kadar padding ekle + offset için ekstra alan
+                                                                maxY = ((maxValue +
+                                                                            maxOffset) *
                                                                         1.15)
                                                                     .clamp(
                                                                         1.0,
                                                                         double
                                                                             .infinity);
                                                                 debugPrint(
-                                                                    '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), ölçek optimize edildi: maxY=$maxY');
+                                                                    '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), offset: ${maxOffset.toStringAsFixed(2)}, ölçek optimize edildi: maxY=$maxY');
                                                               } else {
-                                                                // Normal değerler için standart padding (%20)
-                                                                maxY = (maxValue *
+                                                                // Normal değerler için standart padding (%20) + offset için ekstra alan
+                                                                maxY = ((maxValue +
+                                                                            maxOffset) *
                                                                         1.2)
                                                                     .clamp(
                                                                         1.0,
                                                                         double
                                                                             .infinity);
+                                                                debugPrint(
+                                                                    '📊 Normal değer, offset: ${maxOffset.toStringAsFixed(2)}, maxY=$maxY');
                                                               }
                                                             }
 
@@ -1783,6 +2370,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                 // Milyar kg cinsinden göster
                                                                                 label = '${(value / 1000000000).toStringAsFixed(1)}B';
                                                                               } else {
+                                                                                // Sadece sayı göster (birim yok)
                                                                                 label = '${value.toInt()}';
                                                                               }
                                                                               return Padding(
@@ -2005,6 +2593,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     : translate(
                                                         'last_7_days_trend',
                                                         locale),
+                                                textAlign: TextAlign.center,
                                                 style: Theme.of(context)
                                                     .textTheme
                                                     .bodySmall
@@ -2015,6 +2604,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       ),
                                                     ),
                                               ),
+                                              // Y ekseni açıklaması
+                                              if (!_showGlobalTrend)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 4),
+                                                  child: Center(
+                                                    child: Text(
+                                                      'Y ekseni: kg CO₂e (Karbon dioksit eşdeğeri)',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: Colors.white
+                                                                .withValues(
+                                                              alpha: 0.5,
+                                                            ),
+                                                            fontSize: 10,
+                                                          ),
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                    ),
+                                                  ),
+                                                ),
                                             ],
                                           ),
                                         ],

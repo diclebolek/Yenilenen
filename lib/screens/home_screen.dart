@@ -9,6 +9,8 @@ import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../services/weather_service.dart';
 import '../services/api_service.dart';
+import '../services/global_carbon_service.dart';
+import '../services/carbon_data_service.dart';
 
 /// Home screen showing title, tips, and weather placeholder.
 class HomeScreen extends StatefulWidget {
@@ -49,6 +51,12 @@ class _HomeScreenState extends State<HomeScreen> {
   double? _carbonIntensity;
   bool _isLoadingWeather = true;
 
+  // Karbon emisyon ortalamaları (gerçek veriler)
+  final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
+  final CarbonDataService _carbonDataService = CarbonDataService.instance;
+  double? _globalAverageKg;
+  double? _nationalAverageKg;
+
   // Shelly Plug S için eklenen değişkenler
   final ApiService _apiService = ApiService();
   final String _shellyDeviceId = 'shelly_plug_001';
@@ -71,6 +79,16 @@ class _HomeScreenState extends State<HomeScreen> {
           final webPage = _tipsControllerWeb!.page;
           if (webPage != null) {
             newPage = webPage;
+            // Web için yuvarlanmış değeri kullan (viewportFraction nedeniyle)
+            final roundedPage = webPage.round().toDouble();
+            if ((roundedPage - _currentPage).abs() > 0.1) {
+              if (mounted) {
+                setState(() {
+                  _currentPage = roundedPage;
+                });
+                debugPrint('📄 Web listener: page=$webPage, rounded=$roundedPage');
+              }
+            }
           }
         } catch (e) {
           // Web controller henüz hazır değilse mobil controller'ı kullan
@@ -83,21 +101,17 @@ class _HomeScreenState extends State<HomeScreen> {
           final mobilePage = _tipsController.page;
           if (mobilePage != null) {
             newPage = mobilePage;
+            // Sayfa değiştiyse güncelle
+            if ((mobilePage - _currentPage).abs() > 0.001) {
+              if (mounted) {
+                setState(() {
+                  _currentPage = mobilePage;
+                });
+              }
+            }
           }
         } catch (e) {
           // Mobil controller henüz hazır değilse varsayılan değer
-        }
-      }
-      
-      // Varsayılan değer
-      final currentPage = newPage ?? 0.0;
-      
-      // Sayfa değiştiyse güncelle (threshold çok düşük - her değişikliği yakala)
-      if ((currentPage - _currentPage).abs() > 0.001) {
-        if (mounted) {
-        setState(() {
-            _currentPage = currentPage;
-        });
         }
       }
     };
@@ -149,20 +163,43 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (tipsCount == 0) return; // Kart yoksa işlem yapma
 
-        // _currentPage değişkenini kullan (onPageChanged ile güncelleniyor, daha güvenilir)
-        final int currentPage = _currentPage.round();
+        // Controller'lardan gerçek sayfa değerlerini al (daha güvenilir)
+        int? mobileCurrentPage;
+        int? webCurrentPage;
+        
+        if (_tipsController.hasClients) {
+          try {
+            mobileCurrentPage = _tipsController.page?.round();
+          } catch (e) {
+            // Controller hazır değil
+          }
+        }
+        
+        if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
+          try {
+            webCurrentPage = _tipsControllerWeb!.page?.round();
+          } catch (e) {
+            // Controller hazır değil
+          }
+        }
+        
+        // Fallback: _currentPage kullan (eğer controller'dan alınamazsa)
+        final int fallbackPage = _currentPage.round();
+        final int currentPage = webCurrentPage ?? mobileCurrentPage ?? fallbackPage;
         final int nextPage = (currentPage + 1) % tipsCount;
 
         // Mobil controller için
-        if (_tipsController.hasClients) {
+        if (_tipsController.hasClients && mobileCurrentPage != null) {
           try {
-            // Her zaman bir sonraki sayfaya geç (döngüsel)
-            _tipsController.animateToPage(
-              nextPage,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
-            debugPrint('🔄 Otomatik kaydırma (Mobil): $currentPage -> $nextPage');
+            // Sadece sayfa değişmemişse animasyon yap
+            if (mobileCurrentPage == currentPage) {
+              _tipsController.animateToPage(
+                nextPage,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+              debugPrint('🔄 Otomatik kaydırma (Mobil): $currentPage -> $nextPage');
+            }
           } catch (e) {
             debugPrint('Mobil controller animasyon hatası: $e');
           }
@@ -171,13 +208,28 @@ class _HomeScreenState extends State<HomeScreen> {
         // Web controller için (varsa)
         if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
           try {
-            // Her zaman bir sonraki sayfaya geç (döngüsel)
+            // Controller'dan gerçek sayfa değerini al
+            final double? webPage = _tipsControllerWeb!.page;
+            final int actualWebPage = webPage?.round() ?? (webCurrentPage ?? fallbackPage);
+            
+            // Animasyon devam ediyor mu kontrol et (sayfa değeri tam sayı değilse animasyon devam ediyor)
+            final bool isAnimating = webPage != null && (webPage - actualWebPage).abs() > 0.1;
+            
+            if (!isAnimating && actualWebPage == currentPage) {
+              // Animasyon yok ve sayfa değişmemiş, yeni animasyon başlat
               _tipsControllerWeb!.animateToPage(
-              nextPage,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
+                nextPage,
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.easeInOutCubic, // Web için daha akıcı curve
               );
-            debugPrint('🔄 Otomatik kaydırma (Web): $currentPage -> $nextPage');
+              debugPrint('🔄 Otomatik kaydırma (Web): $actualWebPage -> $nextPage (page=$webPage)');
+            } else if (isAnimating) {
+              // Animasyon devam ediyor, bekle
+              debugPrint('⏸️ Web slider animasyon devam ediyor: page=$webPage, hedef=$nextPage');
+            } else {
+              // Sayfa zaten değişmiş
+              debugPrint('⏸️ Web slider sayfa değişmiş: mevcut=$actualWebPage, beklenen=$currentPage, hedef=$nextPage');
+            }
           } catch (e) {
             // Controller henüz hazır değilse hata verme
             debugPrint('Web controller error: $e');
@@ -190,6 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Hava durumu verilerini yükle
     _loadWeatherData();
+    _loadAverageEmissions();
 
     // Shelly'yi başlat (IP ADRESİNİZİ BURAYA YAZIN!)
     _initializeShelly();
@@ -289,6 +342,30 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingWeather = false);
+      }
+    }
+  }
+
+  /// Gerçek karbon emisyon ortalamalarını yükle (Our World in Data'dan)
+  Future<void> _loadAverageEmissions() async {
+    try {
+      // Paralel olarak hem global hem ulusal ortalamaları çek
+      final globalAvg = await _globalCarbonService.getGlobalAveragePerPerson();
+      final nationalAvg = await _carbonDataService.getTurkeyAverage();
+
+      if (mounted) {
+        setState(() {
+          _globalAverageKg = globalAvg;
+          _nationalAverageKg = nationalAvg;
+        });
+      }
+    } catch (e) {
+      // Hata durumunda CarbonDataService'den sabit değerleri kullan
+      if (mounted) {
+        setState(() {
+          _globalAverageKg = 4.1; // Dünya ortalaması (kg/gün)
+          _nationalAverageKg = 6.8; // Türkiye ortalaması (kg/gün)
+        });
       }
     }
   }
@@ -535,8 +612,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   final bool isWide = constraints.maxWidth >= 900;
                   if (isWide) {
                     // Geniş ekran: horizontal slider, tek satırda kaydırılabilir
-                    // Web'de daha fazla kart görünmesi için viewportFraction daha küçük (0.3)
-                    _tipsControllerWeb ??= PageController(viewportFraction: 0.3)
+                    // Web'de daha fazla kart görünmesi için viewportFraction (0.4 - daha iyi sayfa algılama)
+                    _tipsControllerWeb ??= PageController(viewportFraction: 0.4)
                       ..addListener(_tipsListener);
                     return Column(
                       children: [
@@ -544,16 +621,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           height: 210,
                           child: PageView.builder(
                             controller: _tipsControllerWeb,
-                            allowImplicitScrolling: true,
-                            physics: const ClampingScrollPhysics(),
+                            allowImplicitScrolling: false, // Web'de daha güvenilir
+                            physics: const PageScrollPhysics(), // Web için daha akıcı
+                            scrollDirection: Axis.horizontal,
                             itemCount: tips.length,
-                            padEnds: false,
+                            padEnds: true, // Son sayfada da kaydırma için padding
                             clipBehavior: Clip.none,
                             onPageChanged: (index) {
                               if (mounted) {
                                 setState(() {
                                   _currentPage = index.toDouble();
                                 });
+                                debugPrint('📄 Web onPageChanged: $index (toplam: ${tips.length})');
                               }
                             },
                             itemBuilder: (context, index) {
@@ -568,12 +647,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               final height = isSelected ? 230.0 : 170.0;
 
                               return AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
+                                duration: const Duration(milliseconds: 250),
                                 curve: Curves.easeOutCubic,
                                 height: height,
                                 margin: EdgeInsets.symmetric(
-                                  horizontal: isSelected ? 4 : 8,
-                                  vertical: isSelected ? 0 : 20,
+                                  horizontal: isSelected ? 8 : 12,
+                                  vertical: isSelected ? 0 : 15,
                                 ),
                                 decoration: isSelected
                                     ? BoxDecoration(
@@ -581,15 +660,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                       )
                                     : null,
                                 child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 300),
+                                  duration: const Duration(milliseconds: 250),
                                   opacity: opacity,
                                   child: AnimatedScale(
-                                    duration: const Duration(milliseconds: 300),
+                                    duration: const Duration(milliseconds: 250),
                                     curve: Curves.easeOutCubic,
                                     scale: scale,
                                     child: Padding(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
+                                        horizontal: 8,
                                       ),
                                       child: _buildTipCard(
                                           index, isSelected, locale),
@@ -1272,8 +1351,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               _EmissionComparisonCard(
                 userDailyEmissionKg: _dailyEmissionKg ?? 12.0,
-                nationalAvgKg: 15.0,
-                globalAvgKg: 15.0,
+                nationalAvgKg: _nationalAverageKg ?? 6.8,
+                globalAvgKg: _globalAverageKg ?? 4.1,
                 locale: locale,
               ),
               const SizedBox(height: 32),

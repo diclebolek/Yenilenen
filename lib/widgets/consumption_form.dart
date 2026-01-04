@@ -14,10 +14,12 @@ class ConsumptionForm extends StatefulWidget {
   const ConsumptionForm({
     super.key,
     required this.onCalculated,
+    this.onEntryCalculated,
     this.languageProvider,
   });
 
   final void Function(double kgCo2e) onCalculated;
+  final void Function(double kgCo2e, ConsumptionEntry entry)? onEntryCalculated;
   final LanguageProvider? languageProvider;
 
   @override
@@ -1827,6 +1829,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     }
 
     widget.onCalculated(result);
+    // Eğer onEntryCalculated callback'i varsa, hem toplam emisyonu hem de entry'yi döndür
+    widget.onEntryCalculated?.call(result, entry);
   }
 
   // Form sıfırlama fonksiyonu

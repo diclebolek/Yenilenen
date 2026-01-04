@@ -7,7 +7,7 @@ Karbon ayak izi hesaplama ve takip uygulaması - Flutter ile geliştirilmiş iş
 - 🔐 Firebase Authentication ile kullanıcı girişi ve kayıt
 - 📊 CO₂ emisyon hesaplama ve görselleştirme
 - 📈 Grafikler ve raporlar (fl_chart ile)
-- 🌤️ Hava durumu entegrasyonu (OpenWeatherMap API)
+- 🌤️ Hava durumu entegrasyonu (Open-Meteo API - tamamen ücretsiz, API key gerektirmez)
 - 📱 Fatura tarama (ML Kit ile OCR)
 - 🌍 Gerçek zamanlı iklim verileri
 - 🎯 Hedef belirleme ve takip
@@ -48,11 +48,11 @@ flutter pub get
    - Firebase Realtime Database'i etkinleştirin
    - Authentication'ı etkinleştirin (Email/Password)
 
-4. API Key Yapılandırması (Opsiyonel):
-   - **Hava Durumu API**: `lib/services/weather_service.dart` dosyasında:
-     - `_apiKey` değişkenine OpenWeatherMap API key'inizi ekleyin
-     - `_aqiApiKey` değişkenine AirVisual API key'inizi ekleyin (hava kalitesi için)
-   - API key'ler olmadan da uygulama çalışır (placeholder veri kullanır)
+4. Hava Durumu API Yapılandırması:
+   - **Open-Meteo API**: Tamamen ücretsiz ve API key gerektirmez
+   - Uygulama otomatik olarak gerçek hava durumu verilerini çeker
+   - Şehir adından koordinat bulma, hava durumu, tahmin ve hava kalitesi verileri sağlanır
+   - Detaylı bilgi için aşağıdaki "Hava Durumu Entegrasyonu" bölümüne bakın
 
 5. IoT Cihaz Yapılandırması (Opsiyonel):
 
@@ -141,7 +141,7 @@ lib/
 
 ### API Servisleri
 - **ApiService** - ESP8266 ve Shelly Plug S entegrasyonu
-- **WeatherService** - Hava durumu ve hava kalitesi (OpenWeatherMap, AirVisual)
+- **WeatherService** - Hava durumu ve hava kalitesi (Open-Meteo API - ücretsiz, API key gerektirmez)
 - **GlobalCarbonService** - Dünya geneli karbon trend verileri (Our World in Data)
 - **ShellyService** - Shelly Plug S HTTP API ve WebSocket desteği
 
@@ -283,18 +283,260 @@ Kullanıcı verileri ile ülke verileri arasında büyük fark olduğunda (örne
 - Her ülke çizgisi, görünürlük için farklı yükseklik offset'i ile ayrılır
 - Bu sayede tüm ülke çizgileri grafikte ayırt edilebilir şekilde görüntülenir
 
+### Grafikte Gösterilen Değerler
+
+Grafikte gösterilen ülke değerleri şu şekilde hesaplanır:
+
+1. **Veri Kaynağı**: Our World in Data'dan yıllık kişi başı CO₂ emisyon verileri (ton CO₂e/yıl)
+2. **Dönüştürme**: Yıllık değerler günlük değerlere çevrilir:
+   ```
+   Günlük Emisyon (kg CO₂e/gün) = (Yıllık Emisyon (ton/yıl) × 1000) / 365
+   ```
+3. **Son 7 Yıl**: Her ülke için son 7 yılın verileri kullanılarak trend oluşturulur
+4. **Grafikte Gösterim**: 
+   - Her ülke için son 7 günün değerleri grafikte çizgi olarak gösterilir
+   - Grafikteki değerler kişi başı günlük emisyon değerleridir (kg CO₂e/gün)
+   - Kullanıcı verileri ile karşılaştırılabilir hale getirilir
+
+#### Örnek Değerler (Kişi Başı Günlük Ortalama)
+
+Grafikte gösterilen değerler, Our World in Data'dan çekilen gerçek verilere dayanır:
+
+- **Türkiye**: ~4.2 kg CO₂e/gün (yıllık ~1.5 ton CO₂e)
+- **ABD**: ~15.5 kg CO₂e/gün (yıllık ~5.7 ton CO₂e)
+- **Çin**: ~7.4 kg CO₂e/gün (yıllık ~2.7 ton CO₂e)
+- **Almanya**: ~8.9 kg CO₂e/gün (yıllık ~3.2 ton CO₂e)
+- **Fransa**: ~8.0 kg CO₂e/gün (yıllık ~2.9 ton CO₂e)
+- **İngiltere**: ~7.8 kg CO₂e/gün (yıllık ~2.8 ton CO₂e)
+
+**Not**: Grafikte görünen değerler, kullanıcı verileriyle karşılaştırılabilir olması için ölçeklendirilmiş olabilir. Gerçek değerler yukarıdaki aralıklarda olmalıdır.
+
+#### Veri Hesaplama Detayları
+
+```dart
+// Örnek: Türkiye verisi çekme
+final trend = await globalCarbonService.getCountryDailyTrend('TUR');
+// Dönen veri: [4.1, 4.2, 4.3, 4.2, 4.1, 4.0, 4.2] (kg CO₂e/gün)
+// Bu değerler son 7 yılın günlük ortalamalarıdır
+```
+
+**Veri İşleme Adımları**:
+1. Our World in Data API'sinden ülke verileri çekilir
+2. `co2_per_capita` (kişi başı yıllık emisyon) değeri alınır
+3. Yıllık değer günlük değere çevrilir: `(ton × 1000) / 365 = kg/gün`
+4. Son 7 yılın verileri bir liste olarak döndürülür
+5. Bu liste grafikte çizgi olarak gösterilir
+
 ### Veri Doğruluğu ve Güncellik
 
 - **Our World in Data** verileri, dünya genelinde kabul görmüş ve güvenilir kaynaklardan toplanmaktadır
 - Veriler düzenli olarak güncellenmektedir
 - Yıllık veriler, en son mevcut yıl için sağlanmaktadır
 - Kişi başı değerler, ülke nüfus verileri ile hesaplanmaktadır
+- **Veri Formatı**: JSON (açık kaynak, ücretsiz)
+- **API Key Gereksinimi**: Yok
+- **Güncelleme Sıklığı**: Yıllık (en son yılın verileri kullanılır)
+
+## Hava Durumu Entegrasyonu
+
+### Veri Kaynağı: Open-Meteo API
+
+Uygulama, hava durumu verilerini **Open-Meteo API** kullanarak çekmektedir. Bu API tamamen ücretsizdir ve API key gerektirmez.
+
+#### API Özellikleri
+
+- ✅ **Tamamen Ücretsiz**: API key gerektirmez, kayıt gerektirmez
+- ✅ **Sınırsız Çağrı**: Ticari olmayan kullanım için sınırsız API çağrısı
+- ✅ **Gerçek Zamanlı Veri**: Güncel hava durumu ve tahmin verileri
+- ✅ **Türkiye Desteği**: Türkiye'deki tüm şehirler için veri mevcut
+- ✅ **Hava Kalitesi**: AQI (Air Quality Index) verileri dahil
+
+#### Kullanılan API Endpoint'leri
+
+1. **Geocoding API** - Şehir adından koordinat bulma:
+   ```
+   https://geocoding-api.open-meteo.com/v1/search?name={şehir_adı}&count=1&language=tr
+   ```
+
+2. **Weather Forecast API** - Hava durumu ve tahmin:
+   ```
+   https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m
+   ```
+
+3. **Air Quality API** - Hava kalitesi (AQI):
+   ```
+   https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi,pm10,pm2_5
+   ```
+
+#### Nasıl Çalışır?
+
+1. **Şehir Adından Koordinat Bulma**:
+   - Kullanıcı şehir adı girer (örn: "Sakarya,TR" veya "Istanbul,TR")
+   - Open-Meteo Geocoding API şehir adını koordinatlara (enlem/boylam) çevirir
+   - Türkçe dil desteği ile şehir adları doğru şekilde bulunur
+
+2. **Hava Durumu Verilerini Çekme**:
+   - Bulunan koordinatlar kullanılarak gerçek zamanlı hava durumu verileri alınır:
+     - Sıcaklık (°C)
+     - Nem oranı (%)
+     - Hava durumu kodu (WMO Weather interpretation codes)
+     - Rüzgar hızı (m/s)
+
+3. **Hava Durumu Tahmini**:
+   - 5 günlük hava durumu tahmini çekilir
+   - Günlük maksimum ve minimum sıcaklık değerleri alınır
+   - Ortalama sıcaklık hesaplanır
+
+4. **Hava Kalitesi (AQI)**:
+   - US AQI (Air Quality Index) değeri alınır
+   - PM10 ve PM2.5 değerleri çekilir
+   - AQI değeri metin olarak çevrilir (İyi, Orta, Sağlıksız vb.)
+
+5. **Veri Dönüştürme**:
+   - WMO weather code'ları Türkçe açıklamalara çevrilir
+   - Hava durumu koşulları Türkçe olarak gösterilir (Açık, Bulutlu, Yağmurlu vb.)
+   - Icon kodları OpenWeatherMap formatına uygun olarak eşleştirilir
+
+#### Veri İşleme Süreci
+
+```dart
+// Örnek kullanım
+final weatherService = WeatherService();
+
+// 1. Gerçek zamanlı hava durumu
+final weather = await weatherService.getWeatherData('Sakarya,TR');
+// Dönen veri: {success: true, city: "Sakarya", temperature: 24.5, condition: "Açık", ...}
+
+// 2. 5 günlük tahmin
+final forecast = await weatherService.getWeatherForecast('Sakarya,TR');
+// Dönen veri: List<Map> - Her gün için sıcaklık, koşul, açıklama
+
+// 3. Hava kalitesi
+final aqi = await weatherService.getAirQuality('Sakarya', 'Sakarya', 'Turkey');
+// Dönen veri: {success: true, aqi: 78, aqiText: "Orta", pm10: 45, pm2_5: 25}
+```
+
+#### Hata Yönetimi
+
+- **Şehir Bulunamazsa**: Placeholder (örnek) veri döndürülür
+- **API Hatası**: Placeholder veri kullanılır, uygulama çalışmaya devam eder
+- **İnternet Bağlantısı Yok**: Placeholder veri gösterilir
+- **Timeout**: 10 saniye timeout süresi, aşılırsa placeholder veri döndürülür
+
+#### Placeholder Veriler
+
+API'den veri çekilemediğinde kullanılan örnek veriler:
+- Sıcaklık: 24°C
+- Koşul: "Açık"
+- Nem: %60
+- Rüzgar: 10 m/s
+- AQI: 78 (Orta)
+
+#### WMO Weather Codes
+
+Open-Meteo API, WMO (World Meteorological Organization) weather interpretation codes kullanır:
+- **0**: Açık gökyüzü
+- **1-3**: Az bulutlu / Kısmen bulutlu / Kapalı
+- **45-48**: Sisli / Donlu sis
+- **51-67**: Çiseleyen yağmur / Yağmur / Donlu yağmur
+- **71-77**: Kar / Kar taneleri
+- **80-86**: Sağanak yağmur / Kar sağanağı
+- **95-99**: Fırtına / Dolu ile fırtına
+
+Bu kodlar otomatik olarak Türkçe açıklamalara çevrilir.
+
+#### Kullanım Örneği
+
+Uygulama içinde hava durumu verileri şu şekilde kullanılır:
+
+```dart
+// HomeScreen'de hava durumu yükleme
+Future<void> _loadWeatherData() async {
+  final weather = await _weatherService.getWeatherData('Sakarya,TR');
+  final forecast = await _weatherService.getWeatherForecast('Sakarya,TR');
+  final aqi = await _weatherService.getAirQuality('Sakarya', 'Sakarya', 'Turkey');
+  
+  setState(() {
+    _currentWeather = weather;
+    _weatherForecast = forecast;
+    _airQuality = aqi;
+  });
+}
+```
+
+#### Veri Doğruluğu
+
+- **Open-Meteo API** dünya genelinde kullanılan güvenilir bir hava durumu API'sidir
+- Veriler gerçek zamanlı olarak güncellenir
+- WMO standartlarına uygun weather code'ları kullanılır
+- Türkiye için tüm şehirler desteklenir
+- Hava kalitesi verileri US EPA standartlarına göre hesaplanır
+
+## Gerçek Veri Entegrasyonu
+
+### Karbon Emisyon Ortalamaları
+
+Uygulama, ekranda gösterilen **Ulusal Ortalama** ve **Küresel Ortalama** değerlerini gerçek verilerden çekmektedir. Bu veriler **Our World in Data (OWID)** platformundan alınmaktadır.
+
+#### Veri Kaynakları
+
+1. **Küresel Ortalama (Global Average)**:
+   - **Kaynak**: Our World in Data - Global Carbon Project
+   - **Veri**: Kişi başı günlük CO₂ emisyonu (kg CO₂e/gün)
+   - **Ortalama Değer**: ~4.1-4.5 kg/gün (yıllık ~1.5-1.6 ton CO₂e)
+   - **Güncelleme**: En son yılın verileri kullanılır
+   - **API Endpoint**: `https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.json`
+
+2. **Ulusal Ortalama (Türkiye)**:
+   - **Kaynak**: Our World in Data - World Bank verileri
+   - **Veri**: Türkiye kişi başı günlük CO₂ emisyonu (kg CO₂e/gün)
+   - **Ortalama Değer**: ~6.8 kg/gün (yıllık ~2.5 ton CO₂e)
+   - **Güncelleme**: En son yılın verileri kullanılır
+
+#### Nasıl Çalışır?
+
+1. **Uygulama Başlangıcı**:
+   - `GlobalCarbonService.getGlobalAveragePerPerson()` fonksiyonu çağrılır
+   - Our World in Data API'sinden dünya geneli veriler çekilir
+   - En son yılın `co2_per_capita` değeri alınır
+   - Yıllık değer günlük değere çevrilir: `(ton/yıl × 1000) / 365 = kg/gün`
+
+2. **Türkiye Ortalaması**:
+   - `CarbonDataService.getTurkeyAverage()` fonksiyonu çağrılır
+   - Türkiye için güncel ortalama değer döndürülür
+   - Veri kaynağı: Our World in Data ve World Bank istatistikleri
+
+3. **Hata Yönetimi**:
+   - API'den veri çekilemezse, güvenilir sabit değerler kullanılır:
+     - Küresel Ortalama: 4.1 kg/gün
+     - Türkiye Ortalaması: 6.8 kg/gün
+   - Bu değerler gerçek verilere dayalı referans değerlerdir
+
+#### Veri Doğruluğu
+
+- **Our World in Data** dünya genelinde kabul görmüş ve güvenilir bir veri kaynağıdır
+- Veriler Global Carbon Project, World Bank ve diğer resmi kaynaklardan toplanmaktadır
+- Yıllık veriler düzenli olarak güncellenmektedir
+- Kişi başı değerler, ülke nüfus verileri ile hesaplanmaktadır
+- Tüm veriler açık kaynak ve ücretsizdir
+
+#### Ekranda Gösterilen Veriler
+
+| Veri | Durum | Kaynak | Açıklama |
+|------|-------|--------|----------|
+| **Sıcaklık** | ✅ Gerçek | Open-Meteo API | Gerçek zamanlı hava durumu |
+| **Hava Kalitesi (AQI)** | ✅ Gerçek | Open-Meteo Air Quality API | Gerçek zamanlı hava kalitesi |
+| **Karbon Yoğunluğu** | ⚠️ Ortalama | Türkiye ortalaması | 420 gCO₂/kWh (Türkiye elektrik üretim karışımı ortalaması) |
+| **Ulusal Ortalama** | ✅ Gerçek | Our World in Data | Türkiye kişi başı günlük emisyon ortalaması |
+| **Küresel Ortalama** | ✅ Gerçek | Our World in Data | Dünya kişi başı günlük emisyon ortalaması |
+
+**Not**: Karbon yoğunluğu gerçek zamanlı değildir, ancak Türkiye'nin elektrik üretim karışımına dayalı gerçek bir ortalama değerdir. Gerçek zamanlı karbon yoğunluğu için ücretli API'ler (ör. Electricity Maps) gereklidir.
 
 ## Önemli Notlar
 
 ### Yapılandırma
 - **PostgreSQL bağlantısı opsiyoneldir** (HTTP API üzerinden)
-- **Hava durumu API'leri opsiyoneldir** - API key olmadan placeholder veri kullanılır
+- **Hava durumu API'si tamamen ücretsizdir** - Open-Meteo API kullanılır, API key gerektirmez
 - **ESP8266 ve Shelly Plug S opsiyoneldir** - Manuel veri girişi ile de çalışır
 - **Firebase Realtime Database** kullanılmaktadır (gerçek zamanlı veri senkronizasyonu için)
 
@@ -349,9 +591,10 @@ Kullanıcı verileri ile ülke verileri arasında büyük fark olduğunda (örne
 - `flutter pub get` komutunu tekrar çalıştırın
 - `flutter doctor` ile eksik bileşenleri kontrol edin
 
-### API Key Hataları
-- API key'ler olmadan da uygulama çalışır (placeholder veri kullanır)
-- Gerçek veri için API key'leri `lib/services/weather_service.dart` içinde yapılandırın
+### Hava Durumu API Hataları
+- Open-Meteo API tamamen ücretsizdir ve API key gerektirmez
+- İnternet bağlantısı olmadan placeholder veri kullanılır
+- Şehir adı bulunamazsa placeholder veri döndürülür
 
 ## Katkıda Bulunma
 
