@@ -862,8 +862,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     'temp':
                                         '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
                                     'condition':
-                                        _currentWeather?['condition'] ??
-                                            translate('sunny', locale),
+                                        _localizeWeatherCondition(
+                                          _currentWeather?['condition'],
+                                          locale,
+                                        ),
                                     'icon': _getWeatherIcon(
                                       _currentWeather?['icon'] ?? '01d',
                                     ),
@@ -881,8 +883,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                       'temp':
                                           '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
                                       'condition': _weatherForecast![0]
-                                              ['condition'] ??
-                                          translate('cloudy', locale),
+                                              ['condition'] !=
+                                          null
+                                          ? _localizeWeatherCondition(
+                                              _weatherForecast![0]['condition']
+                                                  as String?,
+                                              locale,
+                                            )
+                                          : translate('cloudy', locale),
                                       'icon': _getWeatherIcon(
                                         _weatherForecast![0]['icon'] ?? '02d',
                                       ),
@@ -901,8 +909,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                       'temp':
                                           '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
                                       'condition': _weatherForecast![1]
-                                              ['condition'] ??
-                                          translate('mixed', locale),
+                                              ['condition'] !=
+                                          null
+                                          ? _localizeWeatherCondition(
+                                              _weatherForecast![1]['condition']
+                                                  as String?,
+                                              locale,
+                                            )
+                                          : translate('mixed', locale),
                                       'icon': _getWeatherIcon(
                                         _weatherForecast![1]['icon'] ?? '03d',
                                       ),
@@ -1278,8 +1292,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                               iconColor: Colors.blueAccent,
                                               label: translate('aqi', locale),
                                               value: _airQuality != null
-                                                  ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
-                                                  : '78 (Orta)',
+                                                  ? '${_airQuality!['aqi'] ?? 78} (${_localizeAqiText(_airQuality!['aqiText'] as String?, locale)})'
+                                                  : '78 (${translate('aqi_moderate', locale)})',
                                             ),
                                           ),
                                           const SizedBox(width: 12),
@@ -1315,8 +1329,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                             iconColor: Colors.blueAccent,
                                             label: translate('aqi', locale),
                                             value: _airQuality != null
-                                                ? '${_airQuality!['aqi'] ?? 78} (${_airQuality!['aqiText'] ?? 'Orta'})'
-                                                : '78 (Orta)',
+                                                ? '${_airQuality!['aqi'] ?? 78} (${_localizeAqiText(_airQuality!['aqiText'] as String?, locale)})'
+                                                : '78 (${translate('aqi_moderate', locale)})',
                                           ),
                                           const SizedBox(height: 12),
                                           _ClimateInfoCard(
@@ -1449,6 +1463,52 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       return translate('hvac_usage_increase', locale);
     }
+  }
+
+  String _localizeWeatherCondition(String? condition, Locale locale) {
+    if (condition == null || condition.isEmpty) {
+      return translate('sunny', locale);
+    }
+    final value = condition.toLowerCase();
+    if (value.contains('clear') || value.contains('açık')) {
+      return translate('sunny', locale);
+    }
+    if (value.contains('cloud') || value.contains('bulut')) {
+      return translate('cloudy', locale);
+    }
+    if (value.contains('rain') || value.contains('yağmur')) {
+      return translate('cloudy', locale);
+    }
+    if (value.contains('snow') || value.contains('kar')) {
+      return translate('mixed', locale);
+    }
+    return condition;
+  }
+
+  String _localizeAqiText(String? aqiText, Locale locale) {
+    if (aqiText == null || aqiText.isEmpty) {
+      return translate('aqi_moderate', locale);
+    }
+    final value = aqiText.toLowerCase();
+    if (value.contains('iyi') || value.contains('good')) {
+      return translate('aqi_good', locale);
+    }
+    if (value.contains('orta') || value == 'moderate') {
+      return translate('aqi_moderate', locale);
+    }
+    if (value.contains('hassas') || value.contains('sensitive')) {
+      return translate('aqi_unhealthy_sensitive', locale);
+    }
+    if (value.contains('çok sağlıksız') || value.contains('very unhealthy')) {
+      return translate('aqi_very_unhealthy', locale);
+    }
+    if (value.contains('sağlıksız') || value == 'unhealthy') {
+      return translate('aqi_unhealthy', locale);
+    }
+    if (value.contains('tehlikeli') || value.contains('hazardous')) {
+      return translate('aqi_hazardous', locale);
+    }
+    return aqiText;
   }
 }
 
@@ -1597,7 +1657,7 @@ class _EmissionComparisonCard extends StatelessWidget {
                               iconColor: Colors.blueAccent,
                               label: translate('you', locale),
                               value:
-                                  '${userDailyEmissionKg.toStringAsFixed(1)} kg/gün',
+                                  '${userDailyEmissionKg.toStringAsFixed(1)} ${translate('kg_per_day', locale)}',
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1607,7 +1667,7 @@ class _EmissionComparisonCard extends StatelessWidget {
                               iconColor: Colors.orangeAccent,
                               label: translate('national_avg', locale),
                               value:
-                                  '${nationalAvgKg.toStringAsFixed(1)} kg/gün',
+                                  '${nationalAvgKg.toStringAsFixed(1)} ${translate('kg_per_day', locale)}',
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1616,7 +1676,8 @@ class _EmissionComparisonCard extends StatelessWidget {
                               icon: Icons.public,
                               iconColor: Colors.greenAccent,
                               label: translate('global_avg', locale),
-                              value: '${globalAvgKg.toStringAsFixed(1)} kg/gün',
+                              value:
+                                  '${globalAvgKg.toStringAsFixed(1)} ${translate('kg_per_day', locale)}',
                             ),
                           ),
                         ],
@@ -1630,21 +1691,23 @@ class _EmissionComparisonCard extends StatelessWidget {
                             iconColor: Colors.blueAccent,
                             label: translate('you', locale),
                             value:
-                                '${userDailyEmissionKg.toStringAsFixed(1)} kg/gün',
+                                '${userDailyEmissionKg.toStringAsFixed(1)} ${translate('kg_per_day', locale)}',
                           ),
                           const SizedBox(height: 12),
                           _ClimateInfoCard(
                             icon: Icons.flag,
                             iconColor: Colors.orangeAccent,
                             label: translate('national_avg', locale),
-                            value: '${nationalAvgKg.toStringAsFixed(1)} kg/gün',
+                            value:
+                                '${nationalAvgKg.toStringAsFixed(1)} ${translate('kg_per_day', locale)}',
                           ),
                           const SizedBox(height: 12),
                           _ClimateInfoCard(
                             icon: Icons.public,
                             iconColor: Colors.greenAccent,
                             label: translate('global_avg', locale),
-                            value: '${globalAvgKg.toStringAsFixed(1)} kg/gün',
+                            value:
+                                '${globalAvgKg.toStringAsFixed(1)} ${translate('kg_per_day', locale)}',
                           ),
                         ],
                       );

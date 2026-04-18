@@ -773,6 +773,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final now = DateTime.now();
       final startDate = now.subtract(const Duration(days: 7));
       final endDate = now;
+      ConsumptionEntry? liveEspEntry;
+
+      // Önce ESP'den güncel ölçümü çekip Firebase'e yazmayı dene.
+      // Böylece history/latest eski kaldığında (örn. fuel=400) trend ekranı
+      // gerçek anlık değere daha hızlı senkronize olur.
+      try {
+        final liveEsp = await _apiService.fetchEspConsumptionOrNull(
+          saveToFirebase: true,
+        );
+        if (liveEsp != null) {
+          liveEspEntry = liveEsp;
+          debugPrint(
+            '📡 ESP canlı veri alındı: Gaz=${liveEsp.fuelLiters.toStringAsFixed(3)} m³, Su=${liveEsp.waterCubicMeters.toStringAsFixed(3)} m³',
+          );
+        } else {
+          debugPrint(
+            '⚠️ ESP canlı veri alınamadı, Firebase history/latest ile devam ediliyor.',
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️ ESP canlı veri çekme hatası: $e');
+      }
 
       // Firebase'den ESP geçmiş verileri çek - timeout ile
       final espHistoryData = await _firebaseService
@@ -846,6 +868,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ...manualHistoryData,
       ];
 
+      // ESP'den canlı veri geldiyse mutlaka kaynak listeye ekle (Firebase latest
+      // eski/bozuk olsa bile trend hesabı güncel değeri kullanabilsin).
+      if (liveEspEntry != null) {
+        historyData.add(liveEspEntry);
+      }
+
       // Eğer history'de veri yoksa, latest verilerini de kontrol et
       if (historyData.isEmpty) {
         try {
@@ -892,14 +920,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
           }
 
           if (espLatestEntry != null && mounted) {
-            // ESP latest verisini bugün olarak ekle
-            historyData.add(ConsumptionEntry(
-              electricityKwh: espLatestEntry.electricityKwh,
-              waterCubicMeters: espLatestEntry.waterCubicMeters,
-              fuelLiters: espLatestEntry.fuelLiters,
-              wasteKg: espLatestEntry.wasteKg,
-              createdAt: DateTime.now(), // Bugün olarak işaretle
-            ));
+            // Geçersiz timestamp kaynaklı 1970 kayıtlarını ve cok eski latest'i alma.
+            final isStaleLatest = espLatestEntry.createdAt.year < 2020 ||
+                now.difference(espLatestEntry.createdAt).inDays > 30;
+            if (isStaleLatest) {
+              debugPrint(
+                '⚠️ ESP latest kaydı eski/geçersiz göründüğü için atlandı: ${espLatestEntry.createdAt}',
+              );
+            } else {
+              // ESP latest verisini bugün olarak ekle
+              historyData.add(ConsumptionEntry(
+                electricityKwh: espLatestEntry.electricityKwh,
+                waterCubicMeters: espLatestEntry.waterCubicMeters,
+                fuelLiters: espLatestEntry.fuelLiters,
+                wasteKg: espLatestEntry.wasteKg,
+                createdAt: DateTime.now(), // Bugün olarak işaretle
+              ));
+            }
           }
 
           // Shelly latest verisini de ekle
@@ -1687,8 +1724,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     color: Colors.black.withValues(alpha: 0.28),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(16),
                                     child: RealtimeEspDataWidget(),
                                   ),
                                 ),
@@ -1836,19 +1873,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             CircularProgressIndicator(),
                                                       ),
                                                     )
-                                                  : (_showGlobalTrend
-                                                                  ? _globalDailyTrends
-                                                                  : (_useEspData
-                                                                      ? _dailyEmissions
-                                                                      : _manualDailyEmissions))
-                                                              .isEmpty ||
-                                                          (_showGlobalTrend
-                                                                  ? _globalDailyTrends
-                                                                  : (_useEspData
-                                                                      ? _dailyEmissions
-                                                                      : _manualDailyEmissions))
-                                                              .every(
-                                                                  (e) => e == 0)
+                                                  : (((_showGlobalTrend
+                                                                      ? _globalDailyTrends
+                                                                      : (_useEspData
+                                                                          ? _dailyEmissions
+                                                                          : _manualDailyEmissions))
+                                                                  .isEmpty ||
+                                                              (_showGlobalTrend
+                                                                      ? _globalDailyTrends
+                                                                      : (_useEspData
+                                                                          ? _dailyEmissions
+                                                                          : _manualDailyEmissions))
+                                                                  .every((e) =>
+                                                                      e ==
+                                                                      0)) &&
+                                                          !(_showCountryComparison &&
+                                                              !_showGlobalTrend &&
+                                                              _countryTrends
+                                                                  .isNotEmpty))
                                                       ? SizedBox(
                                                           height: 200,
                                                           child: Center(
@@ -1873,7 +1915,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                         )
                                                       : Builder(
                                                           key: ValueKey(
-                                                              'trend_chart_${_useEspData}_${_showGlobalTrend}'), // Toggle değiştiğinde yeniden çiz
+                                                              'trend_chart_${_useEspData}_$_showGlobalTrend'), // Toggle değiştiğinde yeniden çiz
                                                           builder: (context) {
                                                             // Toggle'a göre veri seç
                                                             // ESP/Manuel toggle'a göre doğru veriyi seç
@@ -2127,6 +2169,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             debugPrint(
                                                                 '📈 Grafik maxY: $maxY (kullanıcı verileri: ${normalizedData.length} nokta)');
 
+                                                            final hasUserData =
+                                                                normalizedData
+                                                                    .any((e) =>
+                                                                        e > 0);
+                                                            final hasCountryData =
+                                                                _showCountryComparison &&
+                                                                    !_showGlobalTrend &&
+                                                                    _countryTrends
+                                                                        .isNotEmpty;
+
                                                             return Stack(
                                                               clipBehavior:
                                                                   Clip.none,
@@ -2151,16 +2203,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                               String label;
                                                                               Color color;
 
-                                                                              if (lineIndex == 0) {
+                                                                              if (hasUserData && lineIndex == 0) {
                                                                                 // Kullanıcının kendi verisi
                                                                                 label = 'Sizin Verileriniz';
                                                                                 color = const Color(0xFF304411);
                                                                               } else {
                                                                                 // Ülke verileri
                                                                                 final countryNames = _countryTrends.keys.toList();
-                                                                                if (lineIndex - 1 < countryNames.length) {
-                                                                                  label = countryNames[lineIndex - 1];
-                                                                                  color = _getCountryColor(countryNames[lineIndex - 1]);
+                                                                                final countryIndex = hasUserData ? lineIndex - 1 : lineIndex;
+                                                                                if (countryIndex < countryNames.length) {
+                                                                                  label = countryNames[countryIndex];
+                                                                                  color = _getCountryColor(countryNames[countryIndex]);
                                                                                 } else {
                                                                                   label = 'Veri';
                                                                                   color = Colors.grey;
@@ -2416,76 +2469,71 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                           .toDouble(),
                                                                       lineBarsData: [
                                                                         // Kullanıcının kendi verileri (ana çizgi)
-                                                                        LineChartBarData(
-                                                                          spots:
-                                                                              List.generate(
-                                                                            7,
-                                                                            (index) =>
-                                                                                FlSpot(
-                                                                              index.toDouble(),
-                                                                              normalizedData.isNotEmpty && index < normalizedData.length ? normalizedData[index].clamp(0.0, double.infinity) : 0.0,
+                                                                        if (hasUserData)
+                                                                          LineChartBarData(
+                                                                            spots:
+                                                                                List.generate(
+                                                                              7,
+                                                                              (index) => FlSpot(
+                                                                                index.toDouble(),
+                                                                                normalizedData.isNotEmpty && index < normalizedData.length ? normalizedData[index].clamp(0.0, double.infinity) : 0.0,
+                                                                              ),
                                                                             ),
-                                                                          ),
-                                                                          isCurved:
-                                                                              true,
-                                                                          gradient:
-                                                                              const LinearGradient(
-                                                                            colors: [
-                                                                              Color(0xFF304411),
-                                                                              Color(0xFF48631F),
-                                                                            ],
-                                                                          ),
-                                                                          barWidth:
-                                                                              3,
-                                                                          isStrokeCapRound:
-                                                                              true,
-                                                                          dotData:
-                                                                              FlDotData(
-                                                                            show:
-                                                                                true,
-                                                                            getDotPainter:
-                                                                                (
-                                                                              spot,
-                                                                              percent,
-                                                                              barData,
-                                                                              index,
-                                                                            ) {
-                                                                              return FlDotCirclePainter(
-                                                                                radius: 4,
-                                                                                color: const Color(
-                                                                                  0xFF304411,
-                                                                                ),
-                                                                                strokeWidth: 2,
-                                                                                strokeColor: Colors.white,
-                                                                              );
-                                                                            },
-                                                                          ),
-                                                                          belowBarData:
-                                                                              BarAreaData(
-                                                                            show:
+                                                                            isCurved:
                                                                                 true,
                                                                             gradient:
-                                                                                LinearGradient(
+                                                                                const LinearGradient(
                                                                               colors: [
-                                                                                const Color(
-                                                                                  0xFF304411,
-                                                                                ).withValues(
-                                                                                  alpha: 0.3,
-                                                                                ),
-                                                                                const Color(
-                                                                                  0xFF48631F,
-                                                                                ).withValues(
-                                                                                  alpha: 0.1,
-                                                                                ),
+                                                                                Color(0xFF304411),
+                                                                                Color(0xFF48631F),
                                                                               ],
-                                                                              begin: Alignment.topCenter,
-                                                                              end: Alignment.bottomCenter,
+                                                                            ),
+                                                                            barWidth:
+                                                                                3,
+                                                                            isStrokeCapRound:
+                                                                                true,
+                                                                            dotData:
+                                                                                FlDotData(
+                                                                              show: true,
+                                                                              getDotPainter: (
+                                                                                spot,
+                                                                                percent,
+                                                                                barData,
+                                                                                index,
+                                                                              ) {
+                                                                                return FlDotCirclePainter(
+                                                                                  radius: 4,
+                                                                                  color: const Color(
+                                                                                    0xFF304411,
+                                                                                  ),
+                                                                                  strokeWidth: 2,
+                                                                                  strokeColor: Colors.white,
+                                                                                );
+                                                                              },
+                                                                            ),
+                                                                            belowBarData:
+                                                                                BarAreaData(
+                                                                              show: true,
+                                                                              gradient: LinearGradient(
+                                                                                colors: [
+                                                                                  const Color(
+                                                                                    0xFF304411,
+                                                                                  ).withValues(
+                                                                                    alpha: 0.3,
+                                                                                  ),
+                                                                                  const Color(
+                                                                                    0xFF48631F,
+                                                                                  ).withValues(
+                                                                                    alpha: 0.1,
+                                                                                  ),
+                                                                                ],
+                                                                                begin: Alignment.topCenter,
+                                                                                end: Alignment.bottomCenter,
+                                                                              ),
                                                                             ),
                                                                           ),
-                                                                        ),
                                                                         // Ülke karşılaştırma çizgileri
-                                                                        if (_showCountryComparison &&
-                                                                            !_showGlobalTrend)
+                                                                        if (hasCountryData)
                                                                           ..._buildCountryLines(
                                                                               normalizedData,
                                                                               maxY.toDouble()),
@@ -2512,10 +2560,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                         WrapAlignment.center,
                                                     children: [
                                                       // Kullanıcının kendi verisi
-                                                      _buildLegendItem(
-                                                        'Sizin Verileriniz',
-                                                        const Color(0xFF304411),
-                                                      ),
+                                                      if ((_showGlobalTrend
+                                                                  ? _globalDailyTrends
+                                                                  : (_useEspData
+                                                                      ? _dailyEmissions
+                                                                      : _manualDailyEmissions))
+                                                              .any((e) =>
+                                                                  e > 0) ||
+                                                          (_useEspData
+                                                                  ? _lastCalculatedKgCo2e
+                                                                  : _manualCalculatedKgCo2e) !=
+                                                              null)
+                                                        _buildLegendItem(
+                                                          'Sizin Verileriniz',
+                                                          const Color(
+                                                              0xFF304411),
+                                                        ),
                                                       // Ülke verileri
                                                       ..._countryTrends.keys
                                                           .map(
@@ -2555,7 +2615,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       ),
                                                       const SizedBox(width: 4),
                                                       Text(
-                                                        'Gerçek Veri',
+                                                        translate(
+                                                          'real_data',
+                                                          locale,
+                                                        ),
                                                         style: TextStyle(
                                                           color: Colors.white
                                                               .withValues(
@@ -2573,7 +2636,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       ),
                                                       const SizedBox(width: 4),
                                                       Text(
-                                                        'Tahmini Veri',
+                                                        translate(
+                                                          'estimated_data',
+                                                          locale,
+                                                        ),
                                                         style: TextStyle(
                                                           color: Colors.white
                                                               .withValues(
@@ -2612,7 +2678,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           top: 4),
                                                   child: Center(
                                                     child: Text(
-                                                      'Y ekseni: kg CO₂e (Karbon dioksit eşdeğeri)',
+                                                      translate(
+                                                        'y_axis_kg_co2e',
+                                                        locale,
+                                                      ),
                                                       style: Theme.of(context)
                                                           .textTheme
                                                           .bodySmall

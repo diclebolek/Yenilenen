@@ -33,7 +33,6 @@ dependencies:
   # Utilities
   url_launcher: ^6.2.2
   shared_preferences: ^2.2.2
-  web3dart: ^2.7.3
 
 dev_dependencies:
   flutter_test:

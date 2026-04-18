@@ -3,17 +3,15 @@ import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
-import 'blockchain_service.dart';
 import 'firebase_realtime_service.dart';
 import 'shelly_service.dart';
 
-/// API servisi - ESP modülü, blockchain ve Firebase entegrasyonu
+/// API servisi - ESP modülü, Shelly ve Firebase entegrasyonu
 class ApiService {
-  static const String espBaseUrl = 'http://192.168.1.100'; // ESP IP adresi
+  static const String espBaseUrl = 'http://172.20.10.2'; // ESP IP adresi
   static const String deviceId =
       'esp8266_001'; // Cihaz ID'si (değiştirilebilir)
 
-  final BlockchainService _blockchainService = BlockchainService();
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
 
@@ -22,61 +20,68 @@ class ApiService {
 
   ApiService();
 
-  /// ESP modülünden canlı tüketim verilerini çek ve Firebase'e kaydet
-  Future<ConsumptionEntry> getLiveConsumptionData({
+  /// ESP'den `/api/consumption` okur. Başarılıysa kayıt, ağ/HTTP hatasında [null].
+  /// Firebase'e yazmayı dener; yazılamasa bile ESP'den gelen [ConsumptionEntry] döner.
+  Future<ConsumptionEntry?> fetchEspConsumptionOrNull({
     bool saveToFirebase = true,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse('$espBaseUrl/api/consumption'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
+      // Web'de CORS preflight tetiklememek icin GET'e ozel header eklemiyoruz.
+      final response = await http
+          .get(Uri.parse('$espBaseUrl/api/consumption'))
+          .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-
-        // Su verisi: ESP'den water_flow_liters geliyorsa onu kullan, yoksa water kullan
-        // water_flow_liters litre cinsinden, m³'e çevir (1 litre = 0.001 m³)
-        final waterLiters =
-            (data['water_flow_liters'] ?? data['water'] ?? 0.0).toDouble();
-        final waterCubicMeters = waterLiters * 0.001; // Litre'yi m³'e çevir
-
-        final consumption = ConsumptionEntry(
-          electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
-          waterCubicMeters: waterCubicMeters,
-          fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0)
-              .toDouble(), // Gaz (CO2 ppm) değeri
-          wasteKg: (data['waste'] ?? 0.0).toDouble(),
-          createdAt: DateTime.now(),
+      if (response.statusCode != 200) {
+        dev.log(
+          'ESP /api/consumption HTTP ${response.statusCode}',
+          name: 'ApiService',
         );
-
-        // Firebase'e kaydet (opsiyonel)
-        if (saveToFirebase) {
-          try {
-            await _firebaseService.saveEsp8266Data(
-              deviceId: deviceId,
-              consumption: consumption,
-              additionalData: {
-                'co2_ppm': data['co2_ppm'] ?? 0.0,
-                'water_flow_liters': data['water_flow_liters'] ?? 0.0,
-                'flow_rate_lpm': data['flow_rate_lpm'] ?? 0.0,
-              },
-            );
-          } catch (e) {
-            dev.log(
-              'Firebase kayıt hatası (devam ediliyor): $e',
-              name: 'ApiService',
-            );
-            // Firebase hatası olsa bile veriyi döndür
-          }
-        }
-
-        return consumption;
-      } else {
-        throw Exception(
-          'ESP modülünden veri alınamadı: ${response.statusCode}',
-        );
+        return null;
       }
+
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) {
+        return null;
+      }
+      final data = Map<String, dynamic>.from(decoded);
+
+      // Su verisi: ESP'den water_flow_liters geliyorsa onu kullan, yoksa water kullan
+      // water_flow_liters litre cinsinden, m³'e çevir (1 litre = 0.001 m³)
+      final waterLiters =
+          (data['water_flow_liters'] ?? data['water'] ?? 0.0).toDouble();
+      final waterCubicMeters = waterLiters * 0.001;
+
+      final gasConsumptionM3 =
+          (data['gas_consumption_m3'] ?? data['fuel'] ?? 0.0).toDouble();
+
+      final consumption = ConsumptionEntry(
+        electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
+        waterCubicMeters: waterCubicMeters,
+        fuelLiters: gasConsumptionM3, // Dogalgaz tuketimi (m3)
+        wasteKg: (data['waste'] ?? 0.0).toDouble(),
+        createdAt: DateTime.now(),
+      );
+
+      if (saveToFirebase) {
+        try {
+          await _firebaseService.saveEsp8266Data(
+            deviceId: deviceId,
+            consumption: consumption,
+            additionalData: {
+              'gas_consumption_m3': gasConsumptionM3,
+              'water_flow_liters': data['water_flow_liters'] ?? 0.0,
+              'flow_rate_lpm': data['flow_rate_lpm'] ?? 0.0,
+            },
+          );
+        } catch (e) {
+          dev.log(
+            'Firebase kayıt hatası (devam ediliyor): $e',
+            name: 'ApiService',
+          );
+        }
+      }
+
+      return consumption;
     } catch (e, st) {
       dev.log(
         'ESP bağlantı hatası: $e',
@@ -85,15 +90,25 @@ class ApiService {
         error: e,
         stackTrace: st,
       );
-      // Hata durumunda varsayılan değerler döndür
-      return ConsumptionEntry(
-        electricityKwh: 0.0,
-        waterCubicMeters: 0.0,
-        fuelLiters: 0.0,
-        wasteKg: 0.0,
-        createdAt: DateTime.now(),
-      );
+      return null;
     }
+  }
+
+  /// ESP modülünden canlı tüketim verilerini çek ve Firebase'e kaydet
+  Future<ConsumptionEntry> getLiveConsumptionData({
+    bool saveToFirebase = true,
+  }) async {
+    final ok = await fetchEspConsumptionOrNull(saveToFirebase: saveToFirebase);
+    if (ok != null) {
+      return ok;
+    }
+    return ConsumptionEntry(
+      electricityKwh: 0.0,
+      waterCubicMeters: 0.0,
+      fuelLiters: 0.0,
+      wasteKg: 0.0,
+      createdAt: DateTime.now(),
+    );
   }
 
   /// ESP modülü durumunu kontrol et ve Firebase'e kaydet
@@ -101,6 +116,7 @@ class ApiService {
     bool saveToFirebase = true,
   }) async {
     try {
+      // Web CORS uyumlulugu icin gereksiz header kullanmiyoruz.
       final response = await http
           .get(Uri.parse('$espBaseUrl/api/status'))
           .timeout(const Duration(seconds: 5));
@@ -142,57 +158,6 @@ class ApiService {
     }
 
     return {'connected': false, 'error': 'ESP modülüne bağlanılamadı'};
-  }
-
-  /// Veriyi blockchain'e kaydet ve doğrula
-  Future<Map<String, dynamic>> storeAndVerifyData({
-    required ConsumptionEntry consumption,
-    required String userId,
-  }) async {
-    try {
-      // Blockchain'e kaydet
-      final transactionHash = await _blockchainService.storeConsumptionData(
-        electricity: consumption.electricityKwh,
-        water: consumption.waterCubicMeters,
-        fuel: consumption.fuelLiters,
-        waste: consumption.wasteKg,
-        timestamp: consumption.createdAt.millisecondsSinceEpoch,
-        userId: userId,
-      );
-
-      // Doğruluğunu kontrol et
-      final isVerified = await _blockchainService.verifyData(transactionHash);
-
-      return {
-        'success': true,
-        'transactionHash': transactionHash,
-        'verified': isVerified,
-        'timestamp': consumption.createdAt.toIso8601String(),
-      };
-    } catch (e) {
-      return {'success': false, 'error': e.toString(), 'verified': false};
-    }
-  }
-
-  /// Blockchain durumunu kontrol et
-  Future<Map<String, dynamic>> getBlockchainStatus() async {
-    return await _blockchainService.getBlockchainStatus();
-  }
-
-  /// Karbon ayak izi verilerini blockchain'e kaydet
-  Future<String> storeCarbonFootprint({
-    required double dailyEmission,
-    required double monthlyEmission,
-    required double yearlyEmission,
-    required String userId,
-  }) async {
-    return await _blockchainService.storeCarbonFootprint(
-      dailyEmission: dailyEmission,
-      monthlyEmission: monthlyEmission,
-      yearlyEmission: yearlyEmission,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-      userId: userId,
-    );
   }
 
   // Placeholder: implement real weather call in a future version.

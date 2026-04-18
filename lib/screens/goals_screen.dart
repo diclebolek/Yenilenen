@@ -9,6 +9,28 @@ import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import 'dart:async';
 
+/// Şablon satırı — hedef ekleme diyaloğu için (tema ile uyumlu chip seçimi).
+class _GoalAddTemplate {
+  const _GoalAddTemplate({
+    required this.storageType,
+    required this.titleKey,
+    required this.defaultUnit,
+    required this.icon,
+    required this.iconString,
+    required this.trackingHelpKey,
+    this.defaultTarget = '',
+  });
+
+  /// Firebase / ilerleme mantığında kullanılan tip (`custom` = kullanıcı başlığı).
+  final String storageType;
+  final String titleKey;
+  final String defaultUnit;
+  final IconData icon;
+  final String iconString;
+  final String trackingHelpKey;
+  final String defaultTarget;
+}
+
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key, this.languageProvider});
 
@@ -19,6 +41,72 @@ class GoalsScreen extends StatefulWidget {
 }
 
 class _GoalsScreenState extends State<GoalsScreen> {
+  static const List<_GoalAddTemplate> _kGoalAddTemplates = <_GoalAddTemplate>[
+    _GoalAddTemplate(
+      storageType: 'electricity_saving',
+      titleKey: 'monthly_electricity_saving',
+      defaultUnit: '%',
+      icon: Icons.electrical_services,
+      iconString: 'electrical_services',
+      trackingHelpKey: 'goal_tracking_auto',
+      defaultTarget: '20',
+    ),
+    _GoalAddTemplate(
+      storageType: 'co2_reduction',
+      titleKey: 'co2_emission_reduction',
+      defaultUnit: 'kg',
+      icon: Icons.eco,
+      iconString: 'eco',
+      trackingHelpKey: 'goal_tracking_auto',
+      defaultTarget: '15',
+    ),
+    _GoalAddTemplate(
+      storageType: 'water_saving',
+      titleKey: 'water_saving',
+      defaultUnit: '%',
+      icon: Icons.water_drop,
+      iconString: 'water_drop',
+      trackingHelpKey: 'goal_tracking_auto',
+      defaultTarget: '25',
+    ),
+    _GoalAddTemplate(
+      storageType: 'waste_reduction',
+      titleKey: 'waste_reduction',
+      defaultUnit: 'kg',
+      icon: Icons.recycling,
+      iconString: 'recycling',
+      trackingHelpKey: 'goal_tracking_waste',
+      defaultTarget: '10',
+    ),
+    _GoalAddTemplate(
+      storageType: 'custom',
+      titleKey: 'goal_template_renewable',
+      defaultUnit: 'kWh',
+      icon: Icons.electric_bolt,
+      iconString: 'electric_bolt',
+      trackingHelpKey: 'goal_tracking_custom',
+      defaultTarget: '100',
+    ),
+    _GoalAddTemplate(
+      storageType: 'custom',
+      titleKey: 'goal_template_transport',
+      defaultUnit: 'km',
+      icon: Icons.directions_car,
+      iconString: 'directions_car',
+      trackingHelpKey: 'goal_tracking_custom',
+      defaultTarget: '50',
+    ),
+    _GoalAddTemplate(
+      storageType: 'custom',
+      titleKey: 'goal_template_other',
+      defaultUnit: '%',
+      icon: Icons.flag,
+      iconString: 'flag',
+      trackingHelpKey: 'goal_tracking_custom',
+      defaultTarget: '10',
+    ),
+  ];
+
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
   final FirebaseAuthService _authService = FirebaseAuthService.instance;
@@ -229,6 +317,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
         return Icons.recycling;
       case 'energy_savings_leaf':
         return Icons.energy_savings_leaf;
+      case 'electric_bolt':
+        return Icons.electric_bolt;
+      case 'directions_car':
+        return Icons.directions_car;
       default:
         return Icons.flag;
     }
@@ -319,6 +411,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
             } else {
               newCurrent = 0.0;
             }
+            break;
+          case 'waste_reduction':
+          case 'custom':
+            // Otomatik ilerleme yok; mevcut değer korunur
+            newCurrent = null;
             break;
         }
 
@@ -1474,6 +1571,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                               : Colors.black,
                                         ),
                                   ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    translate('set_new_goal_help', locale),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: (isDark
+                                                  ? Colors.white
+                                                  : Colors.black)
+                                              .withValues(alpha: 0.65),
+                                          height: 1.35,
+                                        ),
+                                  ),
                                   const SizedBox(height: 12),
                                   FilledButton.icon(
                                     onPressed: _userId != null
@@ -1537,8 +1648,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
       await _firebaseService.deleteGoal(_userId!, goalId);
     } catch (e) {
       if (mounted) {
+        final locale =
+            widget.languageProvider?.currentLocale ?? const Locale('tr');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hedef silinirken hata oluştu: $e')),
+          SnackBar(
+            content: Text(
+              translate(
+                'goal_delete_error',
+                locale,
+                params: {'error': e.toString()},
+              ),
+            ),
+          ),
         );
       }
     }
@@ -1546,158 +1667,370 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   void _showAddGoalDialog() {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
-    final titleController = TextEditingController();
-    final targetController = TextEditingController();
-    String selectedUnit = '%';
-    String selectedType = 'electricity_saving';
-    IconData selectedIcon = Icons.flag;
+    final first = _kGoalAddTemplates.first;
+    final titleController = TextEditingController(
+      text: translate(first.titleKey, locale),
+    );
+    final targetController = TextEditingController(text: first.defaultTarget);
+    String selectedUnit = first.defaultUnit;
+    String selectedType = first.storageType;
+    String selectedIconStr = first.iconString;
+    int selectedTemplateIndex = 0;
 
-    showDialog(
+    final borderColor = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fieldFill = (isDark ? Colors.white : Colors.black)
+        .withValues(alpha: 0.06);
+
+    showDialog<void>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(translate('add_new_goal', locale)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: InputDecoration(
-                    labelText: translate('goal_title', locale),
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: targetController,
-                  decoration: InputDecoration(
-                    labelText: translate('target_value', locale),
-                    border: const OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedUnit,
-                  decoration: InputDecoration(
-                    labelText: translate('unit', locale),
-                    border: const OutlineInputBorder(),
-                  ),
-                  items: ['%', 'kg', 'kWh', 'L', 'm³']
-                      .map(
-                        (unit) =>
-                            DropdownMenuItem(value: unit, child: Text(unit)),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => selectedUnit = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedType,
-                  decoration: InputDecoration(
-                    labelText: translate('goal_type', locale),
-                    border: const OutlineInputBorder(),
-                  ),
-                  items: [
-                    'electricity_saving',
-                    'co2_reduction',
-                    'water_saving',
-                    'waste_reduction',
-                  ]
-                      .map(
-                        (type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(translate(type, locale)),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() {
-                        selectedType = value;
-                        // Tip değişince ikonu güncelle
-                        switch (value) {
-                          case 'electricity_saving':
-                            selectedIcon = Icons.electrical_services;
-                            break;
-                          case 'co2_reduction':
-                            selectedIcon = Icons.eco;
-                            break;
-                          case 'water_saving':
-                            selectedIcon = Icons.water_drop;
-                            break;
-                          case 'waste_reduction':
-                            selectedIcon = Icons.recycling;
-                            break;
-                        }
-                      });
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(translate('cancel', locale)),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (titleController.text.isEmpty ||
-                    targetController.text.isEmpty) {
-                  return;
-                }
+      barrierColor: Colors.black54,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void applyTemplate(int index) {
+              final t = _kGoalAddTemplates[index];
+              setDialogState(() {
+                selectedTemplateIndex = index;
+                selectedType = t.storageType;
+                selectedUnit = t.defaultUnit;
+                selectedIconStr = t.iconString;
+                titleController.text = translate(t.titleKey, locale);
+                targetController.text = t.defaultTarget;
+              });
+            }
 
-                try {
-                  final goal = {
-                    'title': titleController.text,
-                    'target': double.parse(targetController.text),
-                    'current': 0.0,
-                    'unit': selectedUnit,
-                    'type': selectedType,
-                    'icon': _getIconStringFromIcon(selectedIcon),
-                    'color': 0xFF304411,
-                  };
+            final helpKey =
+                _kGoalAddTemplates[selectedTemplateIndex].trackingHelpKey;
 
-                  if (_userId != null) {
-                    await _firebaseService.addGoal(_userId!, goal);
-                  }
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.black.withValues(alpha: 0.82)
+                          : Colors.white.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor, width: 2),
+                    ),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  translate('add_new_goal', locale),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
+                                      ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () =>
+                                    Navigator.of(dialogContext).pop(),
+                                icon: const Icon(Icons.close),
+                                color: isDark ? Colors.white70 : Colors.black54,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            translate('goal_choose_template', locale),
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  color: isDark
+                                      ? Colors.white
+                                      : Colors.black,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(height: 10),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final chipWidth = constraints.maxWidth > 360
+                                  ? (constraints.maxWidth - 8) / 2
+                                  : constraints.maxWidth;
+                              return Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: List.generate(
+                                  _kGoalAddTemplates.length,
+                                  (i) {
+                                    final t = _kGoalAddTemplates[i];
+                                    final selected = selectedTemplateIndex == i;
+                                    return SizedBox(
+                                      width: chipWidth,
+                                      child: Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          onTap: () => applyTemplate(i),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: AnimatedContainer(
+                                            duration: const Duration(
+                                                milliseconds: 200),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 10,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: selected
+                                                    ? borderColor
+                                                    : borderColor.withValues(
+                                                        alpha: 0.45,
+                                                      ),
+                                                width: selected ? 2 : 1,
+                                              ),
+                                              color: selected
+                                                  ? borderColor.withValues(
+                                                      alpha: isDark ? 0.22 : 0.14,
+                                                    )
+                                                  : null,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  t.icon,
+                                                  size: 22,
+                                                  color: selected
+                                                      ? borderColor
+                                                      : (isDark
+                                                          ? Colors.white70
+                                                          : Colors.black54),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    translate(
+                                                        t.titleKey, locale),
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: isDark
+                                                              ? Colors.white
+                                                              : Colors.black,
+                                                          fontWeight: selected
+                                                              ? FontWeight.w600
+                                                              : FontWeight.w500,
+                                                          height: 1.2,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            translate(helpKey, locale),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: (isDark ? Colors.white : Colors.black)
+                                      .withValues(alpha: 0.65),
+                                  height: 1.3,
+                                ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: titleController,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: translate('goal_title', locale),
+                              filled: true,
+                              fillColor: fieldFill,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: targetController,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: translate('target_value', locale),
+                              filled: true,
+                              fillColor: fieldFill,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            key: ValueKey<String>(
+                              '$selectedTemplateIndex-$selectedUnit',
+                            ),
+                            initialValue: selectedUnit,
+                            decoration: InputDecoration(
+                              labelText: translate('unit', locale),
+                              filled: true,
+                              fillColor: fieldFill,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            dropdownColor:
+                                isDark ? Colors.grey.shade900 : Colors.white,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            items: ['%', 'kg', 'kWh', 'L', 'm³', 'km']
+                                .map(
+                                  (unit) => DropdownMenuItem(
+                                    value: unit,
+                                    child: Text(unit),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setDialogState(() => selectedUnit = value);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(dialogContext).pop(),
+                                child: Text(translate('cancel', locale)),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: () async {
+                                  final title = titleController.text.trim();
+                                  final rawTarget = targetController.text.trim();
+                                  if (title.isEmpty || rawTarget.isEmpty) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(this.context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            translate(
+                                              'goal_fill_required',
+                                              locale,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  final target = double.tryParse(
+                                    rawTarget.replaceAll(',', '.'),
+                                  );
+                                  if (target == null || target <= 0) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(this.context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            translate(
+                                              'goal_fill_required',
+                                              locale,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return;
+                                  }
 
-                  if (mounted) {
-                    Navigator.of(this.context).pop();
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text('Hedef eklenirken hata oluştu: $e'),
+                                  try {
+                                    final goal = {
+                                      'title': title,
+                                      'target': target,
+                                      'current': 0.0,
+                                      'unit': selectedUnit,
+                                      'type': selectedType,
+                                      'icon': selectedIconStr,
+                                      'color': 0xFF304411,
+                                    };
+
+                                    if (_userId != null) {
+                                      await _firebaseService.addGoal(
+                                        _userId!,
+                                        goal,
+                                      );
+                                    }
+
+                                    if (!mounted) return;
+                                    if (dialogContext.mounted) {
+                                      Navigator.of(dialogContext).pop();
+                                    }
+                                  } catch (e) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(this.context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            translate(
+                                              'goal_add_error',
+                                              locale,
+                                              params: {'error': e.toString()},
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
+                                child: Text(translate('add', locale)),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    );
-                  }
-                }
-              },
-              child: Text(translate('add', locale)),
-            ),
-          ],
-        ),
-      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
-  String _getIconStringFromIcon(IconData icon) {
-    if (icon == Icons.electrical_services) return 'electrical_services';
-    if (icon == Icons.eco) return 'eco';
-    if (icon == Icons.water_drop) return 'water_drop';
-    if (icon == Icons.recycling) return 'recycling';
-    if (icon == Icons.energy_savings_leaf) return 'energy_savings_leaf';
-    return 'flag';
-  }
 }
 
 class CarbonGoal {
@@ -1731,11 +2064,29 @@ class _GoalCard extends StatelessWidget {
   final LanguageProvider? languageProvider;
   final VoidCallback? onDelete;
 
+  String _localizedGoalTitle(Locale locale) {
+    switch (goal.type) {
+      case 'electricity_saving':
+        return translate('monthly_electricity_saving', locale);
+      case 'co2_reduction':
+        return translate('co2_emission_reduction', locale);
+      case 'water_saving':
+        return translate('water_saving', locale);
+      case 'waste_reduction':
+        return goal.title.trim().isNotEmpty
+            ? goal.title
+            : translate('waste_reduction', locale);
+      default:
+        return goal.title;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final locale = languageProvider?.currentLocale ?? const Locale('tr');
     final bool isCompleted = goal.progress >= 1.0;
+    final localizedTitle = _localizedGoalTitle(locale);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -1814,7 +2165,7 @@ class _GoalCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            goal.title,
+                            localizedTitle,
                             style: Theme.of(context)
                                 .textTheme
                                 .titleMedium

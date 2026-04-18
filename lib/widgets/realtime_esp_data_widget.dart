@@ -1,18 +1,56 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/consumption_entry.dart';
 
 /// ESP8266 verilerini Firebase'den real-time dinleyen widget
 /// StreamBuilder kullanarak anlık veri güncellemelerini gösterir
-class RealtimeEspDataWidget extends StatelessWidget {
-  final ApiService apiService = ApiService();
+///
+/// Görünen değerler Firebase `/esp8266_data/.../latest` üzerinden gelir.
+/// Tarayıcıdaki `/api/consumption` ile fark olmaması için ESP'den periyodik
+/// çekim yapılır; böylece eski/yanlış Firebase kaydı ekranda kalmaz.
+class RealtimeEspDataWidget extends StatefulWidget {
+  const RealtimeEspDataWidget({super.key});
 
-  RealtimeEspDataWidget({super.key});
+  @override
+  State<RealtimeEspDataWidget> createState() => _RealtimeEspDataWidgetState();
+}
+
+class _RealtimeEspDataWidgetState extends State<RealtimeEspDataWidget> {
+  final ApiService _apiService = ApiService();
+  Timer? _espPollTimer;
+
+  /// Firebase'de eski `fuel` (ör. 400) kalsa bile ekranda ESP `/api/consumption` ile uyumlu kalsın.
+  ConsumptionEntry? _directFromEsp;
+
+  static const _pollInterval = Duration(seconds: 5);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pullFromEsp());
+    _espPollTimer = Timer.periodic(_pollInterval, (_) => _pullFromEsp());
+  }
+
+  Future<void> _pullFromEsp() async {
+    final v = await _apiService.fetchEspConsumptionOrNull(saveToFirebase: true);
+    if (!mounted || v == null) {
+      return;
+    }
+    setState(() => _directFromEsp = v);
+  }
+
+  @override
+  void dispose() {
+    _espPollTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<ConsumptionEntry?>(
-      stream: apiService.listenToFirebaseData(),
+      stream: _apiService.listenToFirebaseData(),
       builder: (context, snapshot) {
         // Stream hata durumunu yakala
         if (snapshot.connectionState == ConnectionState.none) {
@@ -74,8 +112,10 @@ class RealtimeEspDataWidget extends StatelessWidget {
           );
         }
 
+        final ConsumptionEntry? data = _directFromEsp ?? snapshot.data;
+
         // Veri yok durumu
-        if (!snapshot.hasData || snapshot.data == null) {
+        if (data == null) {
           return Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -90,10 +130,7 @@ class RealtimeEspDataWidget extends StatelessWidget {
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: () async {
-                      // Manuel olarak ESP8266'dan veri çek
-                      await apiService.getLiveConsumptionData(
-                        saveToFirebase: true,
-                      );
+                      await _pullFromEsp();
                     },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Veri Çek'),
@@ -105,7 +142,6 @@ class RealtimeEspDataWidget extends StatelessWidget {
         }
 
         // Veri var - göster
-        final data = snapshot.data!;
         // Reports screen'de her zaman koyu arka plan kullanılıyor
         // Açık modda da koyu moddaki gibi görünmesi için
 
@@ -144,10 +180,7 @@ class RealtimeEspDataWidget extends StatelessWidget {
                     const SizedBox(width: 12),
                     IconButton(
                       onPressed: () async {
-                        // Manuel olarak ESP8266'dan veri çek
-                        await apiService.getLiveConsumptionData(
-                          saveToFirebase: true,
-                        );
+                        await _pullFromEsp();
                       },
                       icon: const Icon(Icons.refresh),
                       color: Colors.white,
@@ -169,8 +202,8 @@ class RealtimeEspDataWidget extends StatelessWidget {
                 const SizedBox(height: 12),
                 _DataRow(
                   icon: Icons.local_gas_station,
-                  label: 'Gaz (CO₂)',
-                  value: '${data.fuelLiters.toStringAsFixed(2)} ppm',
+                  label: 'Dogalgaz',
+                  value: '${data.fuelLiters.toStringAsFixed(3)} m³',
                   color: Colors.orange,
                   isDarkBackground: true,
                 ),

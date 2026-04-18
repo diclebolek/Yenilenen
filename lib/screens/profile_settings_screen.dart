@@ -66,11 +66,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       if (firebaseUser == null) {
         // Kullanıcı giriş yapmamış
         if (mounted) {
+          final locale =
+              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Lütfen önce giriş yapın'),
+            SnackBar(
+              content: Text(translate('login_required_first', locale)),
               backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -105,7 +107,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Kullanıcı bilgileri yüklenirken hata oluştu: $e'),
+            content: Text(
+              translate(
+                'user_data_load_error',
+                widget.languageProvider?.currentLocale ?? const Locale('tr'),
+                params: {'error': e.toString()},
+              ),
+            ),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -157,9 +165,16 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       });
     } catch (e) {
       if (mounted) {
+        final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sektörler yüklenirken hata oluştu: $e'),
+            content: Text(
+              translate(
+                'sectors_load_error',
+                locale,
+                params: {'error': e.toString()},
+              ),
+            ),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -184,20 +199,28 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       );
 
       if (mounted) {
+        final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('İşletme bilgileri başarıyla güncellendi'),
+          SnackBar(
+            content: Text(translate('business_update_success', locale)),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 3),
+            duration: const Duration(seconds: 3),
           ),
         );
         widget.onProfileUpdated();
       }
     } catch (e) {
       if (mounted) {
+        final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('İşletme bilgileri güncellenirken hata oluştu: $e'),
+            content: Text(
+              translate(
+                'business_update_error',
+                locale,
+                params: {'error': e.toString()},
+              ),
+            ),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -237,20 +260,29 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         });
 
         if (mounted) {
+          final locale =
+              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                  'E-posta başarıyla güncellendi. Lütfen yeni e-posta adresinizi doğrulayın.'),
+            SnackBar(
+              content: Text(translate('email_update_success_verify', locale)),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 4),
+              duration: const Duration(seconds: 4),
             ),
           );
         }
       } catch (e) {
         if (mounted) {
+          final locale =
+              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('E-posta güncellenirken hata oluştu: $e'),
+              content: Text(
+                translate(
+                  'email_update_error',
+                  locale,
+                  params: {'error': e.toString()},
+                ),
+              ),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 3),
             ),
@@ -264,11 +296,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     if (_newPasswordController.text.isNotEmpty) {
       if (_newPasswordController.text != _confirmPasswordController.text) {
         if (mounted) {
+          final locale =
+              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Yeni şifreler eşleşmiyor'),
+            SnackBar(
+              content: Text(translate('password_mismatch', locale)),
               backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -295,11 +329,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         }
 
         if (mounted) {
+          final locale =
+              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Şifre başarıyla güncellendi'),
+            SnackBar(
+              content: Text(translate('password_update_success', locale)),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -310,9 +346,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         _confirmPasswordController.clear();
       } catch (e) {
         if (mounted) {
+          final locale =
+              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Şifre güncellenirken hata oluştu: $e'),
+              content: Text(
+                translate(
+                  'password_update_error',
+                  locale,
+                  params: {'error': e.toString()},
+                ),
+              ),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 3),
             ),
@@ -722,7 +766,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                 if (!RegExp(
                                   r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
                                 ).hasMatch(value)) {
-                                  return 'Geçerli bir e-posta adresi girin';
+                                  return translate('email_invalid', locale);
                                 }
                                 return null;
                               },
@@ -735,7 +779,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               obscureText: _obscurePassword,
                               decoration: InputDecoration(
                                 labelText:
-                                    'Mevcut Şifre (şifre değiştirmek için)',
+                                    translate('current_password_for_change', locale),
                                 prefixIcon: const Icon(Icons.lock_outlined),
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -759,7 +803,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               controller: _newPasswordController,
                               obscureText: _obscureNewPassword,
                               decoration: InputDecoration(
-                                labelText: 'Yeni Şifre',
+                                labelText: translate('new_password', locale),
                                 prefixIcon: const Icon(Icons.lock_outlined),
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -780,7 +824,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                 if (value != null &&
                                     value.isNotEmpty &&
                                     value.length < 6) {
-                                  return 'Şifre en az 6 karakter olmalıdır';
+                                  return translate('password_min_length', locale);
                                 }
                                 return null;
                               },
@@ -792,7 +836,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               controller: _confirmPasswordController,
                               obscureText: _obscureConfirmPassword,
                               decoration: InputDecoration(
-                                labelText: 'Yeni Şifre Tekrar',
+                                labelText:
+                                    translate('confirm_new_password', locale),
                                 prefixIcon: const Icon(Icons.lock_outlined),
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -812,7 +857,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               validator: (value) {
                                 if (_newPasswordController.text.isNotEmpty &&
                                     value != _newPasswordController.text) {
-                                  return 'Şifreler eşleşmiyor';
+                                  return translate('password_mismatch', locale);
                                 }
                                 return null;
                               },
@@ -835,8 +880,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                     : const Icon(Icons.save),
                                 label: Text(
                                   _isLoading
-                                      ? 'Güncelleniyor...'
-                                      : 'Kullanıcı Bilgilerini Güncelle',
+                                      ? translate('updating', locale)
+                                      : translate('update_user_info', locale),
                                 ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green,

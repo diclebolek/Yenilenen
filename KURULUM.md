@@ -1,112 +1,155 @@
-# Uygulamayı Çalıştırma Kılavuzu
+# Kurulum ve Calistirma Kilavuzu
 
-## Hızlı Başlangıç
+Bu dosya proje icin tek kaynak kurulum dokumanidir. Flutter, Firebase, ESP8266 ve emulator adimlarini birlikte icerir.
 
-### 1. Bağımlılıkları Yükleyin
+## 1) Hizli Baslangic
+
+1. Proje klasorune girin.
+2. Bagimliliklari yukleyin:
 
 ```bash
 flutter pub get
 ```
 
-### 2. Flutter Kurulumunu Kontrol Edin
+3. Flutter kurulumunu kontrol edin:
 
 ```bash
 flutter doctor
 ```
 
-Bu komut Flutter kurulumunuzu ve eksik bileşenleri kontrol eder.
+4. Cihazlari listeleyin:
 
-### 3. Uygulamayı Çalıştırın
-
-#### Web için (En Kolay - Önerilen)
-```bash
-flutter run -d chrome
-```
-veya
-```bash
-flutter run -d web-server
-```
-
-#### Android için
-```bash
-# Android emülatör veya fiziksel cihaz bağlı olmalı
-flutter run
-```
-
-#### iOS için (Sadece macOS)
-```bash
-# iOS simülatör veya fiziksel cihaz bağlı olmalı
-flutter run
-```
-
-## Detaylı Adımlar
-
-### Adım 1: Proje Klasörüne Gidin
-```bash
-cd c:\Users\test\Desktop\bitirme_C02
-```
-
-### Adım 2: Bağımlılıkları Yükleyin
-```bash
-flutter pub get
-```
-
-### Adım 3: Mevcut Cihazları/Emülatörleri Kontrol Edin
 ```bash
 flutter devices
 ```
 
-Bu komut çalıştırılabilecek cihazları listeler:
-- Chrome (web)
-- Android Emulator
-- iOS Simulator (macOS'ta)
-- Fiziksel cihazlar
+5. Uygulamayi calistirin:
 
-### Adım 4: Uygulamayı Çalıştırın
+```bash
+flutter run
+```
 
-**Web için (Önerilen):**
+Web icin:
+
 ```bash
 flutter run -d chrome
 ```
 
-**Belirli bir cihaz için:**
-```bash
-flutter run -d <device-id>
+## 2) Firebase Kurulumu
+
+### 2.1 Firebase Console
+
+1. Firebase'de proje olusturun/acin.
+2. Android uygulamasini ekleyin ve `google-services.json` dosyasini indirin.
+3. Gerekliyse web uygulamasini ekleyin.
+4. Authentication icinde Email/Password girisini etkinlestirin.
+5. Realtime Database olusturun.
+
+### 2.2 Gelistirme Rules (gecici)
+
+```json
+{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}
 ```
 
-## Sorun Giderme
+Not: Bu kurallar sadece gelistirme icindir. Uretimde mutlaka kisitlayin.
 
-### Firebase Hatası Alıyorsanız
-Firebase yapılandırması eksik olabilir. `lib/firebase_options.dart` dosyasını kontrol edin.
+### 2.3 Projedeki Firebase dosyalari
 
-### Görsel Hatası Alıyorsanız
-`assets/images/` klasörüne gerekli görselleri ekleyin (opsiyonel - uygulama çalışır ama bazı görseller görünmeyebilir).
+- `android/app/google-services.json` dosyasi dogru konumda olmali
+- `lib/firebase_options.dart` guncel olmali
+- `lib/main.dart` icinde Firebase baslatma kodlari calisiyor olmali
 
-### PostgreSQL Hatası
-PostgreSQL bağlantı hatası normaldir - uygulama çalışmaya devam eder, sadece veritabanı işlemleri başarısız olur.
+## 3) ESP8266 ve Ag Ayari
 
-## Hot Reload
+`lib/services/api_service.dart` icindeki ESP adresini kendi cihaziniza gore guncelleyin:
 
-Uygulama çalışırken:
-- `r` tuşuna basarak hot reload yapabilirsiniz
-- `R` tuşuna basarak hot restart yapabilirsiniz
-- `q` tuşuna basarak çıkabilirsiniz
+```dart
+static const String espBaseUrl = 'http://172.20.10.2';
+```
 
-## Build (Production)
+Tarayicidan endpoint kontrolu yapin:
 
-### Web için
+- `http://ESP_IP/api/status`
+- `http://ESP_IP/api/consumption`
+
+Beklenti: JSON donmeli ve `gas_consumption_m3` gibi alanlar gorunmeli.
+
+## 4) Android Emulator ile Calistirma
+
+### 4.1 Emulator baslatma
+
+```bash
+flutter emulators
+flutter emulators --launch <emulator_id>
+```
+
+Ardindan:
+
+```bash
+flutter run
+```
+
+### 4.2 Hotspot/Shelly senaryosu (opsiyonel)
+
+Shelly cihazi kullaniyorsaniz emulator ve Shelly ayni agda olmalidir.
+
+- Emulator ayarlarindan WiFi baglantisini kontrol edin
+- Gerekirse Windows hotspot'a baglayin
+- Shelly IP adresini ilgili ekranda/service'te dogrulayin
+
+## 5) Beklenen Firebase Veri Yolu
+
+Temel yol:
+
+`esp8266_data/esp8266_001/latest`
+
+Sik kullanilan alanlar:
+
+- `gas_consumption_m3`
+- `fuel` (uyumluluk icin)
+- `water_flow_liters`
+- `water`
+- `timestamp`
+- `created_at`
+
+## 6) Sorun Giderme
+
+### Firebase'e yazilmiyorsa
+
+- `firebase_options.dart` ve `google-services.json` dosyalarini kontrol edin
+- Realtime Database rules'inizin gelistirme asamasinda engellemediginden emin olun
+- Uygulama loglarinda Firebase write hatasi var mi kontrol edin
+
+### ESP verisi gelmiyorsa
+
+- ESP IP adresi dogru mu kontrol edin
+- Telefon/emulator ile ESP ayni agda mi kontrol edin
+- `/api/status` ve `/api/consumption` endpointlerini tarayicidan test edin
+
+### Emulator veya derleme sorunlari
+
+```bash
+flutter clean
+flutter pub get
+flutter run
+```
+
+## 7) Hot Reload ve Build
+
+Uygulama calisirken:
+
+- `r`: hot reload
+- `R`: hot restart
+- `q`: cikis
+
+Production build:
+
 ```bash
 flutter build web
-```
-Çıktı: `build/web/` klasöründe
-
-### Android için
-```bash
 flutter build apk
-```
-Çıktı: `build/app/outputs/flutter-apk/app-release.apk`
-
-### iOS için (macOS gerekli)
-```bash
-flutter build ios
 ```

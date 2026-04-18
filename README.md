@@ -15,7 +15,6 @@ Karbon ayak izi hesaplama ve takip uygulaması - Flutter ile geliştirilmiş iş
 - 🎨 Modern Material 3 tasarımı
 - 🔌 **ESP8266 IoT entegrasyonu** - Gerçek zamanlı sensör verileri
 - ⚡ **Shelly Plug S entegrasyonu** - Akıllı priz ile güç tüketimi takibi
-- 🔗 **Blockchain entegrasyonu** - Web3 ve Ethereum desteği
 - 📡 **WebSocket desteği** - Gerçek zamanlı veri akışı
 - 🌐 **Global karbon verileri** - Our World in Data entegrasyonu
 
@@ -122,8 +121,7 @@ lib/
 - `url_launcher` - URL açma
 - `shared_preferences` - Yerel veri saklama
 
-### IoT ve Blockchain
-- `web3dart` - Blockchain entegrasyonu (Ethereum)
+### IoT ve Ağ
 - `web_socket_channel` - WebSocket desteği (Shelly Plug S için)
 - `connectivity_plus` - Ağ bağlantı durumu kontrolü
 
@@ -150,9 +148,6 @@ lib/
 - **FirebaseAuthService** - Kullanıcı kimlik doğrulama
 - **DatabaseService** - Yerel veri saklama (SharedPreferences)
 - **PostgresService** - PostgreSQL bağlantısı (opsiyonel, HTTP API üzerinden)
-
-### Blockchain
-- **BlockchainService** - Ethereum blockchain entegrasyonu (Web3)
 
 ### Hesaplama Algoritmaları
 - **Calculation** - CO₂ emisyon hesaplama algoritmaları

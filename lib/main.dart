@@ -283,22 +283,26 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
                           extendBody: true,
                           extendBodyBehindAppBar: true,
                           appBar: AppBar(
-                            titleSpacing: 0,
+                            titleSpacing: isCompactLayout ? 12 : 0,
                             leadingWidth: 0,
                             title: isCompactLayout
-                                ? Image.asset(
-                                    'assets/images/navbarbaslik.png',
-                                    height: 32,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      // Resim yüklenemezse text göster
-                                      return Text(
-                                        translate(
-                                          'app_title',
-                                          languageProvider.currentLocale,
-                                        ),
-                                      );
-                                    },
+                                ? Padding(
+                                    padding: const EdgeInsets.only(left: 4),
+                                    child: Image.asset(
+                                      'assets/images/navbarbaslik.png',
+                                      height: 32,
+                                      fit: BoxFit.contain,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                        // Resim yüklenemezse text göster
+                                        return Text(
+                                          translate(
+                                            'app_title',
+                                            languageProvider.currentLocale,
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   )
                                 : Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -338,22 +342,29 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
                             backgroundColor: Colors.transparent,
                             surfaceTintColor: Colors.transparent,
                             foregroundColor: Colors.white,
+                            actionsPadding: isCompactLayout
+                                ? const EdgeInsets.only(right: 8)
+                                : EdgeInsets.zero,
                             // Küçük/orta ekranlarda (telefon/tablet ve dar web) logo sağda, geniş ekranlarda navigation butonları
                             actions: (isCompactLayout
                                 ? [
-                                    // Mobilde: logo sağda - en sağa yanaştır
-                                    Padding(
-                                      padding: EdgeInsets.zero,
-                                      child: Transform.rotate(
-                                        angle: 1.5708, // 90 derece (pi/2)
-                                        child: Image.asset(
-                                          'assets/images/logoCo2.png',
-                                          height: 180,
-                                          width: 180,
-                                          errorBuilder:
-                                              (context, error, stackTrace) {
-                                            return const SizedBox.shrink();
-                                          },
+                                    // Mobilde: logo biraz daha büyük ve sağ kenara daha yakın
+                                    SizedBox(
+                                      width: 54,
+                                      child: Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Transform.rotate(
+                                          angle: 1.5708, // 90 derece (pi/2)
+                                          child: Image.asset(
+                                            'assets/images/logoCo2.png',
+                                            height: 42,
+                                            width: 42,
+                                            fit: BoxFit.contain,
+                                            errorBuilder:
+                                                (context, error, stackTrace) {
+                                              return const SizedBox.shrink();
+                                            },
+                                          ),
                                         ),
                                       ),
                                     ),

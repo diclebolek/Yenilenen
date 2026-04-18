@@ -39,7 +39,7 @@ class FirebaseRealtimeService {
         'water': consumption.waterCubicMeters,
         'fuel': consumption.fuelLiters,
         'waste': consumption.wasteKg,
-        'co2_ppm': additionalData?['co2_ppm'] ?? 0.0,
+        'gas_consumption_m3': additionalData?['gas_consumption_m3'] ?? 0.0,
         'water_flow_liters': additionalData?['water_flow_liters'] ?? 0.0,
         'flow_rate_lpm': additionalData?['flow_rate_lpm'] ?? 0.0,
         'timestamp': timestamp,
@@ -349,8 +349,8 @@ class FirebaseRealtimeService {
         return ConsumptionEntry(
           electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
           waterCubicMeters: waterCubicMeters,
-          fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0)
-              .toDouble(), // Gaz (CO2 ppm) değeri
+          fuelLiters: (data['gas_consumption_m3'] ?? data['fuel'] ?? 0.0)
+              .toDouble(), // Dogalgaz tuketimi (m3)
           wasteKg: (data['waste'] ?? 0.0).toDouble(),
           createdAt: createdAt,
         );
@@ -494,8 +494,9 @@ class FirebaseRealtimeService {
               ConsumptionEntry(
                 electricityKwh: (entryData['electricity'] ?? 0.0).toDouble(),
                 waterCubicMeters: waterCubicMeters,
-                fuelLiters: (entryData['fuel'] ?? entryData['co2_ppm'] ?? 0.0)
-                    .toDouble(), // Gaz (CO2 ppm) değeri
+                fuelLiters:
+                    (entryData['gas_consumption_m3'] ?? entryData['fuel'] ?? 0.0)
+                        .toDouble(), // Dogalgaz tuketimi (m3)
                 wasteKg: (entryData['waste'] ?? 0.0).toDouble(),
                 createdAt: createdAt,
               ),
@@ -574,7 +575,8 @@ class FirebaseRealtimeService {
       return ConsumptionEntry(
         electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
         waterCubicMeters: waterCubicMeters,
-        fuelLiters: (data['fuel'] ?? data['co2_ppm'] ?? 0.0).toDouble(),
+        fuelLiters: (data['gas_consumption_m3'] ?? data['fuel'] ?? 0.0)
+            .toDouble(),
         wasteKg: (data['waste'] ?? 0.0).toDouble(),
         createdAt: createdAt,
       );
