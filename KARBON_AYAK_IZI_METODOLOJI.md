@@ -23,6 +23,8 @@ CO₂e (kg) = Elektrik Tüketimi (kWh) × 0.233 kg CO₂e/kWh
 
 **Emisyon Faktörü:** 0.233 kg CO₂e/kWh
 
+**Not (GHG Kapsam 2 — yer bazlı şebeke):** Literatürde Türkiye için sıkça verilen yer bazlı şebeke faktörü yaklaşık **0,35–0,48 kg CO₂e/kWh** bandında değişir (yıl ve metodolojiye göre). Uygulamadaki **0,233** değeri, seçilen üretim karışımı / kaynak varsayımına göre daha düşük bir tekil sabittir; resmi envanter veya tedarikçi-specific faktör (market-based) ile yıllık güncelleme önerilir.
+
 **Kaynak ve Açıklama:**
 - Türkiye elektrik üretim karışımı ortalaması
 - Bu değer, Türkiye'nin elektrik üretim kaynaklarının (kömür, doğalgaz, hidroelektrik, rüzgar, güneş, nükleer vb.) karışımı dikkate alınarak hesaplanmıştır
@@ -35,24 +37,32 @@ CO₂e (kg) = Elektrik Tüketimi (kWh) × 0.233 kg CO₂e/kWh
 
 ---
 
-#### 2.2.2. Yakıt Tüketimi
+#### 2.2.2. Yakıt / Doğal Gaz Tüketimi
 
+Uygulama iki aktivite verisi tipini ayırır (GHG Protocol Kapsam 1 — doğrudan yanma):
+
+**A) Doğal gaz (ölçüm birimi: m³)** — ESP, fatura tarama ve `Gaz (m³)` alanları  
 **Formül:**
 ```
-CO₂e (kg) = Yakıt Tüketimi (Litre) × 2.31 kg CO₂e/Litre
+CO₂e (kg) = Doğalgaz (m³) × 2.02 kg CO₂e/m³
 ```
+**Emisyon faktörü:** 2.02 kg CO₂e/m³ (Türkiye / IPCC tipik yanma bandı yaklaşık 1,9–2,1 kg CO₂e/m³ ile uyumlu)
 
-**Emisyon Faktörü:** 2.31 kg CO₂e/Litre
+**B) Sıvı motor yakıtı (ölçüm birimi: litre)** — manuel formdaki “Yakıt (litre)” ve araç tüketimi  
+**Formül:**
+```
+CO₂e (kg) = Yakıt (L) × 2.31 kg CO₂e/L
+```
+**Emisyon faktörü:** 2.31 kg CO₂e/L — benzin/dizel tipi sıvı yakıt için IPCC/EPA mobil kaynak ortalaması
 
 **Kaynak ve Açıklama:**
-- Benzin ve dizel yakıt yanma emisyon faktörü
-- IPCC standartlarına uygun olarak belirlenmiştir
-- Ortalama benzin ve dizel yakıtlar için geçerlidir
-- Bu değer, yakıtın yanması sırasında açığa çıkan CO₂ emisyonunu temsil eder
+- Doğalgaz için m³ ile litre karıştırılmamalıdır; sayaçlar genelde m³ okur.
+- CO₂e ifadesi CH₄, N₂O vb. gazların GWP ile ağırlıklandırılmış karbon dioksit eşdeğerini ifade eder.
 
-**Referans Standartlar:**
+**Referans standartlar:**
 - IPCC 2006 Guidelines for National Greenhouse Gas Inventories
-- EPA (Environmental Protection Agency) Mobile Source Emissions
+- GHG Protocol — Scope 1 (sabit yanma)
+- EPA Mobile Source Emissions (sıvı yakıt)
 
 ---
 

@@ -691,9 +691,12 @@ class _LoginScreenState extends State<LoginScreen>
                                     // Register link - Daha görünür hale getirildi
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
+                                      child: Wrap(
+                                        alignment: WrapAlignment.center,
+                                        crossAxisAlignment:
+                                            WrapCrossAlignment.center,
+                                        spacing: 4,
+                                        runSpacing: 4,
                                         children: [
                                           Text(
                                             translate('no_account', locale),
@@ -704,7 +707,6 @@ class _LoginScreenState extends State<LoginScreen>
                                               fontSize: 14,
                                             ),
                                           ),
-                                          const SizedBox(width: 4),
                                           TextButton(
                                             onPressed: () {
                                               Navigator.of(context).push(
@@ -742,6 +744,9 @@ class _LoginScreenState extends State<LoginScreen>
                                                 horizontal: 8,
                                                 vertical: 4,
                                               ),
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
                                             ),
                                             child: Text(
                                               translate(

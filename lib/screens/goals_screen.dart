@@ -394,9 +394,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // CO2 azaltma (kg) - gerçek emisyon faktörüyle hesapla
             // Önceki ayın CO2 emisyonu - Bu ayın CO2 emisyonu
             final previousMonthCO2 =
-                previousMonthGas * Calculation.factorFuelKgPerLiter;
+                previousMonthGas * Calculation.factorNaturalGasKgPerM3;
             final currentMonthCO2 =
-                currentMonthGas * Calculation.factorFuelKgPerLiter;
+                currentMonthGas * Calculation.factorNaturalGasKgPerM3;
             final reduction = previousMonthCO2 - currentMonthCO2;
             // Negatif değerler (artış) için 0 göster
             newCurrent = reduction > 0 ? reduction : 0.0;

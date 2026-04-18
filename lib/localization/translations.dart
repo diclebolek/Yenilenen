@@ -51,6 +51,8 @@ const Map<String, String> trTranslations = {
   'not_supported': 'Desteklenmiyor',
   'windows_not_supported':
       'Windows\'ta fatura tarama desteklenmiyor. Android/iOS\'ta deneyin.',
+  'ocr_web_not_supported':
+      'Fatura OCR yalnızca Android ve iOS uygulamasında çalışır. Web için değerleri manuel girebilirsiniz.',
   'weather_adjustments': 'Hava Durumuna Dayalı Ayarlamalar (Yakında)',
   'weather_desc':
       'Yerel hava durumuna göre HVAC ve enerji kıyaslamalarını ayarlayacak entegrasyonlar planlanmaktadır.',
@@ -339,6 +341,7 @@ const Map<String, String> trTranslations = {
   'industry_avg': 'Sektör Ort.',
   'your_business': 'Sizin İşletmeniz',
   'kg_co2e': 'kg CO₂e',
+  'g_co2e': 'g CO₂e',
   'tonnes_co2e_monthly': 'ton CO₂e/ay',
   'better_than_avg': 'Ortalamadan İyi',
   'worse_than_avg': 'Ortalamadan Kötü',
@@ -398,6 +401,8 @@ const Map<String, String> enTranslations = {
   'not_supported': 'Not Supported',
   'windows_not_supported':
       'Bill scanning is not supported on Windows. Please try on Android or iOS.',
+  'ocr_web_not_supported':
+      'Bill OCR runs on Android and iOS only. On web, please enter values manually.',
   'weather_adjustments': 'Weather-Based Adjustments (Coming Soon)',
   'weather_desc':
       'Integrations are planned to adjust HVAC and energy comparisons based on local weather conditions.',
@@ -685,6 +690,7 @@ const Map<String, String> enTranslations = {
   'industry_avg': 'Industry Avg.',
   'your_business': 'Your Business',
   'kg_co2e': 'kg CO₂e',
+  'g_co2e': 'g CO₂e',
   'tonnes_co2e_monthly': 'ton CO₂e/month',
   'better_than_avg': 'Better than Average',
   'worse_than_avg': 'Worse than Average',

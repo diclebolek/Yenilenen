@@ -32,8 +32,9 @@ Karbon ayak izi hesaplama ve takip uygulaması - Flutter ile geliştirilmiş iş
 1. Projeyi klonlayın:
 ```bash
 git clone <repository-url>
-cd bitirme_C02
+cd carbon_footprint_calculation_app
 ```
+*(Klasör adı farklıysa depo köküne göre `cd` yapın.)*
 
 2. Bağımlılıkları yükleyin:
 ```bash
@@ -64,14 +65,16 @@ flutter pub get
    - Cihaz ID'sini değiştirmek için `deviceId` değişkenini güncelleyin
 
    **Shelly Plug S Yapılandırması:**
-   - Shelly cihazınızın IP adresini `lib/screens/reports_screen.dart` dosyasında güncelleyin:
+   - Shelly cihazınızın IP adresini `lib/screens/reports_screen.dart` içindeki `_initializeShelly()` metodunda güncelleyin (`deviceIp:` ve isteğe bağlı `deviceId`).
+   - Örnek:
      ```dart
      _apiService.initializeShelly(
-       deviceIp: '10.55.13.119', // Shelly IP adresiniz
+       deviceIp: '192.168.x.x', // yerel ağdaki Shelly IP'niz
        deviceId: 'shelly_plug_001',
      );
      ```
-   - Shelly cihazı HTTP API ve WebSocket desteği sağlamalıdır
+   - Shelly cihazı HTTP API ve WebSocket desteği sağlamalıdır (cihaz/sürüme göre değişebilir).
+   - `home_screen.dart` içinde de Shelly başlatma çağrısı olabilir; farklı dosyalarda **aynı IP** kullanıldığından emin olun.
 
 6. Assets (Görseller):
    Aşağıdaki görselleri `assets/images/` klasörüne eklemeniz gerekmektedir:
@@ -92,6 +95,8 @@ flutter run
 ```
 
 Detaylı kurulum için `KURULUM.md` dosyasına bakın.
+
+**İlgili dokümanlar:** Emisyon faktörleri ve formül ayrıntıları için `KARBON_AYAK_IZI_METODOLOJI.md`; akademik IMRAD taslağı için `MAKALE_IMRAD_TASLAK.md`.
 
 ## Proje Yapısı
 
@@ -119,7 +124,7 @@ lib/
 - `image_picker` - Görsel seçme
 - `google_mlkit_text_recognition` - OCR (fatura tarama)
 - `url_launcher` - URL açma
-- `shared_preferences` - Yerel veri saklama
+- `shared_preferences` - Dil tercihi vb. kalıcı küçük ayarlar (`LanguageProvider`)
 
 ### IoT ve Ağ
 - `web_socket_channel` - WebSocket desteği (Shelly Plug S için)
@@ -127,6 +132,7 @@ lib/
 
 ## Ekranlar
 
+- **Splash Screen** - Açılış / giriş akışı
 - **Login Screen** - Kullanıcı girişi
 - **Register Screen** - Yeni kullanıcı/işletme kaydı
 - **Home Screen** - Ana sayfa (dashboard, hava durumu, karbon yoğunluğu)
@@ -146,8 +152,8 @@ lib/
 ### Veritabanı Servisleri
 - **FirebaseRealtimeService** - Firebase Realtime Database işlemleri
 - **FirebaseAuthService** - Kullanıcı kimlik doğrulama
-- **DatabaseService** - Yerel veri saklama (SharedPreferences)
-- **PostgresService** - PostgreSQL bağlantısı (opsiyonel, HTTP API üzerinden)
+- **DatabaseService** - Uygulama içi hafif özet (ör. son okumalar, hedef eşikleri; bellek içi `Map` — kalıcı depolama değildir)
+- **PostgresService** - İsteğe bağlı kurumsal/arka uç verisi (HTTP API üzerinden; varsayılan `localhost:3000/api`)
 
 ### Hesaplama Algoritmaları
 - **Calculation** - CO₂ emisyon hesaplama algoritmaları
@@ -167,13 +173,22 @@ CO₂e (kg) = Elektrik Tüketimi (kWh) × 0.233 kg CO₂e/kWh
 - **Kaynak**: Türkiye elektrik üretim karışımı ortalaması
 - **Not**: Bu değer, Türkiye'nin elektrik üretim kaynakları (kömür, doğalgaz, hidroelektrik, rüzgar, güneş vb.) dikkate alınarak hesaplanmıştır.
 
-#### 2. Yakıt Tüketimi
+#### 2. Yakıt / Doğal Gaz
+
+Uygulama iki durumu ayırır (`fuelIsNaturalGasM3` bayrağı ile):
+
+**Doğal gaz (ölçüm: m³)** — ESP, fatura OCR veya “Gaz (m³)” alanları:
 ```
-CO₂e (kg) = Yakıt Tüketimi (Litre) × 2.31 kg CO₂e/Litre
+CO₂e (kg) = Doğalgaz (m³) × 2.02 kg CO₂e/m³
 ```
-- **Emisyon Faktörü**: 2.31 kg CO₂e/Litre
-- **Kaynak**: Benzin/dizel yakıt yanma emisyon faktörü (IPCC standartları)
-- **Not**: Bu değer, ortalama benzin ve dizel yakıtlar için geçerlidir.
+
+**Sıvı motor yakıtı (ölçüm: litre)** — manuel formdaki “Yakıt (litre)” ve araç tüketimi:
+```
+CO₂e (kg) = Yakıt (Litre) × 2.31 kg CO₂e/Litre
+```
+
+- **2.02 kg/m³**: Doğal gaz yanması için tipik bantla uyumlu örnek sabit (kaynak: envanter / IPCC tipi faktörler; ayrıntı için `KARBON_AYAK_IZI_METODOLOJI.md`).
+- **2.31 kg/L**: Benzin–dizel tipi sıvı yakıt için yaygın kullanılan sipariş büyüklüğünde ortalama faktör (IPCC mobil kaynak literatürü).
 
 #### 3. Su Tüketimi
 ```
@@ -536,10 +551,10 @@ Uygulama, ekranda gösterilen **Ulusal Ortalama** ve **Küresel Ortalama** değe
 - **Firebase Realtime Database** kullanılmaktadır (gerçek zamanlı veri senkronizasyonu için)
 
 ### Platform Desteği
-- ✅ Web (Chrome, Firefox, Safari)
-- ✅ Android (API 21+)
-- ✅ iOS (iOS 12+)
-- ❌ Windows desktop (CMake gerektirir, devre dışı)
+- ✅ Web (Chrome, Firefox, Safari vb.)
+- ✅ Android
+- ✅ iOS
+- ⚠️ Windows / macOS masaüstü: Flutter bu hedefleri üretebilir; bu depoda öncelik mobil ve web üzerindedir, masaüstü için ek test gerekir.
 
 ### Güvenlik
 - Firebase Authentication ile kullanıcı verileri korunur

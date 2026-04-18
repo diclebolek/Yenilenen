@@ -554,12 +554,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (_espEntry != null) {
       final waterEmission =
           _espEntry!.waterCubicMeters * Calculation.factorWaterKgPerM3;
-      final fuelEmission =
-          _espEntry!.fuelLiters * Calculation.factorFuelKgPerLiter;
+      final fuelEmission = Calculation.fuelEmissionKgCo2e(_espEntry!);
       final espWaterGasEmission = waterEmission + fuelEmission;
       totalEmission += espWaterGasEmission;
       debugPrint(
-        '📊 ESP Su+Gaz: Su=${_espEntry!.waterCubicMeters.toStringAsFixed(2)} m³ × ${Calculation.factorWaterKgPerM3} = ${waterEmission.toStringAsFixed(2)} kg, Gaz=${_espEntry!.fuelLiters.toStringAsFixed(2)} L × ${Calculation.factorFuelKgPerLiter} = ${fuelEmission.toStringAsFixed(2)} kg, Toplam=${espWaterGasEmission.toStringAsFixed(2)} kg CO2e',
+        '📊 ESP Su+Gaz: Su=${_espEntry!.waterCubicMeters.toStringAsFixed(2)} m³ × ${Calculation.factorWaterKgPerM3} = ${waterEmission.toStringAsFixed(2)} kg, Gaz=${_espEntry!.fuelLiters.toStringAsFixed(2)} m³ × ${Calculation.factorNaturalGasKgPerM3} = ${fuelEmission.toStringAsFixed(2)} kg, Toplam=${espWaterGasEmission.toStringAsFixed(2)} kg CO2e',
       );
     }
 
@@ -591,7 +590,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void _updateCategoryDistributionFromEntry(ConsumptionEntry entry) {
     final electricityEmission =
         entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
-    final gasEmission = entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+    final gasEmission = Calculation.fuelEmissionKgCo2e(entry);
     final waterEmission =
         entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
     final wasteEmission = entry.wasteKg * Calculation.factorWasteKgPerKg;
@@ -687,7 +686,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (_espEntry != null) {
       totalWater +=
           _espEntry!.waterCubicMeters * Calculation.factorWaterKgPerM3;
-      totalGas += _espEntry!.fuelLiters * Calculation.factorFuelKgPerLiter;
+      totalGas += Calculation.fuelEmissionKgCo2e(_espEntry!);
       totalWaste += _espEntry!.wasteKg * Calculation.factorWasteKgPerKg;
     }
 
@@ -935,6 +934,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 fuelLiters: espLatestEntry.fuelLiters,
                 wasteKg: espLatestEntry.wasteKg,
                 createdAt: DateTime.now(), // Bugün olarak işaretle
+                fuelIsNaturalGasM3: espLatestEntry.fuelIsNaturalGasM3,
               ));
             }
           }
@@ -1107,11 +1107,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           final combinedEntry = ConsumptionEntry(
             electricityKwh: shellyEntry.electricityKwh, // Shelly'den elektrik
             waterCubicMeters: espEntry.waterCubicMeters, // ESP'den su
-            fuelLiters: espEntry.fuelLiters, // ESP'den gaz
+            fuelLiters: espEntry.fuelLiters, // ESP'den gaz m³
             wasteKg: (espEntry.wasteKg + shellyEntry.wasteKg) / 2, // Ortalama
             createdAt: shellyEntry.createdAt.isAfter(espEntry.createdAt)
                 ? shellyEntry.createdAt
                 : espEntry.createdAt, // En güncel tarih
+            fuelIsNaturalGasM3: espEntry.fuelIsNaturalGasM3,
           );
           dailyData[dayIndex] = combinedEntry;
           dailyDataCount[dayIndex] = 2;
@@ -1176,6 +1177,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           fuelLiters: latestEntry.fuelLiters,
           wasteKg: latestEntry.wasteKg,
           createdAt: DateTime.now(), // Bugün olarak işaretle
+          fuelIsNaturalGasM3: latestEntry.fuelIsNaturalGasM3,
         );
         debugPrint(
             '📅 Hiç günlük veri yok, en son veri bugün olarak kullanıldı');
@@ -1202,8 +1204,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           // Debug: Detaylı emisyon bilgisi
           final electricityEmission =
               entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
-          final fuelEmission =
-              entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+          final fuelEmission = Calculation.fuelEmissionKgCo2e(entry);
           final waterEmission =
               entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
           final wasteEmission = entry.wasteKg * Calculation.factorWasteKgPerKg;
@@ -1212,7 +1213,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           debugPrint(
               '   Elektrik: ${entry.electricityKwh.toStringAsFixed(2)} kWh × 0.233 = ${electricityEmission.toStringAsFixed(2)} kg CO2e');
           debugPrint(
-              '   Yakıt: ${entry.fuelLiters.toStringAsFixed(2)} L × 2.31 = ${fuelEmission.toStringAsFixed(2)} kg CO2e');
+              '   Yakıt: ${entry.fuelLiters.toStringAsFixed(2)} ${entry.fuelIsNaturalGasM3 ? "m³×${Calculation.factorNaturalGasKgPerM3}" : "L×${Calculation.factorFuelKgPerLiter}"} = ${fuelEmission.toStringAsFixed(2)} kg CO2e');
           debugPrint(
               '   Su: ${entry.waterCubicMeters.toStringAsFixed(2)} m³ × 0.344 = ${waterEmission.toStringAsFixed(2)} kg CO2e');
           debugPrint(
@@ -1226,7 +1227,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           if (i == 0) {
             totalElectricity +=
                 entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
-            totalGas += entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+            totalGas += Calculation.fuelEmissionKgCo2e(entry);
             totalWater +=
                 entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
             totalWaste += entry.wasteKg * Calculation.factorWasteKgPerKg;
@@ -1252,8 +1253,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           if (i == 0) {
             manualTotalElectricity +=
                 entry.electricityKwh * Calculation.factorElectricityKgPerKwh;
-            manualTotalGas +=
-                entry.fuelLiters * Calculation.factorFuelKgPerLiter;
+            manualTotalGas += Calculation.fuelEmissionKgCo2e(entry);
             manualTotalWater +=
                 entry.waterCubicMeters * Calculation.factorWaterKgPerM3;
             manualTotalWaste += entry.wasteKg * Calculation.factorWasteKgPerKg;
@@ -1589,8 +1589,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ],
                           ),
                           SizedBox(
-                            height: gaugeSize / 3 + 24,
-                          ), // Gauge'ın altındaki toggle için yeterli boşluk
+                            height: gaugeSize / 3 + 32,
+                          ), // Gauge overlap + içerik (toggle) için boşluk
                           // Mode selector buttons
                           Row(
                             children: [
@@ -1789,77 +1789,118 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 CrossAxisAlignment.start,
                                             children: [
                                               Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.center,
                                                 children: [
-                                                  Text(
-                                                    _showGlobalTrend
-                                                        ? translate(
-                                                            'global_trend',
-                                                            locale)
-                                                        : translate(
-                                                            'daily_trends',
-                                                            locale),
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .titleLarge
-                                                        ?.copyWith(
+                                                  Expanded(
+                                                    child: Text(
+                                                      _showGlobalTrend
+                                                          ? translate(
+                                                              'global_trend',
+                                                              locale)
+                                                          : translate(
+                                                              'daily_trends',
+                                                              locale),
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .titleLarge
+                                                          ?.copyWith(
                                                             color:
-                                                                Colors.white),
+                                                                Colors.white,
+                                                          ),
+                                                    ),
                                                   ),
-                                                  Row(
-                                                    children: [
-                                                      // Yenile butonu - toggle'ın solunda
-                                                      IconButton(
-                                                        onPressed: () {
-                                                          if (_showGlobalTrend) {
-                                                            _loadGlobalTrendData();
-                                                          } else {
-                                                            _loadTrendData();
-                                                          }
-                                                        },
-                                                        icon: const Icon(
-                                                          Icons.refresh,
-                                                          size: 20,
-                                                        ),
-                                                        color: Colors.white70,
-                                                        tooltip: translate(
-                                                            'refresh', locale),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Text(
-                                                        _showGlobalTrend
-                                                            ? translate(
-                                                                'global_trend',
-                                                                locale)
-                                                            : translate(
-                                                                'personal_trend',
-                                                                locale),
-                                                        style: Theme.of(context)
-                                                            .textTheme
-                                                            .bodySmall
-                                                            ?.copyWith(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.7),
+                                                  const SizedBox(width: 8),
+                                                  Flexible(
+                                                    fit: FlexFit.loose,
+                                                    child: FittedBox(
+                                                      fit: BoxFit.scaleDown,
+                                                      alignment:
+                                                          Alignment.centerRight,
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          IconButton(
+                                                            onPressed: () {
+                                                              if (_showGlobalTrend) {
+                                                                _loadGlobalTrendData();
+                                                              } else {
+                                                                _loadTrendData();
+                                                              }
+                                                            },
+                                                            icon: const Icon(
+                                                              Icons.refresh,
+                                                              size: 20,
                                                             ),
+                                                            color:
+                                                                Colors.white70,
+                                                            tooltip: translate(
+                                                              'refresh',
+                                                              locale,
+                                                            ),
+                                                            visualDensity:
+                                                                VisualDensity
+                                                                    .compact,
+                                                            constraints:
+                                                                const BoxConstraints(
+                                                              minWidth: 36,
+                                                              minHeight: 36,
+                                                            ),
+                                                            padding:
+                                                                EdgeInsets.zero,
+                                                          ),
+                                                          Text(
+                                                            _showGlobalTrend
+                                                                ? translate(
+                                                                    'global_trend',
+                                                                    locale)
+                                                                : translate(
+                                                                    'personal_trend',
+                                                                    locale),
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: Theme.of(
+                                                                    context)
+                                                                .textTheme
+                                                                .bodySmall
+                                                                ?.copyWith(
+                                                                  color: Colors
+                                                                      .white
+                                                                      .withValues(
+                                                                    alpha: 0.7,
+                                                                  ),
+                                                                ),
+                                                          ),
+                                                          const SizedBox(
+                                                              width: 4),
+                                                          Transform.scale(
+                                                            scale: 0.92,
+                                                            child: Switch(
+                                                              value:
+                                                                  _showGlobalTrend,
+                                                              onChanged:
+                                                                  (value) {
+                                                                setState(() {
+                                                                  _showGlobalTrend =
+                                                                      value;
+                                                                });
+                                                              },
+                                                              activeThumbColor:
+                                                                  Colors.green,
+                                                              materialTapTargetSize:
+                                                                  MaterialTapTargetSize
+                                                                      .shrinkWrap,
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ),
-                                                      const SizedBox(width: 8),
-                                                      Switch(
-                                                        value: _showGlobalTrend,
-                                                        onChanged: (value) {
-                                                          setState(() {
-                                                            _showGlobalTrend =
-                                                                value;
-                                                          });
-                                                        },
-                                                        activeThumbColor:
-                                                            Colors.green,
-                                                      ),
-                                                    ],
+                                                    ),
                                                   ),
                                                 ],
                                               ),
@@ -2900,11 +2941,44 @@ class _FootprintGauge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final locale = languageProvider?.currentLocale ?? const Locale('tr');
-    // Convert to tonnes for display; be resilient to null
-    final double tonnes = (kgCo2e ?? 0) / 1000.0;
-    // Progress baseline to avoid errors; cap between 0 and 1
-    const double maxTonnesReference = 50.0; // arbitrary scale for ring fill
-    final double progress = (tonnes / maxTonnesReference).clamp(0.0, 1.0);
+    // Tüm hesaplamalar kg CO₂e; gösterim: ≥1000 kg → ton; 1–999 kg → kg; 0<…<1 kg → g
+    final double kg = (kgCo2e ?? 0).clamp(0.0, double.infinity);
+    final bool showTonnes = kg >= 1000;
+    final String valueText;
+    final String unitKey;
+    if (showTonnes) {
+      final double t = kg / 1000.0;
+      valueText = t >= 100
+          ? t.toStringAsFixed(0)
+          : t >= 10
+              ? t.toStringAsFixed(1)
+              : t.toStringAsFixed(2);
+      unitKey = 'tonnes_co2e';
+    } else if (kg == 0) {
+      valueText = '0.0';
+      unitKey = 'kg_co2e';
+    } else if (kg < 1) {
+      final double g = kg * 1000.0;
+      valueText = g >= 100
+          ? g.toStringAsFixed(0)
+          : g >= 10
+              ? g.toStringAsFixed(1)
+              : g >= 1
+                  ? g.toStringAsFixed(2)
+                  : g.toStringAsFixed(3);
+      unitKey = 'g_co2e';
+    } else {
+      valueText = kg >= 100
+          ? kg.toStringAsFixed(0)
+          : kg >= 10
+              ? kg.toStringAsFixed(1)
+              : kg.toStringAsFixed(2);
+      unitKey = 'kg_co2e';
+    }
+    // Halka dolum ölçeği (50 t = 50 000 kg üst sınır)
+    const double maxTonnesReference = 50.0;
+    final double progress =
+        ((kg / 1000.0) / maxTonnesReference).clamp(0.0, 1.0);
 
     return SizedBox(
       width: size,
@@ -2931,7 +3005,7 @@ class _FootprintGauge extends StatelessWidget {
               ),
             ),
           ),
-          // Inner content
+          // Inner content — FittedBox: küçük ekranda daire içi taşmayı önler
           Container(
             width: size - 40,
             height: size - 40,
@@ -2946,181 +3020,193 @@ class _FootprintGauge extends StatelessWidget {
                 ),
               ],
             ),
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-                    onTap: onToggleChanged != null
-                        ? () {
-                            onToggleChanged!(!useEspData);
-                          }
-                        : null,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            tonnes.toStringAsFixed(1),
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.black
-                                      : Theme.of(context).colorScheme.onSurface,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            translate('tonnes_co2e', locale),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.black
-                                      : Theme.of(context).colorScheme.onSurface,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Flexible(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              translate('greenhouse_gas_emissions', locale),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.black
-                                        : Theme.of(context)
-                                            .colorScheme
-                                            .onSurface,
-                                  ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+            child: ClipOval(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.center,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12.0,
+                    vertical: 6.0,
                   ),
-                  if (onToggleChanged != null) ...[
-                    const SizedBox(height: 8),
-                    // Switch ve label'ları daha tıklanabilir yap - kompakt versiyon
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Manuel label - tıklanabilir
-                          InkWell(
-                            onTap: () {
-                              if (onToggleChanged != null && useEspData) {
-                                onToggleChanged!(false);
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(4),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6.0, vertical: 2.0),
-                              child: Text(
-                                translate('manual', locale),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      fontSize: 11,
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.black87
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          // Switch - direkt tıklanabilir, GestureDetector engellemesin
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () {
-                                if (onToggleChanged != null) {
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                        GestureDetector(
+                          onTap: onToggleChanged != null
+                              ? () {
                                   onToggleChanged!(!useEspData);
                                 }
-                              },
-                              borderRadius: BorderRadius.circular(20),
-                              child: Padding(
-                                padding: const EdgeInsets.all(2.0),
-                                child: Transform.scale(
-                                  scale: 0.85,
-                                  child: Switch(
-                                    value: useEspData,
-                                    onChanged: onToggleChanged,
-                                    materialTapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                  ),
+                              : null,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  valueText,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Colors.black
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                      ),
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          // ESP label - tıklanabilir
-                          InkWell(
-                            onTap: () {
-                              if (onToggleChanged != null && !useEspData) {
-                                onToggleChanged!(true);
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(4),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6.0, vertical: 2.0),
-                              child: Text(
-                                'ESP',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      fontSize: 11,
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.black87
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                              const SizedBox(height: 2),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  translate(unitKey, locale),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Colors.black
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                      ),
+                                ),
                               ),
+                              const SizedBox(height: 4),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  translate('greenhouse_gas_emissions', locale),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Colors.black
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (onToggleChanged != null) ...[
+                          const SizedBox(height: 6),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                InkWell(
+                                  onTap: () {
+                                    if (onToggleChanged != null && useEspData) {
+                                      onToggleChanged!(false);
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6.0,
+                                      vertical: 2.0,
+                                    ),
+                                    child: Text(
+                                      translate('manual', locale),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            fontSize: 11,
+                                            color:
+                                                Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? Colors.black87
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
+                                      if (onToggleChanged != null) {
+                                        onToggleChanged!(!useEspData);
+                                      }
+                                    },
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(2.0),
+                                      child: Transform.scale(
+                                        scale: 0.8,
+                                        child: Switch(
+                                          value: useEspData,
+                                          onChanged: onToggleChanged,
+                                          materialTapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                InkWell(
+                                  onTap: () {
+                                    if (onToggleChanged != null && !useEspData) {
+                                      onToggleChanged!(true);
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6.0,
+                                      vertical: 2.0,
+                                    ),
+                                    child: Text(
+                                      'ESP',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            fontSize: 11,
+                                            color:
+                                                Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? Colors.black87
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
-                      ),
+                      ],
                     ),
-                  ],
-                ],
+                ),
               ),
             ),
           ),

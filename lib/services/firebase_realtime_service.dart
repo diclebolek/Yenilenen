@@ -350,9 +350,10 @@ class FirebaseRealtimeService {
           electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
           waterCubicMeters: waterCubicMeters,
           fuelLiters: (data['gas_consumption_m3'] ?? data['fuel'] ?? 0.0)
-              .toDouble(), // Dogalgaz tuketimi (m3)
+              .toDouble(), // Doğalgaz m³
           wasteKg: (data['waste'] ?? 0.0).toDouble(),
           createdAt: createdAt,
+          fuelIsNaturalGasM3: true,
         );
       });
     } catch (e, st) {
@@ -496,9 +497,10 @@ class FirebaseRealtimeService {
                 waterCubicMeters: waterCubicMeters,
                 fuelLiters:
                     (entryData['gas_consumption_m3'] ?? entryData['fuel'] ?? 0.0)
-                        .toDouble(), // Dogalgaz tuketimi (m3)
+                        .toDouble(), // Doğalgaz m³
                 wasteKg: (entryData['waste'] ?? 0.0).toDouble(),
                 createdAt: createdAt,
+                fuelIsNaturalGasM3: true,
               ),
             );
           });
@@ -579,6 +581,7 @@ class FirebaseRealtimeService {
             .toDouble(),
         wasteKg: (data['waste'] ?? 0.0).toDouble(),
         createdAt: createdAt,
+        fuelIsNaturalGasM3: true,
       );
     } catch (e, st) {
       dev.log(

@@ -57,9 +57,10 @@ class ApiService {
       final consumption = ConsumptionEntry(
         electricityKwh: (data['electricity'] ?? 0.0).toDouble(),
         waterCubicMeters: waterCubicMeters,
-        fuelLiters: gasConsumptionM3, // Dogalgaz tuketimi (m3)
+        fuelLiters: gasConsumptionM3, // Doğalgaz m³
         wasteKg: (data['waste'] ?? 0.0).toDouble(),
         createdAt: DateTime.now(),
+        fuelIsNaturalGasM3: true,
       );
 
       if (saveToFirebase) {

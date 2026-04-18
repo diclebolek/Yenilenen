@@ -3,11 +3,26 @@ import 'energy_efficiency.dart';
 
 /// Gelişmiş karbon ayak izi hesaplama algoritmaları
 /// Enerji verimliliği algoritmaları ile entegre çalışır
+///
+/// GHG Protocol / ISO 14064 ile uyumlu yaklaşım: Aktivite verisi × emisyon faktörü → kg CO₂e.
+/// Elektrik faktörü (Türkiye şebeke karışımı) kaynaklara göre yıllık güncellenir; uygulama tek sabit kullanır.
 class Calculation {
-  static const double factorElectricityKgPerKwh = 0.233; // kg CO2e per kWh
-  static const double factorFuelKgPerLiter = 2.31; // kg CO2e per liter
+  /// kg CO₂e / kWh (Türkiye yer bazlı şebeke — TÜİK/IEA aralığı ~0,35–0,48; bu değer proje varsayımı)
+  static const double factorElectricityKgPerKwh = 0.233;
+  /// Doğal gaz yanması — kg CO₂e / m³ (IPCC / ulusal envanter tipik band ~1,9–2,1)
+  static const double factorNaturalGasKgPerM3 = 2.02;
+  /// Benzin–dizel tipi sıvı yakıt — kg CO₂e / litre (IPCC mobil kaynak ortalaması)
+  static const double factorFuelKgPerLiter = 2.31;
   static const double factorWaterKgPerM3 = 0.344; // kg CO2e per m3
   static const double factorWasteKgPerKg = 1.9; // kg CO2e per kg
+
+  /// Yakıt satırı: doğalgaz m³ veya sıvı yakıt litre ([ConsumptionEntry.fuelIsNaturalGasM3]).
+  static double fuelEmissionKgCo2e(ConsumptionEntry entry) {
+    if (entry.fuelIsNaturalGasM3) {
+      return entry.fuelLiters * factorNaturalGasKgPerM3;
+    }
+    return entry.fuelLiters * factorFuelKgPerLiter;
+  }
 
   // Tarife oranları (Türkiye için örnek değerler)
   static const Map<String, double> tariffRates = {
@@ -40,7 +55,7 @@ class Calculation {
   /// Günlük emisyon hesaplama (temel)
   static double calculateDailyEmission(ConsumptionEntry entry) {
     final electricity = entry.electricityKwh * factorElectricityKgPerKwh;
-    final fuel = entry.fuelLiters * factorFuelKgPerLiter;
+    final fuel = fuelEmissionKgCo2e(entry);
     final water = entry.waterCubicMeters * factorWaterKgPerM3;
     final waste = entry.wasteKg * factorWasteKgPerKg;
     return electricity + fuel + water + waste;
@@ -133,6 +148,7 @@ class Calculation {
       fuelLiters: totalFuel / data.length,
       wasteKg: totalWaste / data.length,
       createdAt: DateTime.now(),
+      fuelIsNaturalGasM3: data.every((e) => e.fuelIsNaturalGasM3),
     );
   }
 
@@ -142,7 +158,7 @@ class Calculation {
   ) {
     final electricityEmission =
         entry.electricityKwh * factorElectricityKgPerKwh;
-    final fuelEmission = entry.fuelLiters * factorFuelKgPerLiter;
+    final fuelEmission = fuelEmissionKgCo2e(entry);
     final waterEmission = entry.waterCubicMeters * factorWaterKgPerM3;
     final wasteEmission = entry.wasteKg * factorWasteKgPerKg;
 

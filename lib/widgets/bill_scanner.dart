@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'dart:developer' as dev;
+import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as img;
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import '../localization/translations.dart';
@@ -33,16 +35,24 @@ class _BillScannerCardState extends State<BillScannerCard> {
 
   Future<void> _initializeTextRecognizer() async {
     try {
-      // Windows'ta OCR desteklenmiyor, diğer platformlarda dene
-      if (!kIsWeb && Platform.isWindows) {
+      // ML Kit yalnızca Android/iOS — web'de plugin yok
+      if (kIsWeb) {
         dev.log(
-          'OCR Windows\'ta desteklenmiyor, manuel giriş kullanılacak',
+          'OCR web platformunda desteklenmiyor (ML Kit yalnızca mobil)',
+          name: 'BillScanner',
+        );
+        return;
+      }
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        dev.log(
+          'OCR Windows masaüstünde devre dışı; manuel giriş kullanılacak',
           name: 'BillScanner',
         );
         return;
       }
 
-      _textRecognizer = TextRecognizer();
+      _textRecognizer =
+          TextRecognizer(script: TextRecognitionScript.latin);
       dev.log('TextRecognizer başarıyla başlatıldı', name: 'BillScanner');
     } catch (e, st) {
       dev.log(
@@ -98,34 +108,42 @@ class _BillScannerCardState extends State<BillScannerCard> {
   }
 
   Future<void> _scanBill() async {
+    final locale =
+        widget.languageProvider?.currentLocale ?? const Locale('tr');
+
     setState(() {
       _isScanning = true;
     });
 
     try {
-      XFile? image;
-
-      // Platform kontrolü - web'de sadece galeri kullan
       if (kIsWeb) {
-        // Web'de sadece galeri seçimi
-        image = await _picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 80,
-        );
-      } else {
-        // Mobil'de kamera veya galeri seçimi
-        try {
-          image = await _picker.pickImage(
-            source: ImageSource.camera,
-            imageQuality: 80,
-          );
-        } catch (e) {
-          // Kamera hatası durumunda galeri kullan
-          image = await _picker.pickImage(
-            source: ImageSource.gallery,
-            imageQuality: 80,
+        setState(() {
+          _isScanning = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(translate('ocr_web_not_supported', locale)),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
           );
         }
+        await _openManualEntry();
+        return;
+      }
+
+      XFile? image;
+      try {
+        image = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 85,
+        );
+      } catch (_) {
+        image = await _picker.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 85,
+        );
       }
 
       if (image == null) {
@@ -135,12 +153,8 @@ class _BillScannerCardState extends State<BillScannerCard> {
         return;
       }
 
-      // OCR ile metin çıkar
       if (_textRecognizer == null) {
-        // OCR başlatılamadıysa kullanıcıya bilgi ver ve çık
         if (mounted) {
-          final locale =
-              widget.languageProvider?.currentLocale ?? const Locale('tr');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(translate('windows_not_supported', locale)),
@@ -157,29 +171,13 @@ class _BillScannerCardState extends State<BillScannerCard> {
       }
 
       try {
-        InputImage inputImage;
-        if (kIsWeb) {
-          // Web için bytes kullan
-          final bytes = await image.readAsBytes();
-          inputImage = InputImage.fromBytes(
-            bytes: bytes,
-            metadata: InputImageMetadata(
-              size: const Size(800, 600), // Varsayılan boyut
-              rotation: InputImageRotation.rotation0deg,
-              format: InputImageFormat.bgra8888,
-              bytesPerRow: 4 * 800,
-            ),
-          );
-        } else {
-          // Mobil için file path kullan
-          inputImage = InputImage.fromFilePath(image.path);
-        }
+        final inputImage = await _inputImageFromXFile(image);
 
         final RecognizedText recognizedText =
             await _textRecognizer!.processImage(inputImage);
 
-        // Akıllı parsing ile fatura verilerini çıkar
-        final billData = _parseBillText(recognizedText.text);
+        final ocrText = _flattenRecognizedText(recognizedText);
+        final billData = _parseBillText(ocrText);
 
         // Eğer hiç veri çıkarılamadıysa kullanıcıya bilgi ver
         if (billData.electricityKwh == 0.0 &&
@@ -275,56 +273,71 @@ class _BillScannerCardState extends State<BillScannerCard> {
     }
   }
 
-  /// Fatura metninden tüketim verilerini çıkarır
-  ConsumptionEntry _parseBillText(String text) {
-    // Elektrik kWh bul
-    final electricityRegex = RegExp(
-      r'(\d+[,.]?\d*)\s*kWh',
-      caseSensitive: false,
-    );
-    final electricityMatch = electricityRegex.firstMatch(text);
-    final electricity = electricityMatch != null
-        ? double.parse(electricityMatch.group(1)!.replaceAll(',', '.'))
-        : 0.0;
-
-    // Gaz m³ bul (doğal gaz) - daha spesifik regex
-    final gasRegex = RegExp(
-      r'(?:gaz|gas|doğal gaz|natural gas)[\s\S]*?(\d+[,.]?\d*)\s*m³',
-      caseSensitive: false,
-    );
-    final gasMatch = gasRegex.firstMatch(text);
-    final gas = gasMatch != null
-        ? double.parse(gasMatch.group(1)!.replaceAll(',', '.'))
-        : 0.0;
-
-    // Su m³ bul - daha spesifik regex
-    final waterRegex = RegExp(
-      r'(?:su|water|içme suyu)[\s\S]*?(\d+[,.]?\d*)\s*m³',
-      caseSensitive: false,
-    );
-    final waterMatch = waterRegex.firstMatch(text);
-    final water = waterMatch != null
-        ? double.parse(waterMatch.group(1)!.replaceAll(',', '.'))
-        : 0.0;
-
-    // Atık kg bul
-    final wasteRegex = RegExp(
-      r'(?:atık|waste|çöp)[\s\S]*?(\d+[,.]?\d*)\s*kg',
-      caseSensitive: false,
-    );
-    final wasteMatch = wasteRegex.firstMatch(text);
-    final waste = wasteMatch != null
-        ? double.parse(wasteMatch.group(1)!.replaceAll(',', '.'))
-        : 0.0;
-
-    return ConsumptionEntry(
-      electricityKwh: electricity,
-      fuelLiters: gas, // Gazı yakıt olarak say
-      waterCubicMeters: water,
-      wasteKg: waste,
-      createdAt: DateTime.now(),
+  /// ML Kit için görüntü: decode + (isteğe bağlı) küçültme + BGRA8888 bayt dizisi.
+  Future<InputImage> _inputImageFromXFile(XFile image) async {
+    final bytes = await image.readAsBytes();
+    var decoded = img.decodeImage(bytes);
+    if (decoded == null) {
+      if (image.path.isNotEmpty) {
+        return InputImage.fromFilePath(image.path);
+      }
+      throw const FormatException('Görüntü çözümlenemedi');
+    }
+    const maxEdge = 2200;
+    if (decoded.width > maxEdge || decoded.height > maxEdge) {
+      if (decoded.width >= decoded.height) {
+        decoded = img.copyResize(
+          decoded,
+          width: maxEdge,
+          interpolation: img.Interpolation.linear,
+        );
+      } else {
+        decoded = img.copyResize(
+          decoded,
+          height: maxEdge,
+          interpolation: img.Interpolation.linear,
+        );
+      }
+    }
+    final w = decoded.width;
+    final h = decoded.height;
+    final bgra = Uint8List(w * h * 4);
+    var o = 0;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        final p = decoded.getPixel(x, y);
+        bgra[o++] = p.b.toInt() & 0xff;
+        bgra[o++] = p.g.toInt() & 0xff;
+        bgra[o++] = p.r.toInt() & 0xff;
+        bgra[o++] = p.a.toInt() & 0xff;
+      }
+    }
+    return InputImage.fromBytes(
+      bytes: bgra,
+      metadata: InputImageMetadata(
+        size: Size(w.toDouble(), h.toDouble()),
+        rotation: InputImageRotation.rotation0deg,
+        format: InputImageFormat.bgra8888,
+        bytesPerRow: w * 4,
+      ),
     );
   }
+
+  String _flattenRecognizedText(RecognizedText rt) {
+    final buf = StringBuffer(rt.text);
+    for (final block in rt.blocks) {
+      buf.writeln();
+      buf.writeln(block.text);
+      for (final line in block.lines) {
+        buf.writeln(line.text);
+      }
+    }
+    return buf.toString();
+  }
+
+  /// Fatura metninden tüketim verilerini çıkarır (Türkiye / benzer faturalar).
+  ConsumptionEntry _parseBillText(String text) =>
+      _BillOcrParser.parseConsumption(text);
 
   @override
   Widget build(BuildContext context) {
@@ -451,6 +464,196 @@ class _BillScannerCardState extends State<BillScannerCard> {
   }
 }
 
+/// OCR sonrası fatura metninden sayı çıkarma (Türkçe binlik/ondalık, çoklu desen).
+class _BillOcrParser {
+  _BillOcrParser._();
+
+  /// "1.234,56" / "1234,5" / "1234.5" → double?
+  static double? parseTrNumber(String raw) {
+    var s = raw.trim().replaceAll(RegExp(r'\s'), '').replaceAll('\u00a0', '');
+    if (s.isEmpty) return null;
+    // Sadece rakam ve ayırıcılar
+    s = s.replaceAll(RegExp(r'[^\d\.,]'), '');
+    if (s.isEmpty) return null;
+
+    if (s.contains(',') && s.contains('.')) {
+      final lc = s.lastIndexOf(',');
+      final ld = s.lastIndexOf('.');
+      if (lc > ld) {
+        // Türkiye: . binlik, , ondalık
+        s = s.replaceAll('.', '').replaceAll(',', '.');
+      } else {
+        s = s.replaceAll(',', '');
+      }
+    } else if (s.contains(',')) {
+      final parts = s.split(',');
+      if (parts.length == 2 && parts[1].length <= 3) {
+        s = s.replaceAll(',', '.');
+      } else {
+        s = s.replaceAll(',', '');
+      }
+    } else if (s.contains('.')) {
+      final parts = s.split('.');
+      if (parts.length > 1 && parts.last.length == 3) {
+        s = s.replaceAll('.', '');
+      }
+    }
+    return double.tryParse(s);
+  }
+
+  static double _maxInRange(
+    Iterable<RegExpMatch> matches,
+    int group,
+    double maxVal,
+  ) {
+    double best = 0;
+    for (final m in matches) {
+      final g = m.group(group);
+      if (g == null) continue;
+      final v = parseTrNumber(g);
+      if (v != null && v > best && v < maxVal) {
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  /// Türkiye elektrik faturalarında "sözleşme gücü X kW" satırını kWh tüketimi sanmamak için.
+  static bool _lineLooksLikeContractPowerKw(String lineLower) {
+    return (lineLower.contains('güç') ||
+            lineLower.contains('guc') ||
+            lineLower.contains('sözleşme') ||
+            lineLower.contains('sozlesme') ||
+            lineLower.contains('anlaşma') ||
+            lineLower.contains('anlasma') ||
+            lineLower.contains('demand')) &&
+        lineLower.contains('kw') &&
+        !lineLower.contains('kwh');
+  }
+
+  static ConsumptionEntry parseConsumption(String rawText) {
+    var text = rawText
+        .replaceAll('m³', 'm3')
+        .replaceAll('M³', 'm3')
+        .replaceAll(RegExp(r'm\s*³', caseSensitive: false), 'm3')
+        .replaceAll('kwh', 'kWh')
+        .replaceAll('KWH', 'kWh')
+        .replaceAll(RegExp(r'k\s*w\s*h', caseSensitive: false), 'kWh');
+
+    // OCR: bazen "kWe" veya boşluklu birim
+    text = text.replaceAll(RegExp(r'k\s*W\s*h', caseSensitive: false), 'kWh');
+
+    // Önce Türkiye’ye özgü sıkı desenler (EDAŞ/EDAŞ tarzı: aktif enerji, toplam tüketim)
+    final kwhSpecific = <RegExp>[
+      RegExp(
+        r'(?:toplam\s*)?(?:elektrik\s*)?tüketim[^\d]{0,120}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:toplam\s*)?(?:elektrik\s*)?tuketim[^\d]{0,120}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'aktif\s*enerji[^\d]{0,100}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'aktif\s*enerji\s*tüketimi[^\d]{0,100}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:tüketim|tuketim|endeks|sayac|sayıç|sayic)[^\d]{0,90}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:indüktif|induktif|reaktif|kapasitif)[^\d]{0,60}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:consumption|active\s+energy)[^\d]{0,90}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+        caseSensitive: false,
+      ),
+    ];
+
+    double electricitySpecific = 0;
+    for (final re in kwhSpecific) {
+      final v = _maxInRange(re.allMatches(text), 1, 1e7);
+      if (v > electricitySpecific) electricitySpecific = v;
+    }
+
+    // Genel kWh — satır bazında sözleşme gücü (kW) satırlarını ele
+    double electricityLoose = 0;
+    final looseKwh = RegExp(
+      r'([\d\.\s\u00a0]+(?:,\d+)?)\s*kWh',
+      caseSensitive: false,
+    );
+    for (final line in text.split(RegExp(r'[\r\n]+'))) {
+      final low = line.toLowerCase();
+      if (_lineLooksLikeContractPowerKw(low)) continue;
+      for (final m in looseKwh.allMatches(line)) {
+        final v = parseTrNumber(m.group(1)!);
+        if (v != null && v > electricityLoose && v < 1e7) electricityLoose = v;
+      }
+    }
+
+    final electricity =
+        electricitySpecific >= electricityLoose ? electricitySpecific : electricityLoose;
+
+    // Doğalgaz (İGDAŞ / genel): Sm³, STm³, Nm³ yazımları
+    final gasPatterns = <RegExp>[
+      RegExp(
+        r'(?:doğal\s*gaz|dogal\s*gaz|doğalgaz|dogalgaz|natural\s*gas|ıgdaş|igdas|gaz\s*tüketim|gaz\s*tuketim)[^\d]{0,120}?([\d\.\s\u00a0]+(?:,\d+)?)\s*(?:st\s*m3|stm3|sm3|nm3|m3)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:doğalgaz|dogalgaz)[^\d]{0,100}?([\d\.\s\u00a0]+(?:,\d+)?)\s*(?:m3|sm3|nm3|st\s*m3)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:^|\n)[^\d]{0,30}gaz[^\d]{0,70}?([\d\.\s\u00a0]+(?:,\d+)?)\s*(?:m3|sm3|nm3|stm3)',
+        caseSensitive: false,
+      ),
+    ];
+    double gas = 0;
+    for (final re in gasPatterns) {
+      final v = _maxInRange(re.allMatches(text), 1, 1e6);
+      if (v > gas) gas = v;
+    }
+
+    // Su (İSKİ / genel): abone, soğuk, sayaç
+    final waterPatterns = <RegExp>[
+      RegExp(
+        r'(?:soğuk\s*su|soguk\s*su|içme\s*su|icme\s*su|su\s*tüketim|su\s*tuketim|abone|sayaç|sayac|iski|İSKİ|cold\s*water)[^\d]{0,90}?([\d\.\s\u00a0]+(?:,\d+)?)\s*m3',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:su|water)[^\d]{0,50}?([\d\.\s\u00a0]+(?:,\d+)?)\s*m3',
+        caseSensitive: false,
+      ),
+    ];
+    double water = 0;
+    for (final re in waterPatterns) {
+      final v = _maxInRange(re.allMatches(text), 1, 1e6);
+      if (v > water) water = v;
+    }
+
+    final wasteRe = RegExp(
+      r'(?:atık|atik|waste|çöp|cöp)[^\d]{0,40}?([\d\.\s\u00a0]+(?:,\d+)?)\s*kg',
+      caseSensitive: false,
+    );
+    final waste = _maxInRange(wasteRe.allMatches(text), 1, 1e6);
+
+    return ConsumptionEntry(
+      electricityKwh: electricity,
+      fuelLiters: gas,
+      waterCubicMeters: water,
+      wasteKg: waste,
+      createdAt: DateTime.now(),
+      fuelIsNaturalGasM3: gas > 0,
+    );
+  }
+}
+
 /// Windows için manuel veri girişi dialog'u
 class _ManualEntryDialog extends StatefulWidget {
   const _ManualEntryDialog({this.languageProvider});
@@ -569,12 +772,14 @@ class _ManualEntryDialogState extends State<_ManualEntryDialog> {
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
+              final gasVal = double.parse(_gasController.text);
               final entry = ConsumptionEntry(
                 electricityKwh: double.parse(_electricityController.text),
-                fuelLiters: double.parse(_gasController.text),
+                fuelLiters: gasVal,
                 waterCubicMeters: double.parse(_waterController.text),
                 wasteKg: double.parse(_wasteController.text),
                 createdAt: DateTime.now(),
+                fuelIsNaturalGasM3: gasVal > 0,
               );
               Navigator.of(context).pop(entry);
             }

@@ -157,34 +157,49 @@ class _RealtimeEspDataWidgetState extends State<RealtimeEspDataWidget> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Icon(Icons.sensors, color: Colors.green.shade300),
                     const SizedBox(width: 8),
-                    Text(
-                      'ESP8266 Anlık Veriler',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.circle, color: Colors.green, size: 12),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Canlı',
-                      style: TextStyle(
-                        color: Colors.green.shade300,
-                        fontSize: 12,
+                    Expanded(
+                      child: Text(
+                        'ESP8266 Anlık Veriler',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      onPressed: () async {
-                        await _pullFromEsp();
-                      },
-                      icon: const Icon(Icons.refresh),
-                      color: Colors.white,
-                      tooltip: 'Yenile',
+                    const SizedBox(width: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.circle, color: Colors.green, size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Canlı',
+                          style: TextStyle(
+                            color: Colors.green.shade300,
+                            fontSize: 12,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () async {
+                            await _pullFromEsp();
+                          },
+                          icon: const Icon(Icons.refresh),
+                          color: Colors.white,
+                          tooltip: 'Yenile',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                      ],
                     ),
                   ],
                 ),
