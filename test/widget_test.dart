@@ -13,6 +13,9 @@ void main() {
   testWidgets('App starts and shows login screen', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const CarbonFootprintApp());
+    // Splash ekranındaki gecikmeli yönlendirme timer'ını tamamla.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
 
     // Verify that login screen is shown (check for welcome text or login button)
     // Since the app shows LoginScreen when not logged in, we can verify

@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:ui' show ImageFilter;
 import 'package:fl_chart/fl_chart.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../widgets/consumption_form.dart';
 import '../widgets/realtime_esp_data_widget.dart';
@@ -1479,6 +1482,173 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  Future<void> _generateCarbonPdfReport({required bool monthly}) async {
+    final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final now = DateTime.now();
+    final title = monthly
+        ? translate('pdf_monthly_report_title', locale)
+        : translate('pdf_weekly_report_title', locale);
+    final periodLabel = monthly
+        ? '${now.year}-${now.month.toString().padLeft(2, '0')}'
+        : '${translate('week', locale)} ${_isoWeekNumber(now)}';
+
+    final activeDailyData = _useEspData ? _dailyEmissions : _manualDailyEmissions;
+    final List<double> sourceData = activeDailyData.length == 7
+        ? List<double>.from(activeDailyData)
+        : List<double>.filled(7, 0);
+    final todayValue = _useEspData ? _lastCalculatedKgCo2e : _manualCalculatedKgCo2e;
+    if (todayValue != null && sourceData.length == 7) {
+      sourceData[6] = todayValue;
+    }
+
+    final weeklyTotal = sourceData.fold<double>(0, (sum, e) => sum + e);
+    final weeklyAverage = sourceData.isEmpty ? 0.0 : weeklyTotal / sourceData.length;
+    final monthlyEstimate = weeklyTotal * 4.0;
+    final selectedTotal = monthly ? monthlyEstimate : weeklyTotal;
+    final selectedAverage = monthly ? monthlyEstimate / 30.0 : weeklyAverage;
+
+    final categoryRows = [
+      _buildCategoryRowForPdf(
+        translate('electricity', locale),
+        _categoryDistribution['electricity'] ?? 0,
+        selectedTotal,
+      ),
+      _buildCategoryRowForPdf(
+        translate('water', locale),
+        _categoryDistribution['water'] ?? 0,
+        selectedTotal,
+      ),
+      _buildCategoryRowForPdf(
+        translate('gas_label', locale),
+        _categoryDistribution['gas'] ?? 0,
+        selectedTotal,
+      ),
+      _buildCategoryRowForPdf(
+        translate('waste', locale),
+        _categoryDistribution['waste'] ?? 0,
+        selectedTotal,
+      ),
+    ];
+
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.MultiPage(
+        pageTheme: const pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: pw.EdgeInsets.all(28),
+        ),
+        build: (context) => [
+          pw.Text(
+            title,
+            style: pw.TextStyle(
+              fontSize: 18,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            '${translate('pdf_period', locale)}: $periodLabel',
+            style: const pw.TextStyle(fontSize: 12),
+          ),
+          pw.Text(
+            '${translate('pdf_generated_at', locale)}: ${now.toIso8601String().substring(0, 16)}',
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+          ),
+          pw.SizedBox(height: 16),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey400),
+              borderRadius: pw.BorderRadius.circular(4),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  translate('pdf_iso_summary', locale),
+                  style: pw.TextStyle(
+                    fontSize: 13,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+                pw.Bullet(
+                  text:
+                      '${translate('pdf_total_emission', locale)}: ${selectedTotal.toStringAsFixed(2)} kg CO2e',
+                ),
+                pw.Bullet(
+                  text:
+                      '${translate('pdf_average_emission', locale)}: ${selectedAverage.toStringAsFixed(2)} kg CO2e',
+                ),
+                pw.Bullet(
+                  text:
+                      '${translate('pdf_methodology_note', locale)}: ${translate('pdf_methodology_value', locale)}',
+                ),
+                pw.Bullet(
+                  text:
+                      '${translate('pdf_boundary_note', locale)}: ${translate('pdf_boundary_value', locale)}',
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 14),
+          pw.Text(
+            translate('pdf_category_breakdown', locale),
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.TableHelper.fromTextArray(
+            headers: [
+              translate('pdf_table_category', locale),
+              translate('pdf_table_percent', locale),
+              translate('pdf_table_kgco2e', locale),
+            ],
+            data: categoryRows,
+            border: pw.TableBorder.all(color: PdfColors.grey400),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 10,
+            ),
+          ),
+          pw.SizedBox(height: 14),
+          pw.Text(
+            translate('pdf_disclaimer', locale),
+            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+          ),
+        ],
+      ),
+    );
+
+    await Printing.layoutPdf(
+      name: monthly ? 'carbon-monthly-report.pdf' : 'carbon-weekly-report.pdf',
+      onLayout: (format) async => pdf.save(),
+    );
+  }
+
+  List<String> _buildCategoryRowForPdf(
+    String label,
+    double percent,
+    double totalKg,
+  ) {
+    final shareKg = totalKg * (percent / 100);
+    return [
+      label,
+      '${percent.toStringAsFixed(1)}%',
+      shareKg.toStringAsFixed(2),
+    ];
+  }
+
+  int _isoWeekNumber(DateTime date) {
+    final thursday = date.add(Duration(days: 4 - (date.weekday == 7 ? 0 : date.weekday)));
+    final firstDayOfYear = DateTime(thursday.year, 1, 1);
+    final dayOfYear = thursday.difference(firstDayOfYear).inDays + 1;
+    return ((dayOfYear - 1) ~/ 7) + 1;
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
@@ -1718,10 +1888,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               borderRadius: BorderRadius.circular(16),
                               child: BackdropFilter(
                                 filter:
-                                    ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                    ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.28),
+                                    color: Colors.black.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
                                   child: const Padding(
@@ -1737,10 +1907,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               borderRadius: BorderRadius.circular(16),
                               child: BackdropFilter(
                                 filter:
-                                    ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                    ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.28),
+                                    color: Colors.black.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(16),
                                     border: Border.all(
                                       color:
@@ -1750,9 +1920,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     boxShadow: [
                                       BoxShadow(
                                         color:
-                                            Colors.black.withValues(alpha: 0.5),
-                                        blurRadius: 20,
-                                        spreadRadius: 2,
+                                            Colors.black.withValues(alpha: 0.25),
+                                        blurRadius: 12,
+                                        spreadRadius: 0,
                                         offset: const Offset(0, 4),
                                       ),
                                     ],
@@ -1776,9 +1946,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 borderRadius: BorderRadius.circular(16),
                                 child: BackdropFilter(
                                   filter:
-                                      ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                      ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                                   child: Container(
-                                    color: Colors.black.withValues(alpha: 0.28),
+                                    color: Colors.black.withValues(alpha: 0.12),
                                     child: Padding(
                                       padding: const EdgeInsets.all(16),
                                       child: Stack(
@@ -2752,9 +2922,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(16),
                             child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                               child: Container(
-                                color: Colors.black.withValues(alpha: 0.28),
+                                color: Colors.black.withValues(alpha: 0.12),
                                 child: Padding(
                                   padding: const EdgeInsets.all(16),
                                   child: Column(
@@ -2902,6 +3072,61 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 alpha: 0.7,
                                               ),
                                             ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                              child: Container(
+                                color: Colors.black.withValues(alpha: 0.28),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate('pdf_reporting_title', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge
+                                            ?.copyWith(color: Colors.white),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        translate('pdf_reporting_desc', locale),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(alpha: 0.78),
+                                            ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: FilledButton.icon(
+                                              onPressed: () => _generateCarbonPdfReport(monthly: false),
+                                              icon: const Icon(Icons.picture_as_pdf),
+                                              label: Text(translate('pdf_weekly_button', locale)),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: FilledButton.icon(
+                                              onPressed: () => _generateCarbonPdfReport(monthly: true),
+                                              icon: const Icon(Icons.picture_as_pdf_outlined),
+                                              label: Text(translate('pdf_monthly_button', locale)),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),

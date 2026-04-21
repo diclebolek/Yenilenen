@@ -34,6 +34,8 @@ dependencies:
   # Utilities
   url_launcher: ^6.2.2
   shared_preferences: ^2.2.2
+  pdf: ^3.11.3
+  printing: ^5.14.2
 
 dev_dependencies:
   flutter_test:

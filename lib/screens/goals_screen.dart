@@ -5,6 +5,7 @@ import '../providers/language_provider.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/api_service.dart';
+import '../services/weather_service.dart';
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import 'dart:async';
@@ -111,9 +112,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
       FirebaseRealtimeService.instance;
   final FirebaseAuthService _authService = FirebaseAuthService.instance;
   final ApiService _apiService = ApiService();
+  final WeatherService _weatherService = WeatherService();
 
   int _greenScore = 0;
   List<CarbonGoal> _goals = [];
+  MonthlyPrediction? _monthlyPrediction;
   bool _isLoading = true;
   Map<String, bool> _badges = {
     'environment_friendly': false,
@@ -185,6 +188,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       ) {
         if (mounted && consumption != null) {
           _updateGoalProgress(consumption);
+          _refreshPrediction();
         }
       });
 
@@ -204,6 +208,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       // Rozet kontrolü yap
       _checkAndUnlockBadges();
+      await _refreshPrediction();
     } catch (e) {
       // Hata durumunda varsayılan hedefleri göster
       _createDefaultGoalsList();
@@ -222,6 +227,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         'title': translate('monthly_electricity_saving', locale),
         'target': 20.0,
         'current': 0.0,
+        'monthlyChangePercent': 0.0,
+        'recommendation': '',
         'unit': '%',
         'type': 'electricity_saving',
         'icon': 'electrical_services',
@@ -231,6 +238,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         'title': translate('co2_emission_reduction', locale),
         'target': 15.0,
         'current': 0.0,
+        'monthlyChangePercent': 0.0,
+        'recommendation': '',
         'unit': 'kg',
         'type': 'co2_reduction',
         'icon': 'eco',
@@ -240,6 +249,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         'title': translate('water_saving', locale),
         'target': 25.0,
         'current': 0.0,
+        'monthlyChangePercent': 0.0,
+        'recommendation': '',
         'unit': '%',
         'type': 'water_saving',
         'icon': 'water_drop',
@@ -259,6 +270,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
           title: translate('monthly_electricity_saving', locale),
           target: 20.0,
           current: 0.0,
+          monthlyChangePercent: 0.0,
+          recommendation: '',
           unit: '%',
           type: 'electricity_saving',
           icon: Icons.electrical_services,
@@ -269,6 +282,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
           title: translate('co2_emission_reduction', locale),
           target: 15.0,
           current: 0.0,
+          monthlyChangePercent: 0.0,
+          recommendation: '',
           unit: 'kg',
           type: 'co2_reduction',
           icon: Icons.eco,
@@ -279,6 +294,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
           title: translate('water_saving', locale),
           target: 25.0,
           current: 0.0,
+          monthlyChangePercent: 0.0,
+          recommendation: '',
           unit: '%',
           type: 'water_saving',
           icon: Icons.water_drop,
@@ -296,6 +313,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
           title: data['title'] ?? '',
           target: (data['target'] ?? 0.0).toDouble(),
           current: (data['current'] ?? 0.0).toDouble(),
+          monthlyChangePercent: (data['monthlyChangePercent'] ?? 0.0).toDouble(),
+          recommendation: data['recommendation']?.toString() ?? '',
           unit: data['unit'] ?? '',
           type: data['type'] ?? '',
           icon: _getIconFromString(data['icon'] ?? 'eco'),
@@ -332,6 +351,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     try {
       final goalsData = await _firebaseService.getGoals(_userId!);
       bool updated = false;
+      final locale =
+          widget.languageProvider?.currentLocale ?? const Locale('tr');
 
       // Önceki ay verilerini al (karşılaştırma için)
       final now = DateTime.now();
@@ -374,23 +395,49 @@ class _GoalsScreenState extends State<GoalsScreen> {
         previousMonthGas += entry.fuelLiters;
       }
 
+      final threeMonthAverages = await _calculateThreeMonthAverageReductions(
+        currentMonthStart,
+      );
+      final electricityHourly = _buildHourlySums(currentMonthData, forElectricity: true);
+      final waterHourly = _buildHourlySums(currentMonthData, forElectricity: false);
+
       for (var goalData in goalsData) {
         final type = goalData['type'] ?? '';
         double? newCurrent;
+        double newMonthlyChangePercent = 0.0;
+        final previousRecommendation = goalData['recommendation']?.toString() ?? '';
+        var newRecommendation = previousRecommendation;
+        double dynamicTarget = (goalData['target'] ?? 0.0).toDouble();
 
         switch (type) {
           case 'electricity_saving':
+            dynamicTarget = threeMonthAverages['electricity'] ?? dynamicTarget;
             // Elektrik tasarrufu yüzdesi: (Önceki ay - Bu ay) / Önceki ay * 100
             if (previousMonthElectricity > 0) {
               final saving = previousMonthElectricity - currentMonthElectricity;
-              newCurrent = (saving / previousMonthElectricity) * 100;
+              newMonthlyChangePercent = (saving / previousMonthElectricity) * 100;
+              newCurrent = newMonthlyChangePercent;
               // Negatif değerler (artış) için 0 göster
               if (newCurrent < 0) newCurrent = 0;
             } else {
               newCurrent = 0.0;
+              newMonthlyChangePercent = 0.0;
+            }
+            if (newCurrent < dynamicTarget) {
+              final needed = (dynamicTarget - newCurrent).clamp(0.0, 100.0);
+              newRecommendation = _buildHourlyReductionSuggestion(
+                locale: locale,
+                hourlySums: electricityHourly,
+                neededPercent: needed,
+                resourceLabelTr: 'elektrik',
+                resourceLabelEn: 'electricity',
+              );
+            } else {
+              newRecommendation = '';
             }
             break;
           case 'co2_reduction':
+            dynamicTarget = threeMonthAverages['co2'] ?? dynamicTarget;
             // CO2 azaltma (kg) - gerçek emisyon faktörüyle hesapla
             // Önceki ayın CO2 emisyonu - Bu ayın CO2 emisyonu
             final previousMonthCO2 =
@@ -398,29 +445,75 @@ class _GoalsScreenState extends State<GoalsScreen> {
             final currentMonthCO2 =
                 currentMonthGas * Calculation.factorNaturalGasKgPerM3;
             final reduction = previousMonthCO2 - currentMonthCO2;
+            if (previousMonthCO2 > 0) {
+              newMonthlyChangePercent = (reduction / previousMonthCO2) * 100;
+            } else {
+              newMonthlyChangePercent = 0.0;
+            }
             // Negatif değerler (artış) için 0 göster
             newCurrent = reduction > 0 ? reduction : 0.0;
+            if (newCurrent < dynamicTarget) {
+              final missingKg = (dynamicTarget - newCurrent).clamp(0.0, double.infinity);
+              if (locale.languageCode == 'tr') {
+                newRecommendation =
+                    'Önceki 3 ay ortalamasına ulaşmak için bu ay yaklaşık ${missingKg.toStringAsFixed(1)} kg CO₂e daha azaltmalısınız.';
+              } else {
+                newRecommendation =
+                    'To reach the 3-month dynamic target, reduce about ${missingKg.toStringAsFixed(1)} kg CO₂e more this month.';
+              }
+            } else {
+              newRecommendation = '';
+            }
             break;
           case 'water_saving':
+            dynamicTarget = threeMonthAverages['water'] ?? dynamicTarget;
             // Su tasarrufu yüzdesi: (Önceki ay - Bu ay) / Önceki ay * 100
             if (previousMonthWater > 0) {
               final saving = previousMonthWater - currentMonthWater;
-              newCurrent = (saving / previousMonthWater) * 100;
+              newMonthlyChangePercent = (saving / previousMonthWater) * 100;
+              newCurrent = newMonthlyChangePercent;
               // Negatif değerler (artış) için 0 göster
               if (newCurrent < 0) newCurrent = 0;
             } else {
               newCurrent = 0.0;
+              newMonthlyChangePercent = 0.0;
+            }
+            if (newCurrent < dynamicTarget) {
+              final needed = (dynamicTarget - newCurrent).clamp(0.0, 100.0);
+              newRecommendation = _buildHourlyReductionSuggestion(
+                locale: locale,
+                hourlySums: waterHourly,
+                neededPercent: needed,
+                resourceLabelTr: 'su',
+                resourceLabelEn: 'water',
+              );
+            } else {
+              newRecommendation = '';
             }
             break;
           case 'waste_reduction':
           case 'custom':
             // Otomatik ilerleme yok; mevcut değer korunur
             newCurrent = null;
+            newMonthlyChangePercent = 0.0;
+            newRecommendation = '';
             break;
         }
 
         if (newCurrent != null && (goalData['current'] ?? 0.0) != newCurrent) {
           goalData['current'] = newCurrent;
+          updated = true;
+        }
+        if ((goalData['target'] ?? 0.0) != dynamicTarget) {
+          goalData['target'] = dynamicTarget;
+          updated = true;
+        }
+        if ((goalData['monthlyChangePercent'] ?? 0.0) != newMonthlyChangePercent) {
+          goalData['monthlyChangePercent'] = newMonthlyChangePercent;
+          updated = true;
+        }
+        if ((goalData['recommendation'] ?? '') != newRecommendation) {
+          goalData['recommendation'] = newRecommendation;
           updated = true;
         }
       }
@@ -433,6 +526,224 @@ class _GoalsScreenState extends State<GoalsScreen> {
     } catch (e) {
       // Hata durumunda sessizce devam et
     }
+  }
+
+  Future<Map<String, double>> _calculateThreeMonthAverageReductions(
+    DateTime currentMonthStart,
+  ) async {
+    final start = DateTime(currentMonthStart.year, currentMonthStart.month - 4, 1);
+    final end = currentMonthStart.subtract(const Duration(days: 1));
+    final entries = await _firebaseService.getHistoryData(
+      deviceId: 'esp8266_001',
+      startDate: start,
+      endDate: end,
+    );
+    final monthTotals = <String, Map<String, double>>{};
+    for (final entry in entries) {
+      final key =
+          '${entry.createdAt.year}-${entry.createdAt.month.toString().padLeft(2, '0')}';
+      final bucket = monthTotals.putIfAbsent(
+        key,
+        () => {'electricity': 0.0, 'water': 0.0, 'co2': 0.0},
+      );
+      bucket['electricity'] = (bucket['electricity'] ?? 0) + entry.electricityKwh;
+      bucket['water'] = (bucket['water'] ?? 0) + entry.waterCubicMeters;
+      bucket['co2'] = (bucket['co2'] ?? 0) +
+          (entry.fuelLiters * Calculation.factorNaturalGasKgPerM3);
+    }
+
+    final keys = monthTotals.keys.toList()..sort();
+    if (keys.length < 2) {
+      return {'electricity': 20.0, 'water': 25.0, 'co2': 15.0};
+    }
+
+    double avgReductionFor(String metric) {
+      final reductions = <double>[];
+      for (int i = 1; i < keys.length; i++) {
+        final prev = monthTotals[keys[i - 1]]?[metric] ?? 0.0;
+        final curr = monthTotals[keys[i]]?[metric] ?? 0.0;
+        if (prev > 0) {
+          reductions.add(((prev - curr) / prev) * 100);
+        }
+      }
+      if (reductions.isEmpty) {
+        return metric == 'water' ? 25.0 : (metric == 'co2' ? 15.0 : 20.0);
+      }
+      final avg = reductions.reduce((a, b) => a + b) / reductions.length;
+      final fallback = metric == 'water' ? 25.0 : (metric == 'co2' ? 15.0 : 20.0);
+      return avg.isFinite ? avg.clamp(5.0, 40.0) : fallback;
+    }
+
+    return {
+      'electricity': avgReductionFor('electricity'),
+      'water': avgReductionFor('water'),
+      'co2': avgReductionFor('co2'),
+    };
+  }
+
+  Map<int, double> _buildHourlySums(
+    List<ConsumptionEntry> entries, {
+    required bool forElectricity,
+  }) {
+    final result = <int, double>{};
+    for (final entry in entries) {
+      final hour = entry.createdAt.hour;
+      result[hour] = (result[hour] ?? 0) +
+          (forElectricity ? entry.electricityKwh : entry.waterCubicMeters);
+    }
+    return result;
+  }
+
+  String _buildHourlyReductionSuggestion({
+    required Locale locale,
+    required Map<int, double> hourlySums,
+    required double neededPercent,
+    required String resourceLabelTr,
+    required String resourceLabelEn,
+  }) {
+    if (hourlySums.isEmpty) {
+      return locale.languageCode == 'tr'
+          ? 'Yeterli saatlik veri oluşunca otomatik saat önerisi gösterilecek.'
+          : 'Hourly suggestion will appear when enough data is available.';
+    }
+    final topHours = hourlySums.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final top = topHours.take(2).map((e) => '${e.key.toString().padLeft(2, '0')}:00').join(', ');
+    final percentText = neededPercent.toStringAsFixed(1);
+    if (locale.languageCode == 'tr') {
+      return 'Hedef için $resourceLabelTr kullanımını $top saatlerinde yaklaşık %$percentText azaltın.';
+    }
+    return 'To hit the target, reduce $resourceLabelEn usage by about $percentText% around $top.';
+  }
+
+  Future<void> _refreshPrediction() async {
+    if (_userId == null) return;
+    final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final elapsedDays = now.day.clamp(1, daysInMonth);
+
+    try {
+      final monthEntries = await _firebaseService.getHistoryData(
+        deviceId: 'esp8266_001',
+        startDate: monthStart,
+        endDate: now,
+      );
+      final previousMonthStart = DateTime(now.year, now.month - 1, 1);
+      final previousMonthEnd = monthStart.subtract(const Duration(days: 1));
+      final previousMonthEntries = await _firebaseService.getHistoryData(
+        deviceId: 'esp8266_001',
+        startDate: previousMonthStart,
+        endDate: previousMonthEnd,
+      );
+
+      final currentTotal = _totalEmissionKg(monthEntries);
+      final currentDailyAverage = currentTotal / elapsedDays;
+
+      final activityFactor = _activityFactor(monthEntries, now);
+
+      final weatherData = await _weatherService.getWeatherData('Istanbul,TR');
+      final temp = (weatherData['temperature'] ?? 21.0).toDouble();
+      final tempDeviation = (temp - 21.0).abs();
+      final weatherFactor = (1.0 + (tempDeviation * 0.008)).clamp(0.9, 1.2);
+
+      final prevSameWindowEnd = DateTime(
+        previousMonthStart.year,
+        previousMonthStart.month,
+        elapsedDays,
+      );
+      final prevWindowEntries = previousMonthEntries
+          .where((e) => !e.createdAt.isAfter(prevSameWindowEnd))
+          .toList();
+      final prevWindowTotal = _totalEmissionKg(prevWindowEntries);
+      final trendFactor = prevWindowTotal > 0
+          ? (currentTotal / prevWindowTotal).clamp(0.75, 1.35)
+          : 1.0;
+
+      final projectedMonthEnd = currentDailyAverage *
+          daysInMonth *
+          weatherFactor *
+          activityFactor *
+          trendFactor;
+
+      final reductionGoal = _goals.firstWhere(
+        (g) => g.type == 'co2_reduction',
+        orElse: () => CarbonGoal(
+          id: 'fallback_co2',
+          title: '',
+          target: 15,
+          current: 0,
+          monthlyChangePercent: 0,
+          recommendation: '',
+          unit: 'kg',
+          type: 'co2_reduction',
+          icon: Icons.eco,
+          color: const Color(0xFF48631F),
+        ),
+      );
+      final previousMonthTotal = _totalEmissionKg(previousMonthEntries);
+      final targetMonthEnd =
+          (previousMonthTotal - reductionGoal.target).clamp(0.0, double.infinity);
+      final isOnTrack = projectedMonthEnd <= targetMonthEnd || previousMonthTotal <= 0;
+
+      final impactText = locale.languageCode == 'tr'
+          ? 'Hava etkisi: x${weatherFactor.toStringAsFixed(2)}, yoğunluk etkisi: x${activityFactor.toStringAsFixed(2)}'
+          : 'Weather impact: x${weatherFactor.toStringAsFixed(2)}, intensity impact: x${activityFactor.toStringAsFixed(2)}';
+
+      if (mounted) {
+        setState(() {
+          _monthlyPrediction = MonthlyPrediction(
+            projectedMonthEndKg: projectedMonthEnd,
+            currentAverageKgPerDay: currentDailyAverage,
+            daysElapsed: elapsedDays,
+            daysInMonth: daysInMonth,
+            isOnTrack: isOnTrack,
+            trackMessage: isOnTrack
+                ? (locale.languageCode == 'tr'
+                    ? 'Bu gidişle hedefe ulaşırsın.'
+                    : 'At this pace, you will reach the goal.')
+                : (locale.languageCode == 'tr'
+                    ? 'Bu gidişle hedefe ulaşamazsın.'
+                    : 'At this pace, you may miss the goal.'),
+            impactSummary: impactText,
+            weatherFactor: weatherFactor,
+            intensityFactor: activityFactor,
+          );
+        });
+      }
+    } catch (_) {
+      // Sessiz devam
+    }
+  }
+
+  double _totalEmissionKg(List<ConsumptionEntry> entries) {
+    double total = 0;
+    for (final e in entries) {
+      total +=
+          (e.electricityKwh * Calculation.factorElectricityKgPerKwh) +
+          (e.waterCubicMeters * Calculation.factorWaterKgPerM3) +
+          (e.wasteKg * Calculation.factorWasteKgPerKg);
+      total += e.fuelIsNaturalGasM3
+          ? (e.fuelLiters * Calculation.factorNaturalGasKgPerM3)
+          : (e.fuelLiters * Calculation.factorFuelKgPerLiter);
+    }
+    return total;
+  }
+
+  double _activityFactor(List<ConsumptionEntry> monthEntries, DateTime now) {
+    final last7Start = now.subtract(const Duration(days: 6));
+    final prev7Start = now.subtract(const Duration(days: 13));
+    final prev7End = now.subtract(const Duration(days: 7));
+    final last7 = monthEntries.where((e) => !e.createdAt.isBefore(last7Start)).length;
+    final prev7 = monthEntries
+        .where(
+          (e) =>
+              !e.createdAt.isBefore(prev7Start) && e.createdAt.isBefore(prev7End),
+        )
+        .length;
+    if (prev7 <= 0) return 1.0;
+    return (last7 / prev7).clamp(0.8, 1.25);
   }
 
   Future<void> _awardPoints(int points) async {
@@ -1476,6 +1787,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      if (_monthlyPrediction != null) ...[
+                        _PredictionCard(
+                          prediction: _monthlyPrediction!,
+                          languageProvider: widget.languageProvider,
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       // Hedef kartları
                       if (_goals.isEmpty)
                         Center(
@@ -2033,11 +2351,133 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
 }
 
+class MonthlyPrediction {
+  final double projectedMonthEndKg;
+  final double currentAverageKgPerDay;
+  final int daysElapsed;
+  final int daysInMonth;
+  final bool isOnTrack;
+  final String trackMessage;
+  final String impactSummary;
+  final double weatherFactor;
+  final double intensityFactor;
+
+  const MonthlyPrediction({
+    required this.projectedMonthEndKg,
+    required this.currentAverageKgPerDay,
+    required this.daysElapsed,
+    required this.daysInMonth,
+    required this.isOnTrack,
+    required this.trackMessage,
+    required this.impactSummary,
+    required this.weatherFactor,
+    required this.intensityFactor,
+  });
+}
+
+class _PredictionCard extends StatelessWidget {
+  const _PredictionCard({
+    required this.prediction,
+    this.languageProvider,
+  });
+
+  final MonthlyPrediction prediction;
+  final LanguageProvider? languageProvider;
+
+  @override
+  Widget build(BuildContext context) {
+    final locale = languageProvider?.currentLocale ?? const Locale('tr');
+    final isTr = locale.languageCode == 'tr';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: prediction.isOnTrack
+                  ? Colors.green.withValues(alpha: 0.8)
+                  : Colors.orange.withValues(alpha: 0.8),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isTr ? 'Tahminleme' : 'Prediction',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isTr
+                    ? 'Ay sonu emisyon tahmini: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e'
+                    : 'Month-end emission forecast: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isTr
+                    ? 'Ortalama tempo: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/gün (${prediction.daysElapsed}/${prediction.daysInMonth} gün)'
+                    : 'Current pace: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/day (${prediction.daysElapsed}/${prediction.daysInMonth} days)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: (isDark ? Colors.white : Colors.black)
+                          .withValues(alpha: 0.75),
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    prediction.isOnTrack ? Icons.check_circle : Icons.warning_amber,
+                    size: 18,
+                    color: prediction.isOnTrack ? Colors.green : Colors.orange,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      prediction.trackMessage,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: prediction.isOnTrack
+                                ? Colors.green
+                                : Colors.orange,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                prediction.impactSummary,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color:
+                          (isDark ? Colors.white : Colors.black).withValues(alpha: 0.8),
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class CarbonGoal {
   final String id;
   final String title;
   final double target;
   final double current;
+  final double monthlyChangePercent;
+  final String recommendation;
   final String unit;
   final String type;
   final IconData icon;
@@ -2048,6 +2488,8 @@ class CarbonGoal {
     required this.title,
     required this.target,
     required this.current,
+    required this.monthlyChangePercent,
+    required this.recommendation,
     required this.unit,
     required this.type,
     required this.icon,
@@ -2079,6 +2521,24 @@ class _GoalCard extends StatelessWidget {
       default:
         return goal.title;
     }
+  }
+
+  String _monthlyComparisonText(Locale locale) {
+    final bool isTr = locale.languageCode == 'tr';
+    final bool reduced = goal.monthlyChangePercent >= 0;
+    final value = goal.monthlyChangePercent.abs().toStringAsFixed(1);
+    final subject = goal.type == 'co2_reduction'
+        ? (isTr ? 'emisyon' : 'emissions')
+        : (isTr ? 'kullanım' : 'usage');
+
+    if (isTr) {
+      return reduced
+          ? 'Önceki aya göre $subject %$value azaldı'
+          : 'Önceki aya göre $subject %$value arttı';
+    }
+    return reduced
+        ? '$subject decreased by $value% compared to previous month'
+        : '$subject increased by $value% compared to previous month';
   }
 
   @override
@@ -2267,23 +2727,37 @@ class _GoalCard extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '${(goal.progress * 100).toStringAsFixed(1)}% ${translate('completed', locale)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isCompleted
-                                ? Colors.green
-                                : (isDark ? Colors.white : Colors.black)
-                                    .withValues(
-                                    alpha: 0.7,
-                                  ),
-                            fontWeight: FontWeight.w600,
-                          ),
+                    Expanded(
+                      child: Text(
+                        _monthlyComparisonText(locale),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: isCompleted
+                                  ? Colors.green
+                                  : (isDark ? Colors.white : Colors.black)
+                                      .withValues(
+                                      alpha: 0.7,
+                                    ),
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
                     ),
                     if (isCompleted)
                       const Icon(Icons.celebration,
                           color: Colors.amber, size: 18),
                   ],
                 ),
+                if (goal.recommendation.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    goal.recommendation,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.orange.withValues(alpha: 0.95),
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
               ],
             ),
           ),
