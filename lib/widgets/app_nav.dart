@@ -18,6 +18,8 @@ class AppBottomNav extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isReportsPage = selectedIndex == 1; // Raporlar sayfası index 1
+    final mediaQuery = MediaQuery.of(context);
+    final bool isVerySmallScreen = mediaQuery.size.width < 360;
 
     // Seçili olmayan ikonlar için renk belirleme
     // Açık modda ve raporlar sayfasındayken beyaz, diğer durumlarda tema rengi
@@ -37,7 +39,7 @@ class AppBottomNav extends StatelessWidget {
           child: Theme(
             data: Theme.of(context).copyWith(
               navigationBarTheme: NavigationBarThemeData(
-                height: 56,
+                height: isVerySmallScreen ? 62 : 56,
                 elevation: 0,
                 backgroundColor: Colors.transparent,
                 surfaceTintColor: Colors.transparent,
@@ -45,7 +47,9 @@ class AppBottomNav extends StatelessWidget {
                 iconTheme: WidgetStateProperty.resolveWith((states) {
                   final bool isSelected = states.contains(WidgetState.selected);
                   return IconThemeData(
-                    size: isSelected ? 26 : 24, // Seçili ikon daha büyük
+                    size: isVerySmallScreen
+                        ? (isSelected ? 24 : 22)
+                        : (isSelected ? 26 : 24), // Seçili ikon daha büyük
                     color: isSelected
                         ? colorScheme.primary // Seçili: tema rengi (yeşil)
                         : unselectedColor, // Seçili değil: tema rengi (gri ton)
@@ -54,7 +58,7 @@ class AppBottomNav extends StatelessWidget {
                 labelTextStyle: WidgetStateProperty.resolveWith((states) {
                   final bool isSelected = states.contains(WidgetState.selected);
                   return TextStyle(
-                    fontSize: 10,
+                    fontSize: isVerySmallScreen ? 9 : 10,
                     color: isSelected
                         ? colorScheme.primary // Seçili: tema rengi
                         : unselectedColor, // Seçili değil: tema rengi
@@ -65,12 +69,18 @@ class AppBottomNav extends StatelessWidget {
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: EdgeInsets.only(
+                bottom: 6 + mediaQuery.padding.bottom.clamp(0.0, 10.0),
+                left: isVerySmallScreen ? 4 : 0,
+                right: isVerySmallScreen ? 4 : 0,
+              ),
               child: NavigationBar(
                 selectedIndex: selectedIndex,
                 onDestinationSelected: onDestinationSelected,
                 destinations: destinations,
-                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                labelBehavior: isVerySmallScreen
+                    ? NavigationDestinationLabelBehavior.onlyShowSelected
+                    : NavigationDestinationLabelBehavior.alwaysShow,
                 backgroundColor: Colors.transparent,
                 surfaceTintColor: Colors.transparent,
                 indicatorColor: Colors.transparent,

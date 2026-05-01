@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/shelly_data.dart';
@@ -47,9 +46,10 @@ class ShellyService {
         Uri.parse('$baseUrl/shelly'),
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 5));
-      
+
       if (shellyInfoResponse.statusCode == 200) {
-        final shellyInfo = json.decode(shellyInfoResponse.body) as Map<String, dynamic>;
+        final shellyInfo =
+            json.decode(shellyInfoResponse.body) as Map<String, dynamic>;
         isGen2 = shellyInfo['gen'] == 2 || shellyInfo['gen'] == '2';
         dev.log(
           '✅ Shelly cihaz bilgisi alındı: Gen${shellyInfo['gen'] ?? '?'}, Model: ${shellyInfo['model'] ?? '?'}',
@@ -62,15 +62,18 @@ class ShellyService {
         name: 'ShellyService',
       );
     }
-    
+
     // Shelly Plus/Gen2 cihazları için önce /rpc endpoint'ini dene
     // Farklı method'ları dene: Switch.GetStatus (id: 0 ile), Shelly.GetStatus
     final rpcMethods = [
-      {'method': 'Switch.GetStatus', 'params': {'id': 0}},
+      {
+        'method': 'Switch.GetStatus',
+        'params': {'id': 0}
+      },
       {'method': 'Switch.GetStatus', 'params': {}},
       {'method': 'Shelly.GetStatus', 'params': {}},
     ];
-    
+
     for (final methodConfig in rpcMethods) {
       try {
         final method = methodConfig['method'] as String;
@@ -79,18 +82,19 @@ class ShellyService {
           'Shelly Plus için /rpc endpoint deneniyor: $method (params: $params) - $deviceIp',
           name: 'ShellyService',
         );
-        debugPrint('🔍 [ShellyService] /rpc endpoint deneniyor: $method (params: $params)');
-      final rpcResponse = await http.post(
-        Uri.parse('$baseUrl/rpc'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'id': 1,
-            'method': method,
-            'params': params,
-        }),
-      ).timeout(const Duration(seconds: 10));
+        final rpcResponse = await http
+            .post(
+              Uri.parse('$baseUrl/rpc'),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'id': 1,
+                'method': method,
+                'params': params,
+              }),
+            )
+            .timeout(const Duration(seconds: 10));
 
-      if (rpcResponse.statusCode == 200) {
+        if (rpcResponse.statusCode == 200) {
           final responseBody = rpcResponse.body;
           dev.log(
             'Shelly /rpc yanıt alındı ($method): ${responseBody.substring(0, responseBody.length > 200 ? 200 : responseBody.length)}...',
@@ -104,10 +108,10 @@ class ShellyService {
             );
             try {
               final shellyData = ShellyData.fromJson(
-            data['result'] as Map<String, dynamic>,
-            deviceIp,
-            deviceId,
-          );
+                data['result'] as Map<String, dynamic>,
+                deviceIp,
+                deviceId,
+              );
               dev.log(
                 '✅ Shelly verisi parse edildi: ${shellyData.toString()}',
                 name: 'ShellyService',
@@ -122,7 +126,7 @@ class ShellyService {
               // Parse hatası olsa bile bir sonraki method'u dene
               continue;
             }
-        } else if (data['error'] != null) {
+          } else if (data['error'] != null) {
             dev.log(
               'Shelly /rpc endpoint hata döndü ($method): ${data['error']}',
               name: 'ShellyService',
@@ -144,29 +148,28 @@ class ShellyService {
             level: 1000,
           );
           continue;
-      }
-    } catch (rpcError) {
+        }
+      } catch (rpcError) {
         final method = methodConfig['method'] as String;
         final errorType = rpcError.runtimeType.toString();
         final errorMessage = rpcError.toString();
-      dev.log(
+        dev.log(
           '❌ Shelly /rpc endpoint başarısız ($method):\n'
           '   Tip: $errorType\n'
           '   Mesaj: $errorMessage',
-        name: 'ShellyService',
+          name: 'ShellyService',
           level: 1000,
-      );
-        debugPrint('❌ [ShellyService] /rpc endpoint başarısız ($method): $errorType - $errorMessage');
+        );
         // Bir sonraki method'u dene
         continue;
       }
     }
-    
+
     dev.log(
       'Tüm /rpc method\'ları başarısız, /status endpoint deneniyor...',
       name: 'ShellyService',
     );
-    
+
     // /rpc başarısız oldu, klasik /status endpoint'ini dene (eski Shelly cihazları için)
     try {
       dev.log(
@@ -203,7 +206,7 @@ class ShellyService {
         level: 1000,
       );
     }
-    
+
     // Eğer Gen2 ise, ek RPC method'larını dene
     if (isGen2) {
       final gen2Methods = [
@@ -211,22 +214,24 @@ class ShellyService {
         'Meter:0.GetStatus',
         'DevicePower:0.GetStatus',
       ];
-      
+
       for (final method in gen2Methods) {
         try {
           dev.log(
             'Shelly Gen2 ek method deneniyor: $method - $deviceIp',
             name: 'ShellyService',
           );
-          final rpcResponse = await http.post(
-            Uri.parse('$baseUrl/rpc'),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode({
-              'id': 1,
-              'method': method,
-              'params': {},
-            }),
-          ).timeout(const Duration(seconds: 5));
+          final rpcResponse = await http
+              .post(
+                Uri.parse('$baseUrl/rpc'),
+                headers: {'Content-Type': 'application/json'},
+                body: json.encode({
+                  'id': 1,
+                  'method': method,
+                  'params': {},
+                }),
+              )
+              .timeout(const Duration(seconds: 5));
 
           if (rpcResponse.statusCode == 200) {
             final data = json.decode(rpcResponse.body) as Map<String, dynamic>;
@@ -256,7 +261,7 @@ class ShellyService {
         }
       }
     }
-    
+
     // Alternatif GET endpoint'leri dene: /relay/0 (çalışıyor ama sadece relay durumu)
     // /relay/0 çalışıyorsa, /rpc ile Switch.GetStatus'u tekrar dene (id: 0 ile)
     try {
@@ -276,15 +281,17 @@ class ShellyService {
         );
         // /relay/0 çalışıyorsa, /rpc endpoint'ini id: 0 ile tekrar dene
         try {
-          final rpcResponse = await http.post(
-            Uri.parse('$baseUrl/rpc'),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode({
-              'id': 1,
-              'method': 'Switch.GetStatus',
-              'params': {'id': 0},
-            }),
-          ).timeout(const Duration(seconds: 10));
+          final rpcResponse = await http
+              .post(
+                Uri.parse('$baseUrl/rpc'),
+                headers: {'Content-Type': 'application/json'},
+                body: json.encode({
+                  'id': 1,
+                  'method': 'Switch.GetStatus',
+                  'params': {'id': 0},
+                }),
+              )
+              .timeout(const Duration(seconds: 10));
 
           if (rpcResponse.statusCode == 200) {
             final responseBody = rpcResponse.body;
@@ -347,7 +354,7 @@ class ShellyService {
         level: 1000,
       );
     }
-    
+
     // Diğer alternatif endpoint'leri dene: /switch:0, /meter:0, /meter/0
     final alternativeEndpoints = ['/switch:0', '/meter:0', '/meter/0'];
     for (final endpoint in alternativeEndpoints) {
@@ -382,7 +389,7 @@ class ShellyService {
         );
       }
     }
-    
+
     // Her iki endpoint de başarısız oldu
     final errorMsg = 'Shelly HTTP API hatası: Tüm endpoint\'ler başarısız. '
         'Cihaz erişilebilir mi? IP: $deviceIp\n'
@@ -549,50 +556,59 @@ class ShellyService {
   Future<bool> checkConnection() async {
     // Shelly Plus/Gen2 için önce /rpc endpoint'ini dene (farklı method'larla)
     final rpcMethods = [
-      {'method': 'Switch.GetStatus', 'params': {'id': 0}},
+      {
+        'method': 'Switch.GetStatus',
+        'params': {'id': 0}
+      },
       {'method': 'Switch.GetStatus', 'params': {}},
       {'method': 'Shelly.GetStatus', 'params': {}},
     ];
-    
+
     for (final methodConfig in rpcMethods) {
       try {
         final method = methodConfig['method'] as String;
         final params = methodConfig['params'] as Map<String, dynamic>;
-      final rpcResponse = await http.post(
-        Uri.parse('$baseUrl/rpc'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'id': 1,
-            'method': method,
-            'params': params,
-        }),
-      ).timeout(const Duration(seconds: 5));
-      
-      if (rpcResponse.statusCode == 200) {
+        final rpcResponse = await http
+            .post(
+              Uri.parse('$baseUrl/rpc'),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'id': 1,
+                'method': method,
+                'params': params,
+              }),
+            )
+            .timeout(const Duration(seconds: 5));
+
+        if (rpcResponse.statusCode == 200) {
           final data = json.decode(rpcResponse.body) as Map<String, dynamic>;
           if (data['result'] != null) {
-            dev.log('✅ Shelly bağlantı kontrolü başarılı (/rpc - $method): $deviceIp', name: 'ShellyService');
-        return true;
+            dev.log(
+                '✅ Shelly bağlantı kontrolü başarılı (/rpc - $method): $deviceIp',
+                name: 'ShellyService');
+            return true;
           }
-      }
-    } catch (e) {
+        }
+      } catch (e) {
         final method = methodConfig['method'] as String;
-      dev.log(
+        dev.log(
           'Shelly /rpc bağlantı kontrolü başarısız ($method): $e',
-        name: 'ShellyService',
-      );
+          name: 'ShellyService',
+        );
         // Bir sonraki method'u dene
         continue;
       }
     }
-    
+
     // /rpc başarısız oldu, klasik /status endpoint'ini dene
     try {
       final response = await http
           .get(Uri.parse('$baseUrl/status'))
           .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
-        dev.log('✅ Shelly bağlantı kontrolü başarılı (/status - klasik): $deviceIp', name: 'ShellyService');
+        dev.log(
+            '✅ Shelly bağlantı kontrolü başarılı (/status - klasik): $deviceIp',
+            name: 'ShellyService');
         return true;
       }
     } catch (e) {
@@ -601,7 +617,7 @@ class ShellyService {
         name: 'ShellyService',
       );
     }
-    
+
     dev.log(
       '❌ Shelly bağlantı kontrolü başarısız: Tüm endpoint\'ler denendi. IP: $deviceIp',
       name: 'ShellyService',

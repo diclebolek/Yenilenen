@@ -71,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _tipsListener = () {
       // Hem mobil hem web controller için sayfa değişikliğini kontrol et
       double? newPage;
-      
+
       // Hangi controller aktifse onun sayfasını al
       // Önce web controller'ı kontrol et (varsa ve aktifse)
       if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
@@ -86,7 +86,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {
                   _currentPage = roundedPage;
                 });
-                debugPrint('📄 Web listener: page=$webPage, rounded=$roundedPage');
+                debugPrint(
+                    '📄 Web listener: page=$webPage, rounded=$roundedPage');
               }
             }
           }
@@ -94,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Web controller henüz hazır değilse mobil controller'ı kullan
         }
       }
-      
+
       // Web controller yoksa veya sayfa alınamazsa mobil controller'ı kullan
       if (newPage == null && _tipsController.hasClients) {
         try {
@@ -131,7 +132,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Hero slider'ı belirli aralıklarla otomatik kaydır
     _heroAutoScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      
+
       try {
         if (_heroController.hasClients) {
           final double? currentPage = _heroController.page;
@@ -154,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // İpuçları kartlarını belirli aralıklarla otomatik kaydır
     _autoScrollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      
+
       try {
         final locale =
             widget.languageProvider?.currentLocale ?? const Locale('tr');
@@ -166,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Controller'lardan gerçek sayfa değerlerini al (daha güvenilir)
         int? mobileCurrentPage;
         int? webCurrentPage;
-        
+
         if (_tipsController.hasClients) {
           try {
             mobileCurrentPage = _tipsController.page?.round();
@@ -174,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // Controller hazır değil
           }
         }
-        
+
         if (_tipsControllerWeb != null && _tipsControllerWeb!.hasClients) {
           try {
             webCurrentPage = _tipsControllerWeb!.page?.round();
@@ -182,10 +183,11 @@ class _HomeScreenState extends State<HomeScreen> {
             // Controller hazır değil
           }
         }
-        
+
         // Fallback: _currentPage kullan (eğer controller'dan alınamazsa)
         final int fallbackPage = _currentPage.round();
-        final int currentPage = webCurrentPage ?? mobileCurrentPage ?? fallbackPage;
+        final int currentPage =
+            webCurrentPage ?? mobileCurrentPage ?? fallbackPage;
         final int nextPage = (currentPage + 1) % tipsCount;
 
         // Mobil controller için
@@ -198,7 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
               );
-              debugPrint('🔄 Otomatik kaydırma (Mobil): $currentPage -> $nextPage');
+              debugPrint(
+                  '🔄 Otomatik kaydırma (Mobil): $currentPage -> $nextPage');
             }
           } catch (e) {
             debugPrint('Mobil controller animasyon hatası: $e');
@@ -210,11 +213,13 @@ class _HomeScreenState extends State<HomeScreen> {
           try {
             // Controller'dan gerçek sayfa değerini al
             final double? webPage = _tipsControllerWeb!.page;
-            final int actualWebPage = webPage?.round() ?? (webCurrentPage ?? fallbackPage);
-            
+            final int actualWebPage =
+                webPage?.round() ?? (webCurrentPage ?? fallbackPage);
+
             // Animasyon devam ediyor mu kontrol et (sayfa değeri tam sayı değilse animasyon devam ediyor)
-            final bool isAnimating = webPage != null && (webPage - actualWebPage).abs() > 0.1;
-            
+            final bool isAnimating =
+                webPage != null && (webPage - actualWebPage).abs() > 0.1;
+
             if (!isAnimating && actualWebPage == currentPage) {
               // Animasyon yok ve sayfa değişmemiş, yeni animasyon başlat
               _tipsControllerWeb!.animateToPage(
@@ -222,13 +227,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.easeInOutCubic, // Web için daha akıcı curve
               );
-              debugPrint('🔄 Otomatik kaydırma (Web): $actualWebPage -> $nextPage (page=$webPage)');
+              debugPrint(
+                  '🔄 Otomatik kaydırma (Web): $actualWebPage -> $nextPage (page=$webPage)');
             } else if (isAnimating) {
               // Animasyon devam ediyor, bekle
-              debugPrint('⏸️ Web slider animasyon devam ediyor: page=$webPage, hedef=$nextPage');
+              debugPrint(
+                  '⏸️ Web slider animasyon devam ediyor: page=$webPage, hedef=$nextPage');
             } else {
               // Sayfa zaten değişmiş
-              debugPrint('⏸️ Web slider sayfa değişmiş: mevcut=$actualWebPage, beklenen=$currentPage, hedef=$nextPage');
+              debugPrint(
+                  '⏸️ Web slider sayfa değişmiş: mevcut=$actualWebPage, beklenen=$currentPage, hedef=$nextPage');
             }
           } catch (e) {
             // Controller henüz hazır değilse hata verme
@@ -258,60 +266,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Bağlantı kontrolü ve ilk veriyi çek
     try {
-      debugPrint('Shelly bağlantısı kontrol ediliyor...');
       // Bağlantı kontrolünü atla, direkt veri çekmeyi dene
       // (Bazı durumlarda checkConnection başarısız olabilir ama veri çekilebilir)
       try {
-        debugPrint('Shelly verisi çekiliyor...');
         await _apiService.getShellyData(saveToFirebase: true);
-        debugPrint('Shelly verisi başarıyla alındı!');
       } catch (dataError) {
         // Veri çekme başarısız, bağlantı kontrolü yap
-        debugPrint('Veri çekme başarısız, bağlantı kontrol ediliyor...');
         final connected = await _apiService.checkShellyConnection();
         if (!connected) {
-          debugPrint('⚠️ Shelly cihazına bağlanılamadı. Lütfen kontrol edin:');
-          debugPrint('1. IP adresi doğru mu? (192.168.137.57)');
-          debugPrint('2. AYNI WiFi AĞINDA OLMASI GEREKEN CİHAZLAR:');
-          debugPrint('   - Shelly Plus S Plug cihazı');
-          debugPrint('   - Uygulamayı çalıştıran cihaz (telefon/bilgisayar)');
-          debugPrint('');
-          debugPrint('📱 HOTSPOT YAPILANDIRMASI İÇİN:');
-          debugPrint('   ✅ Bilgisayar mobil veri + WiFi hotspot oluşturdu');
-          debugPrint('   ✅ Shelly prizi hotspot\'a bağlandı');
-          debugPrint('   ✅ Emülatör hotspot\'a bağlandı (ÖNERİLEN YÖNTEM)');
-          debugPrint('');
-          debugPrint('💡 EMÜLATÖR KULLANIMI:');
-          debugPrint('   1. Android Studio/VS Code\'da emülatörü başlatın');
-          debugPrint('   2. Emülatör ayarlarından WiFi\'ye gidin');
-          debugPrint('   3. PC\'nin oluşturduğu hotspot\'u seçin ve bağlanın');
-          debugPrint('   4. Tüm cihazlar aynı ağda olacak: PC (hotspot), Shelly, Emülatör');
-          debugPrint('   5. Bu yapılandırma ile bağlantı çalışmalı!');
-          debugPrint('');
-          debugPrint('⚠️ NOT: Chrome\'da çalıştırırken bağlantı sorunları olabilir');
-          debugPrint('   (CORS, localhost vs.). Emülatör daha güvenilir.');
-          debugPrint('');
-          debugPrint('3. Cihaz çalışıyor mu? (LED ışığı yanıyor mu?)');
-          debugPrint('4. Shelly uygulamasından cihazın IP adresini doğrulayın');
-          debugPrint('5. Firewall/Antivirus engelliyor olabilir (geçici olarak kapatıp deneyin)');
-          debugPrint('6. Windows hotspot ayarlarında "Cihazlar birbirini görebilir" seçeneği açık olmalı');
+          // Bilinçli olarak sessiz geçiyoruz: bağlantı kurulamazsa widget içi
+          // fallback akışı veri çekmeyi sonraki döngülerde tekrar deniyor.
         } else {
-          debugPrint(
-              'Bağlantı başarılı ama veri çekilemedi. Tekrar denenecek...');
+          // Bağlantı var ama veri yoksa arka plan denemeleri devam eder.
         }
       }
     } catch (e) {
       // Hata olsa bile devam et (cihaz daha sonra bağlanabilir)
-      debugPrint('Shelly bağlantı hatası: $e');
-      debugPrint('Hata türü: ${e.runtimeType}');
-      if (e.toString().contains('TimeoutException')) {
-        debugPrint('Zaman aşımı hatası! Olası nedenler:');
-        debugPrint('- Cihaz aynı ağda değil');
-        debugPrint('- IP adresi yanlış');
-        debugPrint('- Cihaz çalışmıyor');
-        debugPrint('- WiFi API kapalı');
-      }
-      debugPrint('Not: Widget otomatik olarak veri çekmeyi deneyecek...');
+      // Sessiz: terminal gürültüsünü azaltmak için burada log basmıyoruz.
     }
   }
 
@@ -467,212 +438,304 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: null,
       backgroundColor: isDark ? Colors.black : Colors.white,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // İçerik
-          ListView(
-            padding: EdgeInsets.fromLTRB(
-              16,
-              16,
-              16,
-              16 +
-                  MediaQuery.of(context).padding.bottom +
-                  80, // Bottom nav bar için ekstra padding
-            ),
-            children: [
-              // Hero Slider - Sadece görseller (geniş ekranda daha yüksek)
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final bool isWide = constraints.maxWidth >= 900;
-                  // Web/geniş ekranda ekran yüksekliğinde, mobilde 200
-                  final double screenHeight =
-                      MediaQuery.of(context).size.height;
-                  final double heroHeight = isWide ? screenHeight * 0.8 : 200;
-                  return SizedBox(
-                    height: heroHeight,
-                    child: PageView.builder(
-                      controller: _heroController,
-                      itemCount: 3,
-                      itemBuilder: (context, index) {
-                        final images = [
-                          'assets/images/herosectionafis.png',
-                          'assets/images/herosectionafis2.png',
-                          'assets/images/herosectionafis3.png',
-                        ];
-                        return Container(
-                          margin: isWide
-                              ? EdgeInsets.zero
-                              : const EdgeInsets.symmetric(horizontal: 8),
-                          decoration: BoxDecoration(
-                            borderRadius: isWide
-                                ? BorderRadius.zero
-                                : BorderRadius.circular(12),
-                            boxShadow: isWide
-                                ? null
-                                : [
-                                    BoxShadow(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                          ),
-                          child: isWide
-                              ? Image.asset(
-                                  images[index],
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  height: double.infinity,
-                                  alignment: Alignment.center,
-                                )
-                              : ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.asset(
+      body: SafeArea(
+        bottom: false,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // İçerik
+            ListView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                16 +
+                    MediaQuery.of(context).padding.bottom +
+                    80, // Bottom nav bar için ekstra padding
+              ),
+              children: [
+                // Hero Slider - Sadece görseller (geniş ekranda daha yüksek)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isWide = constraints.maxWidth >= 900;
+                    // Web/geniş ekranda ekran yüksekliğinde, mobilde 200
+                    final double screenHeight =
+                        MediaQuery.of(context).size.height;
+                    final double heroHeight = isWide ? screenHeight * 0.8 : 200;
+                    return SizedBox(
+                      height: heroHeight,
+                      child: PageView.builder(
+                        controller: _heroController,
+                        itemCount: 3,
+                        itemBuilder: (context, index) {
+                          final images = [
+                            'assets/images/herosectionafis.png',
+                            'assets/images/herosectionafis2.png',
+                            'assets/images/herosectionafis3.png',
+                          ];
+                          return Container(
+                            margin: isWide
+                                ? EdgeInsets.zero
+                                : const EdgeInsets.symmetric(horizontal: 8),
+                            decoration: BoxDecoration(
+                              borderRadius: isWide
+                                  ? BorderRadius.zero
+                                  : BorderRadius.circular(12),
+                              boxShadow: isWide
+                                  ? null
+                                  : [
+                                      BoxShadow(
+                                        color:
+                                            Colors.black.withValues(alpha: 0.3),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                            ),
+                            child: isWide
+                                ? Image.asset(
                                     images[index],
                                     fit: BoxFit.cover,
                                     width: double.infinity,
+                                    height: double.infinity,
                                     alignment: Alignment.center,
+                                  )
+                                : ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.asset(
+                                      images[index],
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      alignment: Alignment.center,
+                                    ),
                                   ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                // Hero slider indicator dots
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(3, (i) {
+                    final selected = (_heroCurrentPage.round() == i);
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: selected ? 12 : 8,
+                      height: selected ? 12 : 8,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? (isDark ? Colors.white : Colors.black)
+                            : (isDark
+                                ? Colors.white.withValues(alpha: 0.5)
+                                : Colors.black.withValues(alpha: 0.4)),
+                        shape: BoxShape.circle,
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 16),
+                // Ağaç bağışı bölümü için görsel ve CTA
+                HeroDonateBanner(
+                  imageAssetPath: 'assets/images/olive-drab_small.webp',
+                  languageProvider: widget.languageProvider,
+                ),
+                const SizedBox(height: 32),
+                // İşletme karşılaştırma tablosu
+                Text(
+                  translate('business_comparison_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                _BusinessComparisonTable(locale: locale, isDark: isDark),
+                const SizedBox(height: 32),
+                // Fatura tarama başlığı
+                Text(
+                  translate('bill_scanning_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                // Fatura tarama kartı
+                BillScannerCard(
+                  languageProvider: widget.languageProvider,
+                  onCalculated: (value) =>
+                      setState(() => _dailyEmissionKg = value),
+                ),
+                const SizedBox(height: 32),
+                // GNÇ tarzında başlık
+                Text(
+                  translate('energy_tips_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isWide = constraints.maxWidth >= 900;
+                    if (isWide) {
+                      // Geniş ekran: horizontal slider, tek satırda kaydırılabilir
+                      // Web'de daha fazla kart görünmesi için viewportFraction (0.4 - daha iyi sayfa algılama)
+                      _tipsControllerWeb ??=
+                          PageController(viewportFraction: 0.4)
+                            ..addListener(_tipsListener);
+                      return Column(
+                        children: [
+                          SizedBox(
+                            height: 210,
+                            child: PageView.builder(
+                              controller: _tipsControllerWeb,
+                              allowImplicitScrolling:
+                                  false, // Web'de daha güvenilir
+                              physics:
+                                  const PageScrollPhysics(), // Web için daha akıcı
+                              scrollDirection: Axis.horizontal,
+                              itemCount: tips.length,
+                              padEnds:
+                                  true, // Son sayfada da kaydırma için padding
+                              clipBehavior: Clip.none,
+                              onPageChanged: (index) {
+                                if (mounted) {
+                                  setState(() {
+                                    _currentPage = index.toDouble();
+                                  });
+                                  debugPrint(
+                                      '📄 Web onPageChanged: $index (toplam: ${tips.length})');
+                                }
+                              },
+                              itemBuilder: (context, index) {
+                                // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
+                                final roundedPage = _currentPage.round();
+                                final distance = (_currentPage - index).abs();
+                                final isSelected = roundedPage ==
+                                    index; // Yuvarlanmış değerle karşılaştır
+                                final scale = isSelected
+                                    ? 1.1
+                                    : (1 - (distance * 0.15)).clamp(0.85, 1.0);
+                                final opacity = isSelected ? 1.0 : 0.35;
+                                final height = isSelected ? 230.0 : 170.0;
+
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeOutCubic,
+                                  height: height,
+                                  margin: EdgeInsets.symmetric(
+                                    horizontal: isSelected ? 8 : 12,
+                                    vertical: isSelected ? 0 : 15,
+                                  ),
+                                  decoration: isSelected
+                                      ? BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                        )
+                                      : null,
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 250),
+                                    opacity: opacity,
+                                    child: AnimatedScale(
+                                      duration:
+                                          const Duration(milliseconds: 250),
+                                      curve: Curves.easeOutCubic,
+                                      scale: scale,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                        child: _buildTipCard(
+                                            index, isSelected, locale),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // Üç nokta indicator
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(tips.length, (i) {
+                              final selected = (_currentPage.round() == i);
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                width: selected ? 12 : 8,
+                                height: selected ? 12 : 8,
+                                decoration: BoxDecoration(
+                                  color: selected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.4),
+                                  shape: BoxShape.circle,
                                 ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              // Hero slider indicator dots
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(3, (i) {
-                  final selected = (_heroCurrentPage.round() == i);
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: selected ? 12 : 8,
-                    height: selected ? 12 : 8,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? (isDark ? Colors.white : Colors.black)
-                          : (isDark
-                              ? Colors.white.withValues(alpha: 0.5)
-                              : Colors.black.withValues(alpha: 0.4)),
-                      shape: BoxShape.circle,
-                    ),
-                  );
-                }),
-              ),
-              const SizedBox(height: 16),
-              // Ağaç bağışı bölümü için görsel ve CTA
-              HeroDonateBanner(
-                imageAssetPath: 'assets/images/olive-drab_small.webp',
-                languageProvider: widget.languageProvider,
-              ),
-              const SizedBox(height: 32),
-              // İşletme karşılaştırma tablosu
-              Text(
-                translate('business_comparison_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              _BusinessComparisonTable(locale: locale, isDark: isDark),
-              const SizedBox(height: 32),
-              // Fatura tarama başlığı
-              Text(
-                translate('bill_scanning_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              // Fatura tarama kartı
-              BillScannerCard(
-                languageProvider: widget.languageProvider,
-                onCalculated: (value) =>
-                    setState(() => _dailyEmissionKg = value),
-              ),
-              const SizedBox(height: 32),
-              // GNÇ tarzında başlık
-              Text(
-                translate('energy_tips_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final bool isWide = constraints.maxWidth >= 900;
-                  if (isWide) {
-                    // Geniş ekran: horizontal slider, tek satırda kaydırılabilir
-                    // Web'de daha fazla kart görünmesi için viewportFraction (0.4 - daha iyi sayfa algılama)
-                    _tipsControllerWeb ??= PageController(viewportFraction: 0.4)
-                      ..addListener(_tipsListener);
+                              );
+                            }),
+                          ),
+                        ],
+                      );
+                    }
+                    // Mobil/tablet: mevcut PageView
                     return Column(
                       children: [
                         SizedBox(
-                          height: 210,
+                          height: 210, // Seçili kart için daha fazla alan
                           child: PageView.builder(
-                            controller: _tipsControllerWeb,
-                            allowImplicitScrolling: false, // Web'de daha güvenilir
-                            physics: const PageScrollPhysics(), // Web için daha akıcı
-                            scrollDirection: Axis.horizontal,
+                            controller: _tipsController,
+                            allowImplicitScrolling: true,
+                            physics: const PageScrollPhysics(),
                             itemCount: tips.length,
-                            padEnds: true, // Son sayfada da kaydırma için padding
+                            padEnds: false,
                             clipBehavior: Clip.none,
                             onPageChanged: (index) {
                               if (mounted) {
                                 setState(() {
                                   _currentPage = index.toDouble();
                                 });
-                                debugPrint('📄 Web onPageChanged: $index (toplam: ${tips.length})');
                               }
                             },
                             itemBuilder: (context, index) {
                               // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
                               final roundedPage = _currentPage.round();
                               final distance = (_currentPage - index).abs();
-                              final isSelected = roundedPage == index; // Yuvarlanmış değerle karşılaştır
+                              final isSelected = roundedPage ==
+                                  index; // Yuvarlanmış değerle karşılaştır
                               final scale = isSelected
-                                  ? 1.1
-                                  : (1 - (distance * 0.15)).clamp(0.85, 1.0);
+                                  ? 1.0
+                                  : (1 - (distance * 0.12)).clamp(0.88, 1.0);
                               final opacity = isSelected ? 1.0 : 0.35;
-                              final height = isSelected ? 230.0 : 170.0;
+                              final height = isSelected
+                                  ? 210.0
+                                  : 150.0; // Seçili kart daha büyük
 
                               return AnimatedContainer(
-                                duration: const Duration(milliseconds: 250),
-                                curve: Curves.easeOutCubic,
+                                duration: const Duration(milliseconds: 150),
                                 height: height,
-                                margin: EdgeInsets.symmetric(
-                                  horizontal: isSelected ? 8 : 12,
-                                  vertical: isSelected ? 0 : 15,
-                                ),
                                 decoration: isSelected
                                     ? BoxDecoration(
                                         borderRadius: BorderRadius.circular(16),
                                       )
                                     : null,
                                 child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 250),
+                                  duration: const Duration(milliseconds: 150),
                                   opacity: opacity,
                                   child: AnimatedScale(
-                                    duration: const Duration(milliseconds: 250),
-                                    curve: Curves.easeOutCubic,
+                                    duration: const Duration(milliseconds: 150),
                                     scale: scale,
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                      ),
-                                      child: _buildTipCard(
-                                          index, isSelected, locale),
-                                    ),
+                                    child: _buildTipCard(
+                                        index, isSelected, locale),
                                   ),
                                 ),
                               );
@@ -686,7 +749,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: List.generate(tips.length, (i) {
                             final selected = (_currentPage.round() == i);
                             return AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
+                              duration: const Duration(milliseconds: 200),
                               margin: const EdgeInsets.symmetric(horizontal: 4),
                               width: selected ? 12 : 8,
                               height: selected ? 12 : 8,
@@ -704,356 +767,305 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     );
-                  }
-                  // Mobil/tablet: mevcut PageView
-                  return Column(
-                    children: [
-                      SizedBox(
-                        height: 210, // Seçili kart için daha fazla alan
-                        child: PageView.builder(
-                          controller: _tipsController,
-                          allowImplicitScrolling: true,
-                          physics: const PageScrollPhysics(),
-                          itemCount: tips.length,
-                          padEnds: false,
-                          clipBehavior: Clip.none,
-                          onPageChanged: (index) {
-                            if (mounted) {
-                              setState(() {
-                                _currentPage = index.toDouble();
-                              });
-                            }
-                          },
-                          itemBuilder: (context, index) {
-                            // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
-                            final roundedPage = _currentPage.round();
-                            final distance = (_currentPage - index).abs();
-                            final isSelected = roundedPage == index; // Yuvarlanmış değerle karşılaştır
-                            final scale = isSelected
-                                ? 1.0
-                                : (1 - (distance * 0.12)).clamp(0.88, 1.0);
-                            final opacity = isSelected ? 1.0 : 0.35;
-                            final height = isSelected
-                                ? 210.0
-                                : 150.0; // Seçili kart daha büyük
-
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              height: height,
-                              decoration: isSelected
-                                  ? BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                    )
-                                  : null,
-                              child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 150),
-                                opacity: opacity,
-                                child: AnimatedScale(
-                                  duration: const Duration(milliseconds: 150),
-                                  scale: scale,
-                                  child:
-                                      _buildTipCard(index, isSelected, locale),
-                                ),
+                  },
+                ),
+                const SizedBox(height: 24),
+                // Hava durumu bölümü başlığı ve şehir adı - Konteynır dışında
+                Text(
+                  translate('weather_energy_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _currentWeather != null && _currentWeather!['city'] != null
+                      ? _currentWeather!['city']
+                      : 'Sakarya',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                // Hava durumu bölümü - Konteynır
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: isDark
+                            ? null
+                            : LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.2),
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.1),
+                                ],
                               ),
-                            );
-                          },
+                        color:
+                            isDark ? Colors.black.withValues(alpha: 0.4) : null,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color:
+                              (Theme.of(context).brightness == Brightness.dark)
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.primary,
+                          width: isDark ? 1 : 2,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      // Üç nokta indicator
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(tips.length, (i) {
-                          final selected = (_currentPage.round() == i);
-                          return AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            width: selected ? 12 : 8,
-                            height: selected ? 12 : 8,
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withValues(alpha: 0.4),
-                              shape: BoxShape.circle,
-                            ),
-                          );
-                        }),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              // Hava durumu bölümü başlığı ve şehir adı - Konteynır dışında
-              Text(
-                translate('weather_energy_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _currentWeather != null && _currentWeather!['city'] != null
-                    ? _currentWeather!['city']
-                    : 'Sakarya',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              // Hava durumu bölümü - Konteynır
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: isDark
-                          ? null
-                          : LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.2),
-                                Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.1),
-                              ],
-                            ),
-                      color:
-                          isDark ? Colors.black.withValues(alpha: 0.4) : null,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: (Theme.of(context).brightness == Brightness.dark)
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.primary,
-                        width: isDark ? 1 : 2,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Hava durumu kartları
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final double screenWidth = constraints.maxWidth;
-                              final double cardHeight =
-                                  screenWidth > 600 ? 160 : 140;
-                              final double cardWidth =
-                                  screenWidth > 600 ? 180 : 160;
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Hava durumu kartları
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final double screenWidth = constraints.maxWidth;
+                                final double cardHeight =
+                                    screenWidth > 600 ? 160 : 140;
+                                final double cardWidth =
+                                    screenWidth > 600 ? 180 : 160;
 
-                              // Gerçek hava durumu verilerini kullan veya placeholder
-                              final List<Map<String, dynamic>> weatherCards;
-                              if (_weatherForecast != null &&
-                                  _weatherForecast!.isNotEmpty) {
-                                weatherCards = [
-                                  {
-                                    'title': translate('today', locale),
-                                    'temp':
-                                        '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
-                                    'condition':
-                                        _localizeWeatherCondition(
-                                          _currentWeather?['condition'],
+                                // Gerçek hava durumu verilerini kullan veya placeholder
+                                final List<Map<String, dynamic>> weatherCards;
+                                if (_weatherForecast != null &&
+                                    _weatherForecast!.isNotEmpty) {
+                                  weatherCards = [
+                                    {
+                                      'title': translate('today', locale),
+                                      'temp':
+                                          '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
+                                      'condition': _localizeWeatherCondition(
+                                        _currentWeather?['condition'],
+                                        locale,
+                                      ),
+                                      'icon': _getWeatherIcon(
+                                        _currentWeather?['icon'] ?? '01d',
+                                      ),
+                                      'tip': _getWeatherTip(
+                                        _currentWeather?['condition'] ??
+                                            'Clear',
+                                        locale,
+                                      ),
+                                      'color': _getWeatherColor(
+                                        _currentWeather?['icon'] ?? '01d',
+                                      ),
+                                    },
+                                    if (_weatherForecast!.isNotEmpty)
+                                      {
+                                        'title': translate('tomorrow', locale),
+                                        'temp':
+                                            '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
+                                        'condition': _weatherForecast![0]
+                                                    ['condition'] !=
+                                                null
+                                            ? _localizeWeatherCondition(
+                                                _weatherForecast![0]
+                                                    ['condition'] as String?,
+                                                locale,
+                                              )
+                                            : translate('cloudy', locale),
+                                        'icon': _getWeatherIcon(
+                                          _weatherForecast![0]['icon'] ?? '02d',
+                                        ),
+                                        'tip': _getWeatherTip(
+                                          _weatherForecast![0]['condition'] ??
+                                              'Clouds',
                                           locale,
                                         ),
-                                    'icon': _getWeatherIcon(
-                                      _currentWeather?['icon'] ?? '01d',
-                                    ),
-                                    'tip': _getWeatherTip(
-                                      _currentWeather?['condition'] ?? 'Clear',
-                                      locale,
-                                    ),
-                                    'color': _getWeatherColor(
-                                      _currentWeather?['icon'] ?? '01d',
-                                    ),
-                                  },
-                                  if (_weatherForecast!.isNotEmpty)
+                                        'color': _getWeatherColor(
+                                          _weatherForecast![0]['icon'] ?? '02d',
+                                        ),
+                                      },
+                                    if (_weatherForecast!.length > 1)
+                                      {
+                                        'title': translate('week', locale),
+                                        'temp':
+                                            '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
+                                        'condition': _weatherForecast![1]
+                                                    ['condition'] !=
+                                                null
+                                            ? _localizeWeatherCondition(
+                                                _weatherForecast![1]
+                                                    ['condition'] as String?,
+                                                locale,
+                                              )
+                                            : translate('mixed', locale),
+                                        'icon': _getWeatherIcon(
+                                          _weatherForecast![1]['icon'] ?? '03d',
+                                        ),
+                                        'tip': _getWeatherTip(
+                                          _weatherForecast![1]['condition'] ??
+                                              'Clouds',
+                                          locale,
+                                        ),
+                                        'color': _getWeatherColor(
+                                          _weatherForecast![1]['icon'] ?? '03d',
+                                        ),
+                                      },
+                                  ];
+                                } else {
+                                  // Placeholder veriler
+                                  weatherCards = [
+                                    {
+                                      'title': translate('today', locale),
+                                      'temp': '24°C',
+                                      'condition': translate('sunny', locale),
+                                      'icon': Icons.wb_sunny,
+                                      'tip': translate('solar_ideal', locale),
+                                      'color': Colors.orange,
+                                    },
                                     {
                                       'title': translate('tomorrow', locale),
-                                      'temp':
-                                          '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
-                                      'condition': _weatherForecast![0]
-                                              ['condition'] !=
-                                          null
-                                          ? _localizeWeatherCondition(
-                                              _weatherForecast![0]['condition']
-                                                  as String?,
-                                              locale,
-                                            )
-                                          : translate('cloudy', locale),
-                                      'icon': _getWeatherIcon(
-                                        _weatherForecast![0]['icon'] ?? '02d',
-                                      ),
-                                      'tip': _getWeatherTip(
-                                        _weatherForecast![0]['condition'] ??
-                                            'Clouds',
-                                        locale,
-                                      ),
-                                      'color': _getWeatherColor(
-                                        _weatherForecast![0]['icon'] ?? '02d',
-                                      ),
+                                      'temp': '18°C',
+                                      'condition': translate('cloudy', locale),
+                                      'icon': Icons.cloud,
+                                      'tip': translate(
+                                          'natural_light_decrease', locale),
+                                      'color': Colors.blue,
                                     },
-                                  if (_weatherForecast!.length > 1)
                                     {
                                       'title': translate('week', locale),
-                                      'temp':
-                                          '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
-                                      'condition': _weatherForecast![1]
-                                              ['condition'] !=
-                                          null
-                                          ? _localizeWeatherCondition(
-                                              _weatherForecast![1]['condition']
-                                                  as String?,
-                                              locale,
-                                            )
-                                          : translate('mixed', locale),
-                                      'icon': _getWeatherIcon(
-                                        _weatherForecast![1]['icon'] ?? '03d',
-                                      ),
-                                      'tip': _getWeatherTip(
-                                        _weatherForecast![1]['condition'] ??
-                                            'Clouds',
-                                        locale,
-                                      ),
-                                      'color': _getWeatherColor(
-                                        _weatherForecast![1]['icon'] ?? '03d',
-                                      ),
+                                      'temp': '22°C',
+                                      'condition': translate('mixed', locale),
+                                      'icon': Icons.wb_cloudy,
+                                      'tip': translate(
+                                          'hvac_usage_increase', locale),
+                                      'color': Colors.green,
                                     },
-                                ];
-                              } else {
-                                // Placeholder veriler
-                                weatherCards = [
-                                  {
-                                    'title': translate('today', locale),
-                                    'temp': '24°C',
-                                    'condition': translate('sunny', locale),
-                                    'icon': Icons.wb_sunny,
-                                    'tip': translate('solar_ideal', locale),
-                                    'color': Colors.orange,
-                                  },
-                                  {
-                                    'title': translate('tomorrow', locale),
-                                    'temp': '18°C',
-                                    'condition': translate('cloudy', locale),
-                                    'icon': Icons.cloud,
-                                    'tip': translate(
-                                        'natural_light_decrease', locale),
-                                    'color': Colors.blue,
-                                  },
-                                  {
-                                    'title': translate('week', locale),
-                                    'temp': '22°C',
-                                    'condition': translate('mixed', locale),
-                                    'icon': Icons.wb_cloudy,
-                                    'tip': translate(
-                                        'hvac_usage_increase', locale),
-                                    'color': Colors.green,
-                                  },
-                                ];
-                              }
+                                  ];
+                                }
 
-                              return SizedBox(
-                                height: cardHeight,
-                                child: ListView.builder(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: weatherCards.length,
-                                  itemBuilder: (context, index) {
-                                    final card = weatherCards[index];
-                                    return Container(
-                                      width: cardWidth,
-                                      margin: const EdgeInsets.only(right: 12),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(16),
-                                        child: BackdropFilter(
-                                          filter: ImageFilter.blur(
-                                              sigmaX: 25, sigmaY: 25),
-                                          child: Container(
-                                            decoration: BoxDecoration(
-                                              gradient: isDark
-                                                  ? null
-                                                  : LinearGradient(
-                                                      begin: Alignment.topLeft,
-                                                      end:
-                                                          Alignment.bottomRight,
-                                                      colors: [
-                                                        Theme.of(
-                                                          context,
-                                                        )
-                                                            .colorScheme
-                                                            .primary
-                                                            .withValues(
-                                                                alpha: 0.2),
-                                                        Theme.of(
-                                                          context,
-                                                        )
-                                                            .colorScheme
-                                                            .primary
-                                                            .withValues(
-                                                                alpha: 0.1),
-                                                      ],
-                                                    ),
-                                              color: isDark
-                                                  ? Colors.black
-                                                      .withValues(alpha: 0.4)
-                                                  : null,
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              border: Border.all(
-                                                color: (Theme.of(context)
-                                                            .brightness ==
-                                                        Brightness.dark)
-                                                    ? Theme.of(context)
-                                                        .colorScheme
-                                                        .primary
-                                                    : Theme.of(context)
-                                                        .colorScheme
-                                                        .primary,
-                                                width: isDark ? 1 : 2,
+                                return SizedBox(
+                                  height: cardHeight,
+                                  child: ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: weatherCards.length,
+                                    itemBuilder: (context, index) {
+                                      final card = weatherCards[index];
+                                      return Container(
+                                        width: cardWidth,
+                                        margin:
+                                            const EdgeInsets.only(right: 12),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                          child: BackdropFilter(
+                                            filter: ImageFilter.blur(
+                                                sigmaX: 25, sigmaY: 25),
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                gradient: isDark
+                                                    ? null
+                                                    : LinearGradient(
+                                                        begin:
+                                                            Alignment.topLeft,
+                                                        end: Alignment
+                                                            .bottomRight,
+                                                        colors: [
+                                                          Theme.of(
+                                                            context,
+                                                          )
+                                                              .colorScheme
+                                                              .primary
+                                                              .withValues(
+                                                                  alpha: 0.2),
+                                                          Theme.of(
+                                                            context,
+                                                          )
+                                                              .colorScheme
+                                                              .primary
+                                                              .withValues(
+                                                                  alpha: 0.1),
+                                                        ],
+                                                      ),
+                                                color: isDark
+                                                    ? Colors.black
+                                                        .withValues(alpha: 0.4)
+                                                    : null,
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                border: Border.all(
+                                                  color: (Theme.of(context)
+                                                              .brightness ==
+                                                          Brightness.dark)
+                                                      ? Theme.of(context)
+                                                          .colorScheme
+                                                          .primary
+                                                      : Theme.of(context)
+                                                          .colorScheme
+                                                          .primary,
+                                                  width: isDark ? 1 : 2,
+                                                ),
                                               ),
-                                            ),
-                                            child: Padding(
-                                              padding: const EdgeInsets.all(12),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Row(
-                                                        children: [
-                                                          Icon(
-                                                            card['icon']
-                                                                as IconData,
-                                                            color: card['color']
-                                                                as Color,
-                                                            size: 20,
-                                                          ),
-                                                          const SizedBox(
-                                                              width: 8),
-                                                          Expanded(
-                                                            child: Text(
-                                                              card['title']
-                                                                  as String,
-                                                              style: Theme.of(
-                                                                      context)
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.all(12),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Row(
+                                                          children: [
+                                                            Icon(
+                                                              card['icon']
+                                                                  as IconData,
+                                                              color:
+                                                                  card['color']
+                                                                      as Color,
+                                                              size: 20,
+                                                            ),
+                                                            const SizedBox(
+                                                                width: 8),
+                                                            Expanded(
+                                                              child: Text(
+                                                                card['title']
+                                                                    as String,
+                                                                style: Theme.of(
+                                                                        context)
+                                                                    .textTheme
+                                                                    .titleSmall
+                                                                    ?.copyWith(
+                                                                      color: isDark
+                                                                          ? Colors
+                                                                              .white
+                                                                          : Colors
+                                                                              .black,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .bold,
+                                                                    ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        const SizedBox(
+                                                            height: 6),
+                                                        Text(
+                                                          card['temp']
+                                                              as String,
+                                                          style:
+                                                              Theme.of(context)
                                                                   .textTheme
-                                                                  .titleSmall
+                                                                  .headlineSmall
                                                                   ?.copyWith(
                                                                     color: isDark
                                                                         ? Colors
@@ -1064,218 +1076,240 @@ class _HomeScreenState extends State<HomeScreen> {
                                                                         FontWeight
                                                                             .bold,
                                                                   ),
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      const SizedBox(height: 6),
-                                                      Text(
-                                                        card['temp'] as String,
-                                                        style: Theme.of(context)
-                                                            .textTheme
-                                                            .headlineSmall
-                                                            ?.copyWith(
-                                                              color: isDark
-                                                                  ? Colors.white
-                                                                  : Colors
-                                                                      .black,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                            ),
-                                                      ),
-                                                      Text(
-                                                        card['condition']
-                                                            as String,
-                                                        style: Theme.of(context)
-                                                            .textTheme
-                                                            .bodySmall
-                                                            ?.copyWith(
-                                                              color: isDark
-                                                                  ? Colors.white
-                                                                      .withValues(
-                                                                          alpha:
-                                                                              0.8)
-                                                                  : Colors.black
-                                                                      .withValues(
-                                                                          alpha:
-                                                                              0.8),
-                                                            ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  Text(
-                                                    card['tip'] as String,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(
-                                                          color: card['color']
-                                                              as Color,
-                                                          fontWeight:
-                                                              FontWeight.w500,
                                                         ),
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                ],
+                                                        Text(
+                                                          card['condition']
+                                                              as String,
+                                                          style:
+                                                              Theme.of(context)
+                                                                  .textTheme
+                                                                  .bodySmall
+                                                                  ?.copyWith(
+                                                                    color: isDark
+                                                                        ? Colors.white.withValues(
+                                                                            alpha:
+                                                                                0.8)
+                                                                        : Colors
+                                                                            .black
+                                                                            .withValues(alpha: 0.8),
+                                                                  ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    Text(
+                                                      card['tip'] as String,
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: card['color']
+                                                                as Color,
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                          ),
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        ],
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 32),
-              // Gerçek zamanlı iklim verileri
-              Text(
-                translate('climate_realtime_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: isDark
-                          ? null
-                          : LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.2),
-                                Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.1),
-                              ],
-                            ),
-                      color:
-                          isDark ? Colors.black.withValues(alpha: 0.4) : null,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: (Theme.of(context).brightness == Brightness.dark)
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.primary,
-                        width: isDark ? 1 : 2,
+                const SizedBox(height: 32),
+                // Gerçek zamanlı iklim verileri
+                Text(
+                  translate('climate_realtime_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: _isLoadingWeather
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(16),
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                ),
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: isDark
+                            ? null
+                            : LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.2),
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.1),
+                                ],
                               ),
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Şehir bilgisi - daha belirgin
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: Colors.tealAccent
-                                                .withValues(alpha: 0.2),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: const Icon(
-                                            Icons.location_city,
-                                            color: Colors.tealAccent,
-                                            size: 24,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              translate('city', locale),
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodySmall
-                                                  ?.copyWith(
-                                                    color: isDark
-                                                        ? Colors.white
-                                                            .withValues(
-                                                                alpha: 0.7)
-                                                        : Colors.black,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
+                        color:
+                            isDark ? Colors.black.withValues(alpha: 0.4) : null,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color:
+                              (Theme.of(context).brightness == Brightness.dark)
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.primary,
+                          width: isDark ? 1 : 2,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: _isLoadingWeather
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Şehir bilgisi - daha belirgin
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.tealAccent
+                                                  .withValues(alpha: 0.2),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
                                             ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'Sakarya',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium
-                                                  ?.copyWith(
-                                                    color: isDark
-                                                        ? Colors.white
-                                                        : Colors.black,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                            child: const Icon(
+                                              Icons.location_city,
+                                              color: Colors.tealAccent,
+                                              size: 24,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                translate('city', locale),
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: isDark
+                                                          ? Colors.white
+                                                              .withValues(
+                                                                  alpha: 0.7)
+                                                          : Colors.black,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Sakarya',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      color: isDark
+                                                          ? Colors.white
+                                                          : Colors.black,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.refresh,
+                                          color: Colors.white70,
+                                          size: 20,
+                                        ),
+                                        onPressed: _loadWeatherData,
+                                        tooltip: translate('refresh', locale),
+                                        style: IconButton.styleFrom(
+                                          backgroundColor: Colors.white
+                                              .withValues(alpha: 0.1),
+                                          padding: const EdgeInsets.all(8),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // İklim verileri - grid düzeni
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final bool isWide =
+                                          constraints.maxWidth > 600;
+                                      if (isWide) {
+                                        // Geniş ekran: 3 sütunlu grid
+                                        return Row(
+                                          children: [
+                                            Expanded(
+                                              child: _ClimateInfoCard(
+                                                icon: Icons.thermostat,
+                                                iconColor: Colors.orangeAccent,
+                                                label: translate(
+                                                    'temperature', locale),
+                                                value: _currentWeather != null
+                                                    ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
+                                                    : '24°C',
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: _ClimateInfoCard(
+                                                icon: Icons.air,
+                                                iconColor: Colors.blueAccent,
+                                                label: translate('aqi', locale),
+                                                value: _airQuality != null
+                                                    ? '${_airQuality!['aqi'] ?? 78} (${_localizeAqiText(_airQuality!['aqiText'] as String?, locale)})'
+                                                    : '78 (${translate('aqi_moderate', locale)})',
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: _ClimateInfoCard(
+                                                icon: Icons.eco,
+                                                iconColor: Colors.greenAccent,
+                                                label: translate(
+                                                    'carbon_intensity', locale),
+                                                value: _carbonIntensity != null
+                                                    ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
+                                                    : '420 gCO₂/kWh',
+                                              ),
                                             ),
                                           ],
-                                        ),
-                                      ],
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.refresh,
-                                        color: Colors.white70,
-                                        size: 20,
-                                      ),
-                                      onPressed: _loadWeatherData,
-                                      tooltip: translate('refresh', locale),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor:
-                                            Colors.white.withValues(alpha: 0.1),
-                                        padding: const EdgeInsets.all(8),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                // İklim verileri - grid düzeni
-                                LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final bool isWide =
-                                        constraints.maxWidth > 600;
-                                    if (isWide) {
-                                      // Geniş ekran: 3 sütunlu grid
-                                      return Row(
-                                        children: [
-                                          Expanded(
-                                            child: _ClimateInfoCard(
+                                        );
+                                      } else {
+                                        // Mobil: dikey düzen
+                                        return Column(
+                                          children: [
+                                            _ClimateInfoCard(
                                               icon: Icons.thermostat,
                                               iconColor: Colors.orangeAccent,
                                               label: translate(
@@ -1284,10 +1318,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
                                                   : '24°C',
                                             ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: _ClimateInfoCard(
+                                            const SizedBox(height: 12),
+                                            _ClimateInfoCard(
                                               icon: Icons.air,
                                               iconColor: Colors.blueAccent,
                                               label: translate('aqi', locale),
@@ -1295,10 +1327,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   ? '${_airQuality!['aqi'] ?? 78} (${_localizeAqiText(_airQuality!['aqiText'] as String?, locale)})'
                                                   : '78 (${translate('aqi_moderate', locale)})',
                                             ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: _ClimateInfoCard(
+                                            const SizedBox(height: 12),
+                                            _ClimateInfoCard(
                                               icon: Icons.eco,
                                               iconColor: Colors.greenAccent,
                                               label: translate(
@@ -1307,86 +1337,52 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
                                                   : '420 gCO₂/kWh',
                                             ),
-                                          ),
-                                        ],
-                                      );
-                                    } else {
-                                      // Mobil: dikey düzen
-                                      return Column(
-                                        children: [
-                                          _ClimateInfoCard(
-                                            icon: Icons.thermostat,
-                                            iconColor: Colors.orangeAccent,
-                                            label: translate(
-                                                'temperature', locale),
-                                            value: _currentWeather != null
-                                                ? '${_currentWeather!['temperature']?.toStringAsFixed(0) ?? 24}°C'
-                                                : '24°C',
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ClimateInfoCard(
-                                            icon: Icons.air,
-                                            iconColor: Colors.blueAccent,
-                                            label: translate('aqi', locale),
-                                            value: _airQuality != null
-                                                ? '${_airQuality!['aqi'] ?? 78} (${_localizeAqiText(_airQuality!['aqiText'] as String?, locale)})'
-                                                : '78 (${translate('aqi_moderate', locale)})',
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ClimateInfoCard(
-                                            icon: Icons.eco,
-                                            iconColor: Colors.greenAccent,
-                                            label: translate(
-                                                'carbon_intensity', locale),
-                                            value: _carbonIntensity != null
-                                                ? '${_carbonIntensity!.toStringAsFixed(0)} gCO₂/kWh'
-                                                : '420 gCO₂/kWh',
-                                          ),
-                                        ],
-                                      );
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
+                                          ],
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 32),
-              // Emisyon farkındalık / karşılaştırma (placeholder hesap)
-              Text(
-                translate('emission_awareness_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              _EmissionComparisonCard(
-                userDailyEmissionKg: _dailyEmissionKg ?? 12.0,
-                nationalAvgKg: _nationalAverageKg ?? 6.8,
-                globalAvgKg: _globalAverageKg ?? 4.1,
-                locale: locale,
-              ),
-              const SizedBox(height: 32),
-              // Eşdeğer görselleştirme
-              Text(
-                translate('impact_equivalents_title', locale),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              _EquivalentsCard(
-                dailyEmissionKg: _dailyEmissionKg ?? 12.0,
-                locale: locale,
-              ),
-              // Eski alıntı görsel bloğu kaldırıldı (yukarıda blur olarak gösteriliyor)
-            ],
-          ),
-        ],
+                const SizedBox(height: 32),
+                // Emisyon farkındalık / karşılaştırma (placeholder hesap)
+                Text(
+                  translate('emission_awareness_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                _EmissionComparisonCard(
+                  userDailyEmissionKg: _dailyEmissionKg ?? 12.0,
+                  nationalAvgKg: _nationalAverageKg ?? 6.8,
+                  globalAvgKg: _globalAverageKg ?? 4.1,
+                  locale: locale,
+                ),
+                const SizedBox(height: 32),
+                // Eşdeğer görselleştirme
+                Text(
+                  translate('impact_equivalents_title', locale),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                _EquivalentsCard(
+                  dailyEmissionKg: _dailyEmissionKg ?? 12.0,
+                  locale: locale,
+                ),
+                // Eski alıntı görsel bloğu kaldırıldı (yukarıda blur olarak gösteriliyor)
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

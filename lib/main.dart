@@ -16,6 +16,7 @@ import 'providers/language_provider.dart';
 import 'localization/translations.dart';
 import 'services/postgres_service.dart';
 import 'services/firebase_realtime_service.dart';
+import 'services/notification_service.dart';
 import 'package:provider/provider.dart';
 
 void main() async {
@@ -47,6 +48,12 @@ void main() async {
     debugPrint('PostgreSQL bağlantı hatası: $e');
     // Uygulama yine de çalışır, sadece veritabanı işlemleri başarısız olur
   });
+
+  try {
+    await NotificationService.instance.initialize();
+  } catch (_) {
+    // Bildirim servisi başlatılamazsa uygulama çalışmaya devam eder.
+  }
 
   runApp(const CarbonFootprintApp());
 }

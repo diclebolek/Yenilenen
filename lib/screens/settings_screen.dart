@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../providers/language_provider.dart';
 import '../localization/translations.dart';
 import 'profile_settings_screen.dart';
+import '../services/notification_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -30,11 +31,41 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  bool _isDarkModeLocal = false;
+
   // Bildirim ayarları
   bool _weeklyReports = true;
   bool _monthlyReports = true;
   bool _goalReminders = true;
   bool _energyTips = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _isDarkModeLocal = widget.isDarkMode;
+    _loadNotificationPreferences();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isDarkMode != widget.isDarkMode &&
+        _isDarkModeLocal != widget.isDarkMode) {
+      _isDarkModeLocal = widget.isDarkMode;
+    }
+  }
+
+  Future<void> _loadNotificationPreferences() async {
+    await NotificationService.instance.initialize();
+    final prefs = await NotificationService.instance.loadPreferences();
+    if (!mounted) return;
+    setState(() {
+      _weeklyReports = prefs.weeklyReports;
+      _monthlyReports = prefs.monthlyReports;
+      _goalReminders = prefs.goalReminders;
+      _energyTips = prefs.energyTips;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,8 +230,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           Switch(
-                            value: widget.isDarkMode,
-                            onChanged: widget.onToggleTheme,
+                            value: _isDarkModeLocal,
+                            onChanged: (value) {
+                              setState(() {
+                                _isDarkModeLocal = value;
+                              });
+                              widget.onToggleTheme(value);
+                            },
                           ),
                         ],
                       ),
@@ -355,10 +391,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Switch(
                                 value: _weeklyReports,
-                                onChanged: (value) {
+                                onChanged: (value) async {
                                   setState(() {
                                     _weeklyReports = value;
                                   });
+                                  await NotificationService.instance
+                                      .setWeeklyReportsEnabled(value);
                                 },
                               ),
                             ],
@@ -398,10 +436,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Switch(
                                 value: _monthlyReports,
-                                onChanged: (value) {
+                                onChanged: (value) async {
                                   setState(() {
                                     _monthlyReports = value;
                                   });
+                                  await NotificationService.instance
+                                      .setMonthlyReportsEnabled(value);
                                 },
                               ),
                             ],
@@ -441,10 +481,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Switch(
                                 value: _goalReminders,
-                                onChanged: (value) {
+                                onChanged: (value) async {
                                   setState(() {
                                     _goalReminders = value;
                                   });
+                                  await NotificationService.instance
+                                      .setGoalRemindersEnabled(value);
                                 },
                               ),
                             ],
@@ -484,10 +526,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Switch(
                                 value: _energyTips,
-                                onChanged: (value) {
+                                onChanged: (value) async {
                                   setState(() {
                                     _energyTips = value;
                                   });
+                                  await NotificationService.instance
+                                      .setEnergyTipsEnabled(value);
                                 },
                               ),
                             ],

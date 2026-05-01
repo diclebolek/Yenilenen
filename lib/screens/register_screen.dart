@@ -693,9 +693,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     const SizedBox(height: 24),
 
                                     // Login link
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
+                                    Wrap(
+                                      alignment: WrapAlignment.center,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      spacing: 4,
+                                      runSpacing: 4,
                                       children: [
                                         Text(
                                           'Zaten hesabınız var mı? ',

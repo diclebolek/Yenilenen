@@ -36,6 +36,9 @@ dependencies:
   shared_preferences: ^2.2.2
   pdf: ^3.11.3
   printing: ^5.14.2
+  flutter_local_notifications: ^20.1.0
+  timezone: ^0.10.1
+  flutter_timezone: ^5.0.2
 
 dev_dependencies:
   flutter_test:
