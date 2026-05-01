@@ -94,6 +94,28 @@ flutter pub get
 flutter run
 ```
 
+## Docker ile Çalıştırma (Web)
+
+Uygulamayı Docker ile her ortamda aynı şekilde çalıştırmak için:
+
+1. İmajı build edin:
+```bash
+docker build -t carbon-footprint-app .
+```
+
+2. Container başlatın:
+```bash
+docker run --rm -p 8080:80 carbon-footprint-app
+```
+
+3. Tarayıcıdan açın:
+- [http://localhost:8080](http://localhost:8080)
+
+Alternatif olarak Docker Compose:
+```bash
+docker compose up --build
+```
+
 Detaylı kurulum için `KURULUM.md` dosyasına bakın.
 
 **İlgili dokümanlar:** Emisyon faktörleri ve formül ayrıntıları için `KARBON_AYAK_IZI_METODOLOJI.md`; akademik IMRAD taslağı için `MAKALE_IMRAD_TASLAK.md`.

@@ -1,0 +1,9 @@
+services:
+  carbon-footprint-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carbon-footprint-app
+    ports:
+      - "8080:80"
+    restart: unless-stopped

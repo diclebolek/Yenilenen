@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' show ImageFilter;
+import 'dart:math' as math;
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/api_service.dart';
-import '../services/weather_service.dart';
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import 'dart:async';
@@ -112,7 +112,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
       FirebaseRealtimeService.instance;
   final FirebaseAuthService _authService = FirebaseAuthService.instance;
   final ApiService _apiService = ApiService();
-  final WeatherService _weatherService = WeatherService();
 
   int _greenScore = 0;
   List<CarbonGoal> _goals = [];
@@ -313,7 +312,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
           title: data['title'] ?? '',
           target: (data['target'] ?? 0.0).toDouble(),
           current: (data['current'] ?? 0.0).toDouble(),
-          monthlyChangePercent: (data['monthlyChangePercent'] ?? 0.0).toDouble(),
+          monthlyChangePercent:
+              (data['monthlyChangePercent'] ?? 0.0).toDouble(),
           recommendation: data['recommendation']?.toString() ?? '',
           unit: data['unit'] ?? '',
           type: data['type'] ?? '',
@@ -398,14 +398,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final threeMonthAverages = await _calculateThreeMonthAverageReductions(
         currentMonthStart,
       );
-      final electricityHourly = _buildHourlySums(currentMonthData, forElectricity: true);
-      final waterHourly = _buildHourlySums(currentMonthData, forElectricity: false);
+      final electricityHourly =
+          _buildHourlySums(currentMonthData, forElectricity: true);
+      final waterHourly =
+          _buildHourlySums(currentMonthData, forElectricity: false);
 
       for (var goalData in goalsData) {
         final type = goalData['type'] ?? '';
         double? newCurrent;
         double newMonthlyChangePercent = 0.0;
-        final previousRecommendation = goalData['recommendation']?.toString() ?? '';
+        final previousRecommendation =
+            goalData['recommendation']?.toString() ?? '';
         var newRecommendation = previousRecommendation;
         double dynamicTarget = (goalData['target'] ?? 0.0).toDouble();
 
@@ -415,7 +418,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // Elektrik tasarrufu yüzdesi: (Önceki ay - Bu ay) / Önceki ay * 100
             if (previousMonthElectricity > 0) {
               final saving = previousMonthElectricity - currentMonthElectricity;
-              newMonthlyChangePercent = (saving / previousMonthElectricity) * 100;
+              newMonthlyChangePercent =
+                  (saving / previousMonthElectricity) * 100;
               newCurrent = newMonthlyChangePercent;
               // Negatif değerler (artış) için 0 göster
               if (newCurrent < 0) newCurrent = 0;
@@ -453,7 +457,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // Negatif değerler (artış) için 0 göster
             newCurrent = reduction > 0 ? reduction : 0.0;
             if (newCurrent < dynamicTarget) {
-              final missingKg = (dynamicTarget - newCurrent).clamp(0.0, double.infinity);
+              final missingKg =
+                  (dynamicTarget - newCurrent).clamp(0.0, double.infinity);
               if (locale.languageCode == 'tr') {
                 newRecommendation =
                     'Önceki 3 ay ortalamasına ulaşmak için bu ay yaklaşık ${missingKg.toStringAsFixed(1)} kg CO₂e daha azaltmalısınız.';
@@ -508,7 +513,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
           goalData['target'] = dynamicTarget;
           updated = true;
         }
-        if ((goalData['monthlyChangePercent'] ?? 0.0) != newMonthlyChangePercent) {
+        if ((goalData['monthlyChangePercent'] ?? 0.0) !=
+            newMonthlyChangePercent) {
           goalData['monthlyChangePercent'] = newMonthlyChangePercent;
           updated = true;
         }
@@ -531,7 +537,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
   Future<Map<String, double>> _calculateThreeMonthAverageReductions(
     DateTime currentMonthStart,
   ) async {
-    final start = DateTime(currentMonthStart.year, currentMonthStart.month - 4, 1);
+    final start =
+        DateTime(currentMonthStart.year, currentMonthStart.month - 4, 1);
     final end = currentMonthStart.subtract(const Duration(days: 1));
     final entries = await _firebaseService.getHistoryData(
       deviceId: 'esp8266_001',
@@ -546,7 +553,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         key,
         () => {'electricity': 0.0, 'water': 0.0, 'co2': 0.0},
       );
-      bucket['electricity'] = (bucket['electricity'] ?? 0) + entry.electricityKwh;
+      bucket['electricity'] =
+          (bucket['electricity'] ?? 0) + entry.electricityKwh;
       bucket['water'] = (bucket['water'] ?? 0) + entry.waterCubicMeters;
       bucket['co2'] = (bucket['co2'] ?? 0) +
           (entry.fuelLiters * Calculation.factorNaturalGasKgPerM3);
@@ -570,7 +578,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         return metric == 'water' ? 25.0 : (metric == 'co2' ? 15.0 : 20.0);
       }
       final avg = reductions.reduce((a, b) => a + b) / reductions.length;
-      final fallback = metric == 'water' ? 25.0 : (metric == 'co2' ? 15.0 : 20.0);
+      final fallback =
+          metric == 'water' ? 25.0 : (metric == 'co2' ? 15.0 : 20.0);
       return avg.isFinite ? avg.clamp(5.0, 40.0) : fallback;
     }
 
@@ -608,7 +617,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
     final topHours = hourlySums.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final top = topHours.take(2).map((e) => '${e.key.toString().padLeft(2, '0')}:00').join(', ');
+    final top = topHours
+        .take(2)
+        .map((e) => '${e.key.toString().padLeft(2, '0')}:00')
+        .join(', ');
     final percentText = neededPercent.toStringAsFixed(1);
     if (locale.languageCode == 'tr') {
       return 'Hedef için $resourceLabelTr kullanımını $top saatlerinde yaklaşık %$percentText azaltın.';
@@ -625,48 +637,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final elapsedDays = now.day.clamp(1, daysInMonth);
 
     try {
-      final monthEntries = await _firebaseService.getHistoryData(
-        deviceId: 'esp8266_001',
-        startDate: monthStart,
-        endDate: now,
-      );
-      final previousMonthStart = DateTime(now.year, now.month - 1, 1);
-      final previousMonthEnd = monthStart.subtract(const Duration(days: 1));
-      final previousMonthEntries = await _firebaseService.getHistoryData(
-        deviceId: 'esp8266_001',
-        startDate: previousMonthStart,
-        endDate: previousMonthEnd,
-      );
-
-      final currentTotal = _totalEmissionKg(monthEntries);
-      final currentDailyAverage = currentTotal / elapsedDays;
-
-      final activityFactor = _activityFactor(monthEntries, now);
-
-      final weatherData = await _weatherService.getWeatherData('Istanbul,TR');
-      final temp = (weatherData['temperature'] ?? 21.0).toDouble();
-      final tempDeviation = (temp - 21.0).abs();
-      final weatherFactor = (1.0 + (tempDeviation * 0.008)).clamp(0.9, 1.2);
-
-      final prevSameWindowEnd = DateTime(
-        previousMonthStart.year,
-        previousMonthStart.month,
-        elapsedDays,
-      );
-      final prevWindowEntries = previousMonthEntries
-          .where((e) => !e.createdAt.isAfter(prevSameWindowEnd))
-          .toList();
-      final prevWindowTotal = _totalEmissionKg(prevWindowEntries);
-      final trendFactor = prevWindowTotal > 0
-          ? (currentTotal / prevWindowTotal).clamp(0.75, 1.35)
-          : 1.0;
-
-      final projectedMonthEnd = currentDailyAverage *
-          daysInMonth *
-          weatherFactor *
-          activityFactor *
-          trendFactor;
-
       final reductionGoal = _goals.firstWhere(
         (g) => g.type == 'co2_reduction',
         orElse: () => CarbonGoal(
@@ -682,22 +652,28 @@ class _GoalsScreenState extends State<GoalsScreen> {
           color: const Color(0xFF48631F),
         ),
       );
-      final previousMonthTotal = _totalEmissionKg(previousMonthEntries);
-      final targetMonthEnd =
-          (previousMonthTotal - reductionGoal.target).clamp(0.0, double.infinity);
-      final isOnTrack = projectedMonthEnd <= targetMonthEnd || previousMonthTotal <= 0;
+      final targetMonthEndKg = reductionGoal.target.clamp(0.0, double.infinity);
+      final dailyTotals = await _buildDailyCombinedTotals(monthStart, now);
+      final last7 = _lastSevenDaysSeries(dailyTotals, now);
+      final estimatedDailyAverage = _estimateDailyAverageFromSeries(last7);
+      final projectedMonthEnd = estimatedDailyAverage * daysInMonth;
+      final isOnTrack =
+          targetMonthEndKg <= 0 ? true : projectedMonthEnd <= targetMonthEndKg;
+      final remainingDays = (daysInMonth - elapsedDays).clamp(0, daysInMonth);
 
-      final impactText = locale.languageCode == 'tr'
-          ? 'Hava etkisi: x${weatherFactor.toStringAsFixed(2)}, yoğunluk etkisi: x${activityFactor.toStringAsFixed(2)}'
-          : 'Weather impact: x${weatherFactor.toStringAsFixed(2)}, intensity impact: x${activityFactor.toStringAsFixed(2)}';
+      final trendText = locale.languageCode == 'tr'
+          ? 'Son 7 gün verisi (Manuel + ESP + Shelly) ile tahminlendi.'
+          : 'Estimated from last 7 days (Manual + ESP + Shelly).';
 
       if (mounted) {
         setState(() {
           _monthlyPrediction = MonthlyPrediction(
             projectedMonthEndKg: projectedMonthEnd,
-            currentAverageKgPerDay: currentDailyAverage,
+            targetMonthEndKg: targetMonthEndKg,
+            currentAverageKgPerDay: estimatedDailyAverage,
             daysElapsed: elapsedDays,
             daysInMonth: daysInMonth,
+            remainingDays: remainingDays,
             isOnTrack: isOnTrack,
             trackMessage: isOnTrack
                 ? (locale.languageCode == 'tr'
@@ -706,9 +682,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 : (locale.languageCode == 'tr'
                     ? 'Bu gidişle hedefe ulaşamazsın.'
                     : 'At this pace, you may miss the goal.'),
-            impactSummary: impactText,
-            weatherFactor: weatherFactor,
-            intensityFactor: activityFactor,
+            impactSummary: trendText,
           );
         });
       }
@@ -717,33 +691,152 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
-  double _totalEmissionKg(List<ConsumptionEntry> entries) {
-    double total = 0;
-    for (final e in entries) {
-      total +=
-          (e.electricityKwh * Calculation.factorElectricityKgPerKwh) +
-          (e.waterCubicMeters * Calculation.factorWaterKgPerM3) +
-          (e.wasteKg * Calculation.factorWasteKgPerKg);
-      total += e.fuelIsNaturalGasM3
-          ? (e.fuelLiters * Calculation.factorNaturalGasKgPerM3)
-          : (e.fuelLiters * Calculation.factorFuelKgPerLiter);
+  Future<Map<DateTime, double>> _buildDailyCombinedTotals(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final espHistory = await _firebaseService.getHistoryData(
+      deviceId: 'esp8266_001',
+      startDate: startDate,
+      endDate: endDate,
+    );
+
+    List<ConsumptionEntry> shellyHistory = [];
+    try {
+      final shellyData = await _apiService.getFirebaseShellyHistory(
+        deviceId: 'shelly_plug_001',
+        startDate: startDate,
+        endDate: endDate,
+      );
+      shellyHistory = shellyData
+          .map((item) => _apiService.shellyDataToConsumptionEntry(item))
+          .toList();
+    } catch (_) {}
+
+    List<ConsumptionEntry> manualHistory = [];
+    try {
+      if (_userId != null) {
+        manualHistory = await _firebaseService.getManualHistoryData(
+          userId: _userId!,
+          startDate: startDate,
+          endDate: endDate,
+        );
+      }
+    } catch (_) {}
+
+    DateTime dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+
+    final Map<DateTime, ConsumptionEntry> latestEsp = {};
+    final Map<DateTime, ConsumptionEntry> latestShelly = {};
+    final Map<DateTime, ConsumptionEntry> latestManual = {};
+
+    void pushLatest(
+      Map<DateTime, ConsumptionEntry> target,
+      ConsumptionEntry entry,
+    ) {
+      final key = dayKey(entry.createdAt);
+      final current = target[key];
+      if (current == null || entry.createdAt.isAfter(current.createdAt)) {
+        target[key] = entry;
+      }
     }
-    return total;
+
+    for (final entry in espHistory) {
+      pushLatest(latestEsp, entry);
+    }
+    for (final entry in shellyHistory) {
+      pushLatest(latestShelly, entry);
+    }
+    for (final entry in manualHistory) {
+      pushLatest(latestManual, entry);
+    }
+
+    final allDays = <DateTime>{
+      ...latestEsp.keys,
+      ...latestShelly.keys,
+      ...latestManual.keys,
+    };
+
+    final totals = <DateTime, double>{};
+    for (final day in allDays) {
+      final manual = latestManual[day];
+      final esp = latestEsp[day];
+      final shelly = latestShelly[day];
+
+      if (manual != null) {
+        totals[day] = Calculation.calculateDailyEmission(manual);
+        continue;
+      }
+      if (esp != null && shelly != null) {
+        final combined = ConsumptionEntry(
+          electricityKwh: shelly.electricityKwh,
+          waterCubicMeters: esp.waterCubicMeters,
+          fuelLiters: esp.fuelLiters,
+          wasteKg: (esp.wasteKg + shelly.wasteKg) / 2,
+          createdAt: shelly.createdAt.isAfter(esp.createdAt)
+              ? shelly.createdAt
+              : esp.createdAt,
+          fuelIsNaturalGasM3: esp.fuelIsNaturalGasM3,
+        );
+        totals[day] = Calculation.calculateDailyEmission(combined);
+      } else if (esp != null) {
+        totals[day] = Calculation.calculateDailyEmission(esp);
+      } else if (shelly != null) {
+        totals[day] = Calculation.calculateDailyEmission(shelly);
+      }
+    }
+    return totals;
   }
 
-  double _activityFactor(List<ConsumptionEntry> monthEntries, DateTime now) {
-    final last7Start = now.subtract(const Duration(days: 6));
-    final prev7Start = now.subtract(const Duration(days: 13));
-    final prev7End = now.subtract(const Duration(days: 7));
-    final last7 = monthEntries.where((e) => !e.createdAt.isBefore(last7Start)).length;
-    final prev7 = monthEntries
-        .where(
-          (e) =>
-              !e.createdAt.isBefore(prev7Start) && e.createdAt.isBefore(prev7End),
-        )
-        .length;
-    if (prev7 <= 0) return 1.0;
-    return (last7 / prev7).clamp(0.8, 1.25);
+  List<double> _lastSevenDaysSeries(
+      Map<DateTime, double> dailyTotals, DateTime now) {
+    final series = <double>[];
+    for (int i = 6; i >= 0; i--) {
+      final day =
+          DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
+      series.add((dailyTotals[day] ?? 0.0).clamp(0.0, double.infinity));
+    }
+    return series;
+  }
+
+  double _estimateDailyAverageFromSeries(List<double> series) {
+    final cleaned = series.map((e) => e.clamp(0.0, double.infinity)).toList();
+    final indexed =
+        cleaned.asMap().entries.where((entry) => entry.value > 0).toList();
+    if (indexed.isEmpty) return 0.0;
+    if (indexed.length == 1) return indexed.first.value;
+
+    final tail = indexed.skip(math.max(0, indexed.length - 3)).toList();
+    final weights = tail.length == 1
+        ? const [1.0]
+        : tail.length == 2
+            ? const [0.4, 0.6]
+            : const [0.2, 0.3, 0.5];
+    double weighted = 0;
+    double totalWeight = 0;
+    for (int i = 0; i < tail.length; i++) {
+      weighted += tail[i].value * weights[i];
+      totalWeight += weights[i];
+    }
+    final weightedAvg =
+        totalWeight > 0 ? (weighted / totalWeight) : tail.last.value;
+
+    final xs = indexed.map((e) => e.key.toDouble()).toList();
+    final ys = indexed.map((e) => e.value).toList();
+    final xMean = xs.reduce((a, b) => a + b) / xs.length;
+    final yMean = ys.reduce((a, b) => a + b) / ys.length;
+    double numerator = 0;
+    double denominator = 0;
+    for (int i = 0; i < xs.length; i++) {
+      numerator += (xs[i] - xMean) * (ys[i] - yMean);
+      denominator += math.pow(xs[i] - xMean, 2).toDouble();
+    }
+    final slope = denominator == 0 ? 0.0 : numerator / denominator;
+    final intercept = yMean - slope * xMean;
+    final regressionNext = (intercept + slope * 7).clamp(0.0, double.infinity);
+
+    return ((weightedAvg * 0.7) + (regressionNext * 0.3))
+        .clamp(0.0, double.infinity);
   }
 
   Future<void> _awardPoints(int points) async {
@@ -1997,8 +2090,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
     final borderColor = Theme.of(context).colorScheme.primary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fieldFill = (isDark ? Colors.white : Colors.black)
-        .withValues(alpha: 0.06);
+    final fieldFill =
+        (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06);
 
     showDialog<void>(
       context: context,
@@ -2071,10 +2164,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           const SizedBox(height: 4),
                           Text(
                             translate('goal_choose_template', locale),
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  color: isDark
-                                      ? Colors.white
-                                      : Colors.black,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(
+                                  color: isDark ? Colors.white : Colors.black,
                                   fontWeight: FontWeight.w600,
                                 ),
                           ),
@@ -2120,7 +2214,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                               ),
                                               color: selected
                                                   ? borderColor.withValues(
-                                                      alpha: isDark ? 0.22 : 0.14,
+                                                      alpha:
+                                                          isDark ? 0.22 : 0.14,
                                                     )
                                                   : null,
                                             ),
@@ -2171,7 +2266,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           const SizedBox(height: 10),
                           Text(
                             translate(helpKey, locale),
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
                                   color: (isDark ? Colors.white : Colors.black)
                                       .withValues(alpha: 0.65),
                                   height: 1.3,
@@ -2256,7 +2354,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               FilledButton(
                                 onPressed: () async {
                                   final title = titleController.text.trim();
-                                  final rawTarget = targetController.text.trim();
+                                  final rawTarget =
+                                      targetController.text.trim();
                                   if (title.isEmpty || rawTarget.isEmpty) {
                                     if (mounted) {
                                       ScaffoldMessenger.of(this.context)
@@ -2348,30 +2447,29 @@ class _GoalsScreenState extends State<GoalsScreen> {
       },
     );
   }
-
 }
 
 class MonthlyPrediction {
   final double projectedMonthEndKg;
+  final double targetMonthEndKg;
   final double currentAverageKgPerDay;
   final int daysElapsed;
   final int daysInMonth;
+  final int remainingDays;
   final bool isOnTrack;
   final String trackMessage;
   final String impactSummary;
-  final double weatherFactor;
-  final double intensityFactor;
 
   const MonthlyPrediction({
     required this.projectedMonthEndKg,
+    required this.targetMonthEndKg,
     required this.currentAverageKgPerDay,
     required this.daysElapsed,
     required this.daysInMonth,
+    required this.remainingDays,
     required this.isOnTrack,
     required this.trackMessage,
     required this.impactSummary,
-    required this.weatherFactor,
-    required this.intensityFactor,
   });
 }
 
@@ -2408,7 +2506,7 @@ class _PredictionCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isTr ? 'Tahminleme' : 'Prediction',
+                isTr ? 'Ay Sonu Tahmini' : 'Month-end Forecast',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: isDark ? Colors.white : Colors.black,
                       fontWeight: FontWeight.bold,
@@ -2417,17 +2515,31 @@ class _PredictionCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 isTr
-                    ? 'Ay sonu emisyon tahmini: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e'
-                    : 'Month-end emission forecast: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e',
+                    ? 'Tahmini ay sonu: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e'
+                    : 'Estimated month-end: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
+                      color: prediction.isOnTrack
+                          ? (isDark ? Colors.white : Colors.black)
+                          : Colors.orangeAccent,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 4),
               Text(
                 isTr
-                    ? 'Ortalama tempo: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/gün (${prediction.daysElapsed}/${prediction.daysInMonth} gün)'
-                    : 'Current pace: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/day (${prediction.daysElapsed}/${prediction.daysInMonth} days)',
+                    ? 'Hedef: ${prediction.targetMonthEndKg.toStringAsFixed(1)} kg CO₂e'
+                    : 'Target: ${prediction.targetMonthEndKg.toStringAsFixed(1)} kg CO₂e',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: (isDark ? Colors.white : Colors.black)
+                          .withValues(alpha: 0.82),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isTr
+                    ? 'Günlük tempo: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/gün | Kalan gün: ${prediction.remainingDays}'
+                    : 'Daily pace: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/day | Remaining days: ${prediction.remainingDays}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: (isDark ? Colors.white : Colors.black)
                           .withValues(alpha: 0.75),
@@ -2437,7 +2549,9 @@ class _PredictionCard extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    prediction.isOnTrack ? Icons.check_circle : Icons.warning_amber,
+                    prediction.isOnTrack
+                        ? Icons.check_circle
+                        : Icons.warning_amber,
                     size: 18,
                     color: prediction.isOnTrack ? Colors.green : Colors.orange,
                   ),
@@ -2459,8 +2573,8 @@ class _PredictionCard extends StatelessWidget {
               Text(
                 prediction.impactSummary,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color:
-                          (isDark ? Colors.white : Colors.black).withValues(alpha: 0.8),
+                      color: (isDark ? Colors.white : Colors.black)
+                          .withValues(alpha: 0.8),
                     ),
               ),
             ],

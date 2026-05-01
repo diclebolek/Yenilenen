@@ -2311,7 +2311,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                       (maxCombined -
                                                                               minCombined)
                                                                           .abs();
-
                                                                   if (range >
                                                                       0) {
                                                                     globalPlottedSeries = globalPerCapitaSeries
@@ -2581,10 +2580,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                 LineTouchTooltipData(
                                                                               getTooltipItems: (List<LineBarSpot> touchedSpots) {
                                                                                 if (_showGlobalTrend) {
-                                                                                  final pointIndex = touchedSpots.first.x.toInt().clamp(0, 6);
+                                                                                  final rawIndex = touchedSpots.first.x.toInt();
+                                                                                  final pointIndex = rawIndex.clamp(0, 6);
                                                                                   final personalRawKg = personalSeries[pointIndex];
                                                                                   final personalText = personalRawKg < 1 ? '${(personalRawKg * 1000).toStringAsFixed(3)} g' : '${personalRawKg.toStringAsFixed(3)} kg';
-                                                                                  return [
+                                                                                  final List<LineTooltipItem> items = [
                                                                                     LineTooltipItem(
                                                                                       'Dünya Geneli: ${globalPerCapitaSeries[pointIndex].toStringAsFixed(2)}',
                                                                                       const TextStyle(
@@ -2602,6 +2602,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                       ),
                                                                                     ),
                                                                                   ];
+                                                                                  return items;
                                                                                 }
 
                                                                                 return touchedSpots.map((LineBarSpot touchedSpot) {
