@@ -11,6 +11,9 @@ Karbon ayak izi hesaplama ve takip uygulaması - Flutter ile geliştirilmiş iş
 - 📱 Fatura tarama (ML Kit ile OCR)
 - 🌍 Gerçek zamanlı iklim verileri
 - 🎯 Hedef belirleme ve takip
+- 🔮 **Gelecek ay beklentisi** — Hedefler ekranında ay sonu CO₂e projeksiyonu, günlük tempo ve küresel günlük ortalamayla karşılaştırma
+- 📄 **PDF raporlama** — Raporlar ekranından haftalık veya aylık karbon özeti (ISO uyumlu özet, kategori dağılımı); Unicode/Türkçe karakter desteği (OpenSans TTF)
+- 🌐 **PDF rapor dili** — Raporlar bölümünden raporu **Türkçe** veya **English** olarak üretebilirsiniz (uygulama karanlık modda olsa bile dil seçimi geçerlidir)
 - 🌐 Çoklu dil desteği (Türkçe/İngilizce)
 - 🎨 Modern Material 3 tasarımı
 - 🔌 **ESP8266 IoT entegrasyonu** - Gerçek zamanlı sensör verileri
@@ -147,6 +150,8 @@ lib/
 - `google_mlkit_text_recognition` - OCR (fatura tarama)
 - `url_launcher` - URL açma
 - `shared_preferences` - Dil tercihi vb. kalıcı küçük ayarlar (`LanguageProvider`)
+- `pdf` - PDF belge oluşturma (karbon raporu şablonu)
+- `printing` - PDF önizleme, yazdırma ve paylaşım (mobil/masaüstü/web)
 
 ### IoT ve Ağ
 - `web_socket_channel` - WebSocket desteği (Shelly Plug S için)
@@ -158,8 +163,8 @@ lib/
 - **Login Screen** - Kullanıcı girişi
 - **Register Screen** - Yeni kullanıcı/işletme kaydı
 - **Home Screen** - Ana sayfa (dashboard, hava durumu, karbon yoğunluğu)
-- **Reports Screen** - Raporlar ve grafikler (ESP/Manuel veri toggle)
-- **Goals Screen** - Hedef belirleme ve takip
+- **Reports Screen** - Raporlar ve grafikler (ESP / manuel / Shelly kaynakları); **haftalık ve aylık PDF** dışa aktarma; **PDF rapor dili** (TR / EN)
+- **Goals Screen** - Hedef belirleme, yeşil puan, rozetler ve davranış puanları; **Gelecek Ay Beklentisi** kartı (tahmini ay sonu emisyonu, hedef ve dünya ortalaması ile karşılaştırma)
 - **Settings Screen** - Ayarlar (tema, dil, font boyutu)
 - **Profile Settings Screen** - Profil ayarları ve işletme bilgileri
 
