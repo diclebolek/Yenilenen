@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui' show ImageFilter;
 import 'dart:math' as math;
 import '../localization/translations.dart';
@@ -9,7 +12,44 @@ import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
+import '../widgets/theme_independent_info_dialog.dart';
+import '../themes/app_theme.dart';
 import 'dart:async';
+
+/// Yeşil skor davranış girdileri (km / kg / L çarpanları).
+enum _EnginePointKind { walk, publicTransport, recycle, water }
+
+int _engineMultiplier(_EnginePointKind k) {
+  switch (k) {
+    case _EnginePointKind.walk:
+      return 10;
+    case _EnginePointKind.publicTransport:
+      return 5;
+    case _EnginePointKind.recycle:
+      return 20;
+    case _EnginePointKind.water:
+      return 4;
+  }
+}
+
+double _engineSliderMax(_EnginePointKind k) {
+  switch (k) {
+    case _EnginePointKind.walk:
+      return 50.0;
+    case _EnginePointKind.publicTransport:
+      return 120.0;
+    case _EnginePointKind.recycle:
+      return 50.0;
+    case _EnginePointKind.water:
+      return 200.0;
+  }
+}
+
+double? _parseLocaleDouble(String raw) {
+  final t = raw.trim().replaceAll(',', '.');
+  if (t.isEmpty) return null;
+  return double.tryParse(t);
+}
 
 /// Şablon satırı — hedef ekleme diyaloğu için (tema ile uyumlu chip seçimi).
 class _GoalAddTemplate {
@@ -119,6 +159,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
   MonthlyPrediction? _monthlyPrediction;
   bool _predictionLoading = false;
   bool _isLoading = true;
+
+  /// Gelecek ay tahminiyle aynı kaynak: son 7 günün tahmini günlük kg CO₂e.
+  double _userDailyEmissionKg = 0;
+
+  /// Kişi başı referans (kg/gün) — `GlobalCarbonService` + dönüştürme.
+  double _worldDailyRefKg = 4.1;
+
+  /// Haftalık yürüyüş km toplamı (Pazartesi 00:00’tan itibaren).
+  double _weekWalkKmTotal = 0;
+  bool _weekWalkBonusClaimed = false;
   Map<String, bool> _badges = {
     'environment_friendly': false,
     'energy_saving': false,
@@ -141,7 +191,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   Future<void> _loadData() async {
     if (_userId == null) {
-      setState(() => _isLoading = false);
+      await _refreshWeeklyWalkState();
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
       return;
     }
 
@@ -195,7 +248,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       // Rozetleri yükle
       final badges = await _firebaseService.getBadges(_userId!);
-      setState(() => _badges = badges);
+      setState(
+        () => _badges = _firebaseService.mergeBadgeDefaults(badges),
+      );
 
       // Rozetleri dinle
       _badgesSubscription?.cancel();
@@ -203,13 +258,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
         badges,
       ) {
         if (mounted) {
-          setState(() => _badges = badges);
+          setState(
+            () => _badges = _firebaseService.mergeBadgeDefaults(badges),
+          );
         }
       });
 
       // Rozet kontrolü yap
       _checkAndUnlockBadges();
       await _refreshPrediction();
+      await _refreshWeeklyWalkState();
     } catch (e) {
       // Hata durumunda varsayılan hedefleri göster
       _createDefaultGoalsList();
@@ -681,8 +739,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final monthStart = DateTime(now.year, now.month, 1);
     final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
     final elapsedDays = now.day.clamp(1, daysInMonth);
-    final today =
-        DateTime(now.year, now.month, now.day);
+    final today = DateTime(now.year, now.month, now.day);
 
     if (mounted) {
       setState(() => _predictionLoading = true);
@@ -724,14 +781,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
           ? 1.0
           : math.min(
               1.0,
-              targetMonthEndKg /
-                  math.max(projectedMonthEnd, 1e-9),
+              targetMonthEndKg / math.max(projectedMonthEnd, 1e-9),
             );
 
       double worldDailyRefKg = 4.1;
       try {
-        final trend =
-            await GlobalCarbonService().getGlobalDailyTrend();
+        final trend = await GlobalCarbonService().getGlobalDailyTrend();
         if (trend.isNotEmpty) {
           double sum = 0.0;
           for (final v in trend) {
@@ -744,17 +799,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final double userDaily = estimatedDailyAverage;
       final double diffWorldDaily = userDaily - worldDailyRefKg;
       final bool worldRoughlyEqual = diffWorldDaily.abs() < 1e-6;
-      final bool isBetterThanWorld =
-          !worldRoughlyEqual && diffWorldDaily < 0.0;
+      final bool isBetterThanWorld = !worldRoughlyEqual && diffWorldDaily < 0.0;
       double worldDiffPct = 0.0;
       if (worldDailyRefKg > 1e-9 && !worldRoughlyEqual) {
-        worldDiffPct =
-            (diffWorldDaily.abs() / worldDailyRefKg) * 100.0;
+        worldDiffPct = (diffWorldDaily.abs() / worldDailyRefKg) * 100.0;
       }
 
       final windowStart = today.subtract(const Duration(days: 13));
-      final espDaily =
-          await _buildDailyEspCo2Totals(windowStart, now);
+      final espDaily = await _buildDailyEspCo2Totals(windowStart, now);
 
       double sumLast7Esp = 0.0;
       double sumPrev7Esp = 0.0;
@@ -834,6 +886,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       if (mounted) {
         setState(() {
+          _userDailyEmissionKg = estimatedDailyAverage;
+          _worldDailyRefKg = worldDailyRefKg;
           _monthlyPrediction = MonthlyPrediction(
             projectedMonthEndKg: projectedMonthEnd,
             targetMonthEndKg: targetMonthEndKg,
@@ -1039,6 +1093,381 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
+  String _mondayDateKey(DateTime d) {
+    final day = DateTime(d.year, d.month, d.day);
+    final monday = day.subtract(Duration(days: d.weekday - 1));
+    return '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _refreshWeeklyWalkState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = _userId ?? 'guest';
+    final mon = _mondayDateKey(DateTime.now());
+    final km = prefs.getDouble('gs_wk_km_${uid}_$mon') ?? 0.0;
+    final bon = prefs.getBool('gs_wk_bonus_${uid}_$mon') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _weekWalkKmTotal = km;
+      _weekWalkBonusClaimed = bon;
+    });
+  }
+
+  /// Yürüyüş km ekler; 10 km eşiği ilk kez aşılırsa 100 puan döner.
+  Future<int> _applyWalkKmAndMaybeWeeklyBonus(double kmDelta) async {
+    if (kmDelta <= 0) return 0;
+    final prefs = await SharedPreferences.getInstance();
+    final uid = _userId ?? 'guest';
+    final mon = _mondayDateKey(DateTime.now());
+    final kmKey = 'gs_wk_km_${uid}_$mon';
+    final bonKey = 'gs_wk_bonus_${uid}_$mon';
+    final oldKm = prefs.getDouble(kmKey) ?? 0.0;
+    final newKm = oldKm + kmDelta;
+    await prefs.setDouble(kmKey, newKm);
+    var bonus = 0;
+    final already = prefs.getBool(bonKey) ?? false;
+    if (!already && oldKm < 10.0 && newKm >= 10.0 - 1e-9) {
+      await prefs.setBool(bonKey, true);
+      bonus = 100;
+    }
+    await _refreshWeeklyWalkState();
+    return bonus;
+  }
+
+  /// Günlük salınım dünya ortalamasının altındaysa günde bir kez 50 puan.
+  Future<int> _maybeSavingsBonusPoints() async {
+    if (_userId == null) return 0;
+    if (_worldDailyRefKg <= 0) return 0;
+    if (_userDailyEmissionKg >= _worldDailyRefKg - 1e-9) return 0;
+    final prefs = await SharedPreferences.getInstance();
+    final uid = _userId ?? 'guest';
+    final dayKey = DateTime.now().toIso8601String().split('T').first;
+    final k = 'gs_sav_${uid}_$dayKey';
+    if (prefs.getBool(k) == true) return 0;
+    await prefs.setBool(k, true);
+    return 50;
+  }
+
+  Future<void> _showEarnPointsEngineeringDialog({
+    required String titleKey,
+    required IconData icon,
+    required _EnginePointKind kind,
+  }) async {
+    final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final mult = _engineMultiplier(kind);
+    final maxSlide = _engineSliderMax(kind);
+    final prefs = await SharedPreferences.getInstance();
+    final uid = _userId ?? 'guest';
+    final dayKey = DateTime.now().toIso8601String().split('T').first;
+    final savingsUsedToday = prefs.getBool('gs_sav_${uid}_$dayKey') ?? false;
+    final savingsEligible = _userId != null &&
+        _worldDailyRefKg > 0 &&
+        _userDailyEmissionKg < _worldDailyRefKg - 1e-9;
+
+    final explainKey = switch (kind) {
+      _EnginePointKind.walk => 'earn_points_dialog_explain_walk',
+      _EnginePointKind.publicTransport => 'earn_points_dialog_explain_bus',
+      _EnginePointKind.recycle => 'earn_points_dialog_explain_recycle',
+      _EnginePointKind.water => 'earn_points_dialog_explain_water',
+    };
+    final questionKey = switch (kind) {
+      _EnginePointKind.walk => 'how_many_km_today',
+      _EnginePointKind.publicTransport => 'how_many_km_today',
+      _EnginePointKind.recycle => 'how_many_kg_recycled',
+      _EnginePointKind.water => 'how_many_liters_water_saved',
+    };
+
+    final controller = TextEditingController();
+    var sliderVal = 0.0;
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        // Bilgi (i) diyaloğu ile aynı: her zaman açık yeşil zemin + koyu yeşil metin.
+        final ThemeData earnTheme = ThemeData(
+          useMaterial3: true,
+          fontFamily: 'PlayfairDisplay',
+          colorScheme: const ColorScheme.light(
+            primary: AppTheme.infoDialogForeground,
+            onPrimary: Colors.white,
+            surface: AppTheme.infoDialogBackground,
+            onSurface: AppTheme.infoDialogForeground,
+            secondary: AppTheme.lightPrimaryColor,
+            onSecondary: Colors.white,
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: AppTheme.infoDialogForeground.withValues(alpha: 0.35),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: AppTheme.infoDialogForeground.withValues(alpha: 0.35),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(
+                color: AppTheme.infoDialogForeground,
+                width: 1.8,
+              ),
+            ),
+            hintStyle: TextStyle(
+              color: AppTheme.infoDialogForeground.withValues(alpha: 0.45),
+            ),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+          ),
+        );
+        return Theme(
+          data: earnTheme,
+          child: StatefulBuilder(
+            builder: (context, setLocal) {
+              final parsed = _parseLocaleDouble(controller.text);
+              final amt = ((parsed ?? 0) > 0) ? parsed! : 0.0;
+              final basePts = (amt * mult).round();
+              final previewSavings =
+                  (savingsEligible && !savingsUsedToday) ? 50 : 0;
+              final nextWalkKm = kind == _EnginePointKind.walk
+                  ? _weekWalkKmTotal + amt
+                  : _weekWalkKmTotal;
+              final previewWeekly = kind == _EnginePointKind.walk &&
+                      !_weekWalkBonusClaimed &&
+                      _weekWalkKmTotal < 10.0 &&
+                      nextWalkKm >= 10.0 - 1e-9
+                  ? 100
+                  : 0;
+              final totalPreview = basePts + previewSavings + previewWeekly;
+
+              return AlertDialog(
+                backgroundColor: AppTheme.infoDialogBackground,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                contentPadding: const EdgeInsets.all(20),
+                titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                title: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      icon,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        translate(titleKey, locale),
+                        textAlign: TextAlign.left,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        translate(
+                          explainKey,
+                          locale,
+                          params: {'multiplier': '$mult'},
+                        ),
+                        textAlign: TextAlign.left,
+                        style:
+                            Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  height: 1.35,
+                                ),
+                      ),
+                      const SizedBox(height: 15),
+                      Text(
+                        translate(questionKey, locale),
+                        textAlign: TextAlign.left,
+                        style:
+                            Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                      ),
+                      const SizedBox(height: 15),
+                      TextField(
+                        controller: controller,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                        textAlign: TextAlign.left,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'[0-9.,]'),
+                          ),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: translate('numeric_entry_hint', locale),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (s) {
+                          final p = _parseLocaleDouble(s);
+                          setLocal(() {
+                            if (p != null && p >= 0 && p <= maxSlide + 1e-9) {
+                              sliderVal = p.clamp(0.0, maxSlide);
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 15),
+                      Text(
+                        translate('slider_quick_set', locale),
+                        textAlign: TextAlign.left,
+                        style:
+                            Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                      ),
+                      const SizedBox(height: 8),
+                      Slider(
+                        value: sliderVal.clamp(0.0, maxSlide),
+                        max: maxSlide,
+                        divisions:
+                            maxSlide <= 50 ? maxSlide.round() : 48,
+                        label: sliderVal.toStringAsFixed(1),
+                        onChanged: (v) {
+                          setLocal(() {
+                            sliderVal = v;
+                            controller.text =
+                                kind == _EnginePointKind.recycle
+                                    ? v.toStringAsFixed(2)
+                                    : v.toStringAsFixed(1);
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 15),
+                      Text(
+                        translate(
+                          'points_total_label',
+                          locale,
+                          params: {'points': '$totalPreview'},
+                        ),
+                        textAlign: TextAlign.left,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 15),
+                      if (kind == _EnginePointKind.walk)
+                        Text(
+                          translate(
+                            'weekly_progress_km',
+                            locale,
+                            params: {
+                              'current':
+                                  _weekWalkKmTotal.toStringAsFixed(1),
+                              'target': '10',
+                            },
+                          ),
+                          textAlign: TextAlign.left,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      if (kind == _EnginePointKind.walk)
+                        const SizedBox(height: 8),
+                      if (kind == _EnginePointKind.walk)
+                        Text(
+                          _weekWalkBonusClaimed
+                              ? translate('weekly_bonus_claimed', locale)
+                              : translate('weekly_bonus_pending', locale),
+                          textAlign: TextAlign.left,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .secondary,
+                              ),
+                        ),
+                      const SizedBox(height: 15),
+                      Text(
+                        _userId == null
+                            ? translate(
+                                'savings_bonus_requires_login',
+                                locale,
+                              )
+                            : savingsUsedToday
+                                ? translate(
+                                    'savings_bonus_used_today',
+                                    locale,
+                                  )
+                                : savingsEligible
+                                    ? translate(
+                                        'savings_bonus_available',
+                                        locale,
+                                        params: {'points': '50'},
+                                      )
+                                    : translate(
+                                        'savings_bonus_not_eligible',
+                                        locale,
+                                      ),
+                        textAlign: TextAlign.left,
+                        style:
+                            Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  height: 1.3,
+                                ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text(translate('cancel', locale)),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      final v = _parseLocaleDouble(controller.text);
+                      if (v == null || v <= 0) return;
+                      var total = (v * mult).round();
+                      if (kind == _EnginePointKind.walk) {
+                        total += await _applyWalkKmAndMaybeWeeklyBonus(v);
+                      }
+                      total += await _maybeSavingsBonusPoints();
+                      if (ctx.mounted) {
+                        Navigator.of(ctx).pop();
+                      }
+                      if (!mounted) return;
+                      await _awardPoints(total);
+                      await _refreshWeeklyWalkState();
+                    },
+                    child: Text(translate('log_action_confirm', locale)),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+    controller.dispose();
+  }
+
   /// Rozet kontrolü yap ve gerekirse aç
   Future<void> _checkAndUnlockBadges() async {
     if (_userId == null) return;
@@ -1048,21 +1477,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
     String? newBadgeName;
 
     // Çevre Dostu: 100+ puan
-    if (_greenScore >= 100 && !_badges['environment_friendly']!) {
+    if (_greenScore >= 100 && !(_badges['environment_friendly'] ?? false)) {
       newBadges['environment_friendly'] = true;
       hasNewBadge = true;
       newBadgeName = 'environment_friendly';
     }
 
     // Enerji Tasarrufu: 200+ puan
-    if (_greenScore >= 200 && !_badges['energy_saving']!) {
+    if (_greenScore >= 200 && !(_badges['energy_saving'] ?? false)) {
       newBadges['energy_saving'] = true;
       hasNewBadge = true;
       newBadgeName = 'energy_saving';
     }
 
     // Su Koruyucusu: 150+ puan
-    if (_greenScore >= 150 && !_badges['water_protector']!) {
+    if (_greenScore >= 150 && !(_badges['water_protector'] ?? false)) {
       newBadges['water_protector'] = true;
       hasNewBadge = true;
       newBadgeName = 'water_protector';
@@ -1071,14 +1500,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // Hedef Ustası: Tüm hedefleri tamamla
     final allGoalsCompleted =
         _goals.isNotEmpty && _goals.every((goal) => goal.progress >= 1.0);
-    if (allGoalsCompleted && !_badges['goal_master']!) {
+    if (allGoalsCompleted && !(_badges['goal_master'] ?? false)) {
       newBadges['goal_master'] = true;
       hasNewBadge = true;
       newBadgeName = 'goal_master';
     }
 
     // Eko Savaşçı: 500+ puan
-    if (_greenScore >= 500 && !_badges['eco_warrior']!) {
+    if (_greenScore >= 500 && !(_badges['eco_warrior'] ?? false)) {
       newBadges['eco_warrior'] = true;
       hasNewBadge = true;
       newBadgeName = 'eco_warrior';
@@ -1202,6 +1631,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    // LayoutBuilder + ListView (özellikle web) performLayout içinde yeniden girişe
+    // yol açabiliyor; genişlik için MediaQuery kullan.
+    final double layoutWidth = MediaQuery.sizeOf(context).width;
+    final bool isWideLayout = layoutWidth >= 900;
+    final double horizontalPagePadding = layoutWidth < 360 ? 12.0 : 16.0;
 
     if (_isLoading) {
       return Scaffold(
@@ -1218,477 +1652,407 @@ class _GoalsScreenState extends State<GoalsScreen> {
         fit: StackFit.expand,
         children: [
           // İçerik - Web için genişlik kısıtlaması
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final bool isWide = constraints.maxWidth >= 900;
-              return Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isWide ? 800 : double.infinity,
-                  ),
-                  child: ListView(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      16 +
-                          MediaQuery.of(context).padding.bottom +
-                          80, // Bottom nav bar için ekstra padding
-                    ),
+          Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isWideLayout ? 800 : double.infinity,
+              ),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPagePadding,
+                  16,
+                  horizontalPagePadding,
+                  16 +
+                      MediaQuery.of(context).padding.bottom +
+                      80, // Bottom nav bar için ekstra padding
+                ),
+                children: [
+                  // Başarı rozetleri başlığı - Konteynır dışında
+                  Row(
                     children: [
-                      // Başarı rozetleri başlığı - Konteynır dışında
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.emoji_events,
-                            color: Theme.of(context).colorScheme.primary,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            translate('achievement_badges', locale),
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  color: isDark ? Colors.white : Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.2,
-                                ),
-                          ),
-                          const SizedBox(width: 8),
-                          Tooltip(
-                            message:
-                                translate('achievement_badges_info', locale),
-                            child: InkWell(
-                              onTap: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: Text(translate(
-                                        'achievement_badges', locale)),
-                                    content: Text(
-                                      translate(
-                                          'achievement_badges_info', locale),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(),
-                                        child: Text(translate('ok', locale)),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: const Icon(
-                                Icons.info_outline,
-                                size: 20,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ),
-                        ],
+                      Icon(
+                        Icons.emoji_events,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 24,
                       ),
-                      const SizedBox(height: 16),
-                      // Başarı rozetleri konteynırı
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: isDark
-                                  ? null
-                                  : LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.2),
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.1),
-                                      ],
-                                    ),
-                              color: isDark
-                                  ? Colors.black.withValues(alpha: 0.4)
-                                  : null,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: (Theme.of(context).brightness ==
-                                        Brightness.dark)
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(context).colorScheme.primary,
-                                width: isDark ? 1 : 2,
-                              ),
+                      const SizedBox(width: 8),
+                      Text(
+                        translate('achievement_badges', locale),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.bold,
+                              height: 1.2,
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 16,
-                                horizontal: 16,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      // Kazanılan rozet sayısı
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Theme.of(
-                                            context,
-                                          )
-                                              .colorScheme
-                                              .primary
-                                              .withValues(alpha: 0.2),
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          '${_badges.values.where((v) => v).length}/${_badges.length}',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  // Instagram story tarzı yuvarlak rozet butonları
-                                  LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      final bool isWide =
-                                          constraints.maxWidth >= 900;
-                                      if (isWide) {
-                                        // Web'de rozetleri tam ortala
-                                        return Center(
-                                          child: Wrap(
-                                            alignment: WrapAlignment.center,
-                                            spacing: 12,
-                                            runSpacing: 12,
-                                            children: [
-                                              _AchievementBadge(
-                                                imagePath:
-                                                    'assets/images/1rozet.png',
-                                                title: translate(
-                                                  'environment_friendly',
-                                                  locale,
-                                                ),
-                                                isUnlocked:
-                                                    true, // Çevre dostu rozeti her zaman açık
-                                              ),
-                                              _AchievementBadge(
-                                                imagePath:
-                                                    'assets/images/3rozet.png',
-                                                title: translate(
-                                                    'energy_saving', locale),
-                                                isUnlocked:
-                                                    _badges['energy_saving'] ??
-                                                        false,
-                                              ),
-                                              _AchievementBadge(
-                                                imagePath:
-                                                    'assets/images/2rozet.png',
-                                                title: translate(
-                                                    'water_protector', locale),
-                                                isUnlocked: _badges[
-                                                        'water_protector'] ??
-                                                    false,
-                                              ),
-                                              _AchievementBadge(
-                                                imagePath:
-                                                    'assets/images/4rozet.png',
-                                                title: translate(
-                                                    'goal_master', locale),
-                                                isUnlocked:
-                                                    _badges['goal_master'] ??
-                                                        false,
-                                              ),
-                                              _AchievementBadge(
-                                                imagePath:
-                                                    'assets/images/5rozet.png',
-                                                title: translate(
-                                                    'eco_warrior', locale),
-                                                isUnlocked:
-                                                    _badges['eco_warrior'] ??
-                                                        false,
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }
-                                      // Mobil/tablet: yatay scroll
-                                      return SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.start,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            _AchievementBadge(
-                                              imagePath:
-                                                  'assets/images/1rozet.png',
-                                              title: translate(
-                                                'environment_friendly',
-                                                locale,
-                                              ),
-                                              isUnlocked:
-                                                  true, // Çevre dostu rozeti her zaman açık
-                                            ),
-                                            const SizedBox(width: 12),
-                                            _AchievementBadge(
-                                              imagePath:
-                                                  'assets/images/2rozet.png',
-                                              title: translate(
-                                                  'energy_saving', locale),
-                                              isUnlocked:
-                                                  _badges['energy_saving'] ??
-                                                      false,
-                                            ),
-                                            const SizedBox(width: 12),
-                                            _AchievementBadge(
-                                              imagePath:
-                                                  'assets/images/3rozet.png',
-                                              title: translate(
-                                                  'water_protector', locale),
-                                              isUnlocked:
-                                                  _badges['water_protector'] ??
-                                                      false,
-                                            ),
-                                            const SizedBox(width: 12),
-                                            _AchievementBadge(
-                                              imagePath:
-                                                  'assets/images/4rozet.png',
-                                              title: translate(
-                                                  'goal_master', locale),
-                                              isUnlocked:
-                                                  _badges['goal_master'] ??
-                                                      false,
-                                            ),
-                                            const SizedBox(width: 12),
-                                            _AchievementBadge(
-                                              imagePath:
-                                                  'assets/images/5rozet.png',
-                                              title: translate(
-                                                  'eco_warrior', locale),
-                                              isUnlocked:
-                                                  _badges['eco_warrior'] ??
-                                                      false,
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  // Alt boşluk - üst boşlukla eşit olması için
-                                  const SizedBox(height: 16),
-                                ],
-                              ),
-                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: translate('achievement_badges_info', locale),
+                        child: InkWell(
+                          onTap: () {
+                            showThemeIndependentInfoDialog(
+                              context,
+                              title: translate('achievement_badges', locale),
+                              body:
+                                  translate('achievement_badges_info', locale),
+                              okLabel: translate('ok', locale),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: const Icon(
+                            Icons.info_outline,
+                            size: 20,
+                            color: Colors.orange,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 32),
-                      // Gelecek Ay Beklentisi başlığı - Konteynır dışında
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.auto_graph,
-                            color: Theme.of(context).colorScheme.primary,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            locale.languageCode == 'tr'
-                                ? 'Gelecek Ay Beklentisi'
-                                : 'Next Month Outlook',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  color: isDark ? Colors.white : Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.2,
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Başarı rozetleri konteynırı
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: isDark
+                              ? null
+                              : LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.2),
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.1),
+                                  ],
                                 ),
+                          color: isDark
+                              ? Colors.black.withValues(alpha: 0.4)
+                              : null,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: (Theme.of(context).brightness ==
+                                    Brightness.dark)
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.primary,
+                            width: isDark ? 1 : 2,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      if (_userId != null) ...[
-                        if (_predictionLoading && _monthlyPrediction == null)
-                          _PredictionLoadingShell(isDark: isDark)
-                        else if (_monthlyPrediction != null)
-                          _PredictionCard(
-                            prediction: _monthlyPrediction!,
-                            languageProvider: widget.languageProvider,
-                            loadingOverlay: _predictionLoading,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                            horizontal: 16,
                           ),
-                      ],
-                      const SizedBox(height: 32),
-                      // Green Score başlığı - Konteynır dışında
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.energy_savings_leaf,
-                            color: Theme.of(context).colorScheme.primary,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            translate('green_score', locale),
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  color: isDark ? Colors.white : Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.2,
-                                ),
-                          ),
-                          const SizedBox(width: 8),
-                          Tooltip(
-                            message: translate('green_score_info', locale),
-                            child: InkWell(
-                              onTap: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title:
-                                        Text(translate('green_score', locale)),
-                                    content: Text(
-                                      translate('green_score_info', locale),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(),
-                                        child: Text(translate('ok', locale)),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: const Icon(
-                                Icons.info_outline,
-                                size: 20,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // Green Score (Yeşil Puan) bölümü - İyileştirilmiş
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: isDark
-                                  ? null
-                                  : LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.2),
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.1),
-                                      ],
-                                    ),
-                              color: isDark
-                                  ? Colors.black.withValues(alpha: 0.4)
-                                  : null,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Theme.of(context).colorScheme.primary,
-                                width: isDark ? 1 : 2,
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
-                                  // Üst: Başlık ve puan kaldı
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
+                                  // Kazanılan rozet sayısı
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(
+                                        context,
+                                      )
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${_badges.values.where((v) => v).length}/${_badges.length}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              // Instagram story tarzı yuvarlak rozet butonları
+                              if (isWideLayout)
+                                Center(
+                                  child: Wrap(
+                                    alignment: WrapAlignment.center,
+                                    spacing: 12,
+                                    runSpacing: 12,
                                     children: [
-                                      Text(
-                                        translate('next_level', locale),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: (isDark
-                                                      ? Colors.white
-                                                      : Colors.black)
-                                                  .withValues(alpha: 0.7),
-                                            ),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/1rozet.png',
+                                        title: translate(
+                                          'environment_friendly',
+                                          locale,
+                                        ),
+                                        isUnlocked:
+                                            true, // Çevre dostu rozeti her zaman açık
                                       ),
-                                      Text(
-                                        '${100 - (_greenScore % 100)} ${translate('points_to_go', locale)}',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: Colors.orange,
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/3rozet.png',
+                                        title:
+                                            translate('energy_saving', locale),
+                                        isUnlocked:
+                                            _badges['energy_saving'] ?? false,
+                                      ),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/2rozet.png',
+                                        title: translate(
+                                            'water_protector', locale),
+                                        isUnlocked:
+                                            _badges['water_protector'] ?? false,
+                                      ),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/4rozet.png',
+                                        title: translate('goal_master', locale),
+                                        isUnlocked:
+                                            _badges['goal_master'] ?? false,
+                                      ),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/5rozet.png',
+                                        title: translate('eco_warrior', locale),
+                                        isUnlocked:
+                                            _badges['eco_warrior'] ?? false,
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
-                                  // Alt: Üç kısım aynı satırda
-                                  Row(
+                                )
+                              else
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.start,
                                     crossAxisAlignment:
-                                        CrossAxisAlignment.center,
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      // Sol: İlerleme çubuğu
-                                      Expanded(
-                                        flex: 2,
-                                        child: LayoutBuilder(
-                                          builder: (context, constraints) {
-                                            final progressValue =
-                                                ((_greenScore % 100) / 100)
-                                                    .clamp(
-                                              0.0,
-                                              1.0,
-                                            );
-                                            return ClipRRect(
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/1rozet.png',
+                                        title: translate(
+                                          'environment_friendly',
+                                          locale,
+                                        ),
+                                        isUnlocked:
+                                            true, // Çevre dostu rozeti her zaman açık
+                                      ),
+                                      const SizedBox(width: 12),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/2rozet.png',
+                                        title:
+                                            translate('energy_saving', locale),
+                                        isUnlocked:
+                                            _badges['energy_saving'] ?? false,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/3rozet.png',
+                                        title: translate(
+                                            'water_protector', locale),
+                                        isUnlocked:
+                                            _badges['water_protector'] ?? false,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/4rozet.png',
+                                        title: translate('goal_master', locale),
+                                        isUnlocked:
+                                            _badges['goal_master'] ?? false,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      _AchievementBadge(
+                                        imagePath: 'assets/images/5rozet.png',
+                                        title: translate('eco_warrior', locale),
+                                        isUnlocked:
+                                            _badges['eco_warrior'] ?? false,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              // Alt boşluk - üst boşlukla eşit olması için
+                              const SizedBox(height: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  // Gelecek Ay Beklentisi başlığı - Konteynır dışında
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.auto_graph,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        translate('next_month_outlook', locale),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.bold,
+                              height: 1.2,
+                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: translate('next_month_outlook_info', locale),
+                        child: InkWell(
+                          onTap: () {
+                            showThemeIndependentInfoDialog(
+                              context,
+                              title: translate('next_month_outlook', locale),
+                              body:
+                                  translate('next_month_outlook_info', locale),
+                              okLabel: translate('ok', locale),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: const Icon(
+                            Icons.info_outline,
+                            size: 20,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (_userId != null) ...[
+                    if (_predictionLoading && _monthlyPrediction == null)
+                      _PredictionLoadingShell(isDark: isDark)
+                    else if (_monthlyPrediction != null)
+                      _PredictionCard(
+                        prediction: _monthlyPrediction!,
+                        languageProvider: widget.languageProvider,
+                        loadingOverlay: _predictionLoading,
+                      ),
+                  ],
+                  const SizedBox(height: 32),
+                  // Green Score başlığı - Konteynır dışında
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.energy_savings_leaf,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        translate('green_score', locale),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.bold,
+                              height: 1.2,
+                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: translate('green_score_info', locale),
+                        child: InkWell(
+                          onTap: () {
+                            showThemeIndependentInfoDialog(
+                              context,
+                              title: translate('green_score', locale),
+                              body: translate('green_score_info', locale),
+                              okLabel: translate('ok', locale),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: const Icon(
+                            Icons.info_outline,
+                            size: 20,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Green Score (Yeşil Puan) bölümü - İyileştirilmiş
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: isDark
+                              ? null
+                              : LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.2),
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.1),
+                                  ],
+                                ),
+                          color: isDark
+                              ? Colors.black.withValues(alpha: 0.4)
+                              : null,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: isDark ? 1 : 2,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Seviye: kısa progress çubuğu solda, başlık yanında; altta özet + kutular
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final double barW = math
+                                      .min(
+                                        132.0,
+                                        constraints.maxWidth * 0.32,
+                                      )
+                                      .clamp(88.0, 132.0);
+                                  final progressValue =
+                                      ((_greenScore % 100) / 100).clamp(
+                                    0.0,
+                                    1.0,
+                                  );
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: barW,
+                                            child: ClipRRect(
                                               borderRadius:
                                                   BorderRadius.circular(10),
                                               child:
@@ -1698,7 +2062,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                   end: progressValue,
                                                 ),
                                                 duration: const Duration(
-                                                    milliseconds: 1000),
+                                                  milliseconds: 1000,
+                                                ),
                                                 curve: Curves.easeInOut,
                                                 builder:
                                                     (context, value, child) {
@@ -1760,297 +2125,429 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                   );
                                                 },
                                               ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      // Orta: Sanal ağaç kutucuğu (ikon + 2 rakamı)
-                                      Tooltip(
-                                        message:
-                                            '${(_greenScore ~/ 100)} ${translate('virtual_tree', locale)}',
-                                        child: Container(
-                                          width: 80,
-                                          height: 80,
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            gradient: isDark
-                                                ? null
-                                                : LinearGradient(
-                                                    begin: Alignment.topLeft,
-                                                    end: Alignment.bottomRight,
-                                                    colors: [
-                                                      Theme.of(
-                                                        context,
-                                                      )
-                                                          .colorScheme
-                                                          .primary
-                                                          .withValues(
-                                                              alpha: 0.2),
-                                                      Theme.of(
-                                                        context,
-                                                      )
-                                                          .colorScheme
-                                                          .primary
-                                                          .withValues(
-                                                              alpha: 0.1),
-                                                    ],
-                                                  ),
-                                            color: isDark
-                                                ? Colors.black
-                                                    .withValues(alpha: 0.4)
-                                                : null,
-                                            borderRadius:
-                                                BorderRadius.circular(16),
-                                            border: Border.all(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.primary,
-                                              width: 2,
                                             ),
                                           ),
-                                          child: Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.energy_savings_leaf,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .primary,
-                                                size: 20,
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              translate(
+                                                'next_level',
+                                                locale,
                                               ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '${(_greenScore ~/ 100)}',
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .titleMedium
-                                                    ?.copyWith(
-                                                      color: (isDark
-                                                              ? Colors.white
-                                                              : Colors.black)
-                                                          .withValues(
-                                                              alpha: 0.9),
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 16,
-                                                    ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      // Sağ: Puan kutucuğu (221 puan)
-                                      Container(
-                                        width: 80,
-                                        height: 80,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          gradient: isDark
-                                              ? null
-                                              : LinearGradient(
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                  colors: [
-                                                    Theme.of(
-                                                      context,
-                                                    )
-                                                        .colorScheme
-                                                        .primary
-                                                        .withValues(alpha: 0.3),
-                                                    Theme.of(
-                                                      context,
-                                                    )
-                                                        .colorScheme
-                                                        .primary
-                                                        .withValues(alpha: 0.2),
-                                                  ],
-                                                ),
-                                          color: isDark
-                                              ? Colors.black
-                                                  .withValues(alpha: 0.4)
-                                              : null,
-                                          borderRadius:
-                                              BorderRadius.circular(16),
-                                          border: Border.all(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            width: 2,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              '$_greenScore',
                                               style: Theme.of(context)
                                                   .textTheme
-                                                  .titleLarge
+                                                  .titleSmall
                                                   ?.copyWith(
                                                     color: isDark
                                                         ? Colors.white
                                                         : Colors.black,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 20,
+                                                    fontWeight: FontWeight.w600,
                                                   ),
                                             ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              translate('points', locale),
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodySmall
-                                                  ?.copyWith(
-                                                    color: (isDark
+                                          ),
+                                          Text(
+                                            '${100 - (_greenScore % 100)} ${translate('points_to_go', locale)}',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: Colors.orange,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 14),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Padding(
+                                              padding: const EdgeInsets.only(
+                                                right: 8,
+                                                top: 2,
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    '${_greenScore % 100}/100',
+                                                    style: Theme.of(
+                                                      context,
+                                                    )
+                                                        .textTheme
+                                                        .titleMedium
+                                                        ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: Theme.of(
+                                                            context,
+                                                          ).colorScheme.primary,
+                                                        ),
+                                                  ),
+                                                  Text(
+                                                    translate(
+                                                      'points',
+                                                      locale,
+                                                    ),
+                                                    style: Theme.of(
+                                                      context,
+                                                    )
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: (isDark
+                                                                  ? Colors.white
+                                                                  : Colors
+                                                                      .black)
+                                                              .withValues(
+                                                            alpha: 0.55,
+                                                          ),
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          // Orta: Sanal ağaç kutucuğu (ikon + 2 rakamı)
+                                          Tooltip(
+                                            message:
+                                                '${(_greenScore ~/ 100)} ${translate('virtual_tree', locale)}',
+                                            child: Container(
+                                              width: 80,
+                                              height: 80,
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                gradient: isDark
+                                                    ? null
+                                                    : LinearGradient(
+                                                        begin:
+                                                            Alignment.topLeft,
+                                                        end: Alignment
+                                                            .bottomRight,
+                                                        colors: [
+                                                          Theme.of(
+                                                            context,
+                                                          )
+                                                              .colorScheme
+                                                              .primary
+                                                              .withValues(
+                                                                  alpha: 0.2),
+                                                          Theme.of(
+                                                            context,
+                                                          )
+                                                              .colorScheme
+                                                              .primary
+                                                              .withValues(
+                                                                  alpha: 0.1),
+                                                        ],
+                                                      ),
+                                                color: isDark
+                                                    ? Colors.black
+                                                        .withValues(alpha: 0.4)
+                                                    : null,
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                border: Border.all(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              child: Column(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.energy_savings_leaf,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .primary,
+                                                    size: 20,
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    '${(_greenScore ~/ 100)}',
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .titleMedium
+                                                        ?.copyWith(
+                                                          color: (isDark
+                                                                  ? Colors.white
+                                                                  : Colors
+                                                                      .black)
+                                                              .withValues(
+                                                                  alpha: 0.9),
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 16,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          // Sağ: Puan kutucuğu (221 puan)
+                                          Container(
+                                            width: 80,
+                                            height: 80,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              gradient: isDark
+                                                  ? null
+                                                  : LinearGradient(
+                                                      begin: Alignment.topLeft,
+                                                      end:
+                                                          Alignment.bottomRight,
+                                                      colors: [
+                                                        Theme.of(
+                                                          context,
+                                                        )
+                                                            .colorScheme
+                                                            .primary
+                                                            .withValues(
+                                                                alpha: 0.3),
+                                                        Theme.of(
+                                                          context,
+                                                        )
+                                                            .colorScheme
+                                                            .primary
+                                                            .withValues(
+                                                                alpha: 0.2),
+                                                      ],
+                                                    ),
+                                              color: isDark
+                                                  ? Colors.black
+                                                      .withValues(alpha: 0.4)
+                                                  : null,
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              border: Border.all(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
+                                                width: 2,
+                                              ),
+                                            ),
+                                            child: Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  '$_greenScore',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .titleLarge
+                                                      ?.copyWith(
+                                                        color: isDark
                                                             ? Colors.white
-                                                            : Colors.black)
-                                                        .withValues(alpha: 0.7),
-                                                    fontSize: 9,
-                                                  ),
+                                                            : Colors.black,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 20,
+                                                      ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  translate('points', locale),
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: (isDark
+                                                                ? Colors.white
+                                                                : Colors.black)
+                                                            .withValues(
+                                                                alpha: 0.7),
+                                                        fontSize: 9,
+                                                      ),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
+                                          ),
+                                        ],
                                       ),
                                     ],
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 20),
+                              // İstatistikler
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _StatCard(
+                                      icon: Icons.flag,
+                                      value: '${_goals.length}',
+                                      label: translate('total_goals', locale),
+                                      color: Colors.blue,
+                                    ),
                                   ),
-                                  const SizedBox(height: 20),
-                                  // İstatistikler
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: _StatCard(
-                                          icon: Icons.flag,
-                                          value: '${_goals.length}',
-                                          label:
-                                              translate('total_goals', locale),
-                                          color: Colors.blue,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: _StatCard(
-                                          icon: Icons.check_circle,
-                                          value:
-                                              '${_goals.where((g) => g.progress >= 1.0).length}',
-                                          label: translate(
-                                              'completed_goals', locale),
-                                          color: Colors.green,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: _StatCard(
-                                          icon: Icons.emoji_events,
-                                          value:
-                                              '${_badges.values.where((v) => v).length}',
-                                          label: translate(
-                                              'badges_earned', locale),
-                                          color: Colors.amber,
-                                        ),
-                                      ),
-                                    ],
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _StatCard(
+                                      icon: Icons.check_circle,
+                                      value:
+                                          '${_goals.where((g) => g.progress >= 1.0).length}',
+                                      label:
+                                          translate('completed_goals', locale),
+                                      color: Colors.green,
+                                    ),
                                   ),
-                                  const SizedBox(height: 20),
-                                  // Davranış eylemleri (puan kazandırır)
-                                  Text(
-                                    translate('earn_points', locale),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          color: (isDark
-                                                  ? Colors.white
-                                                  : Colors.black)
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _StatCard(
+                                      icon: Icons.emoji_events,
+                                      value:
+                                          '${_badges.values.where((v) => v).length}',
+                                      label: translate('badges_earned', locale),
+                                      color: Colors.amber,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              // Davranış eylemleri (puan kazandırır)
+                              Text(
+                                translate('earn_points', locale),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color:
+                                          (isDark ? Colors.white : Colors.black)
                                               .withValues(alpha: 0.8),
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.45),
                                   ),
-                                  const SizedBox(height: 12),
-                                  LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      final bool isMobile =
-                                          constraints.maxWidth < 600;
-                                      if (isMobile) {
-                                        // Mobil: 2x2 grid
-                                        return Column(
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: _ActionChip(
-                                                    icon: Icons.recycling,
-                                                    label: translate(
-                                                        'recycle', locale),
-                                                    points: 10,
-                                                    onTap: () =>
-                                                        _awardPoints(10),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: _ActionChip(
-                                                    icon: Icons.directions_walk,
-                                                    label: translate(
-                                                        'walk', locale),
-                                                    points: 5,
-                                                    onTap: () =>
-                                                        _awardPoints(5),
-                                                  ),
-                                                ),
-                                              ],
+                                  color: (isDark ? Colors.white : Colors.black)
+                                      .withValues(alpha: 0.06),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.flag_circle_outlined,
+                                          size: 20,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            translate(
+                                              'weekly_challenge_title',
+                                              locale,
                                             ),
-                                            const SizedBox(height: 8),
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: _ActionChip(
-                                                    icon: Icons.directions_bus,
-                                                    label: translate(
-                                                      'public_transport',
-                                                      locale,
-                                                    ),
-                                                    points: 12,
-                                                    onTap: () =>
-                                                        _awardPoints(12),
-                                                  ),
+                                            textAlign: TextAlign.left,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleSmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w700,
                                                 ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: _ActionChip(
-                                                    icon: Icons.water_drop,
-                                                    label: translate(
-                                                      'save_water',
-                                                      locale,
-                                                    ),
-                                                    points: 6,
-                                                    onTap: () =>
-                                                        _awardPoints(6),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        );
-                                      } else {
-                                        // Tablet/Desktop: Yatay
-                                        return Row(
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 15),
+                                    Text(
+                                      translate(
+                                        'weekly_challenge_walk_desc',
+                                        locale,
+                                      ),
+                                      textAlign: TextAlign.left,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(height: 1.35),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: LinearProgressIndicator(
+                                        minHeight: 8,
+                                        value: (_weekWalkKmTotal / 10.0)
+                                            .clamp(0.0, 1.0),
+                                        backgroundColor: (isDark
+                                                ? Colors.white
+                                                : Colors.black)
+                                            .withValues(alpha: 0.12),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      translate(
+                                        'weekly_progress_km',
+                                        locale,
+                                        params: {
+                                          'current': _weekWalkKmTotal
+                                              .toStringAsFixed(1),
+                                          'target': '10',
+                                        },
+                                      ),
+                                      textAlign: TextAlign.left,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final bool isMobile =
+                                      constraints.maxWidth < 600;
+                                  if (isMobile) {
+                                    // Mobil: 2x2 grid
+                                    return Column(
+                                      children: [
+                                        Row(
                                           children: [
                                             Expanded(
                                               child: _ActionChip(
                                                 icon: Icons.recycling,
                                                 label: translate(
                                                     'recycle', locale),
-                                                points: 10,
-                                                onTap: () => _awardPoints(10),
+                                                rateSubtitle: translate(
+                                                  'recycle_points_rate',
+                                                  locale,
+                                                  params: {
+                                                    'multiplier': '20',
+                                                  },
+                                                ),
+                                                onTap: () =>
+                                                    _showEarnPointsEngineeringDialog(
+                                                  titleKey: 'recycle',
+                                                  icon: Icons.recycling,
+                                                  kind:
+                                                      _EnginePointKind.recycle,
+                                                ),
                                               ),
                                             ),
                                             const SizedBox(width: 8),
@@ -2059,11 +2556,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 icon: Icons.directions_walk,
                                                 label:
                                                     translate('walk', locale),
-                                                points: 5,
-                                                onTap: () => _awardPoints(5),
+                                                rateSubtitle: translate(
+                                                  'walk_points_rate',
+                                                  locale,
+                                                  params: {
+                                                    'multiplier': '10',
+                                                  },
+                                                ),
+                                                onTap: () =>
+                                                    _showEarnPointsEngineeringDialog(
+                                                  titleKey: 'walk',
+                                                  icon: Icons.directions_walk,
+                                                  kind: _EnginePointKind.walk,
+                                                ),
                                               ),
                                             ),
-                                            const SizedBox(width: 8),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
                                             Expanded(
                                               child: _ActionChip(
                                                 icon: Icons.directions_bus,
@@ -2071,8 +2583,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                   'public_transport',
                                                   locale,
                                                 ),
-                                                points: 12,
-                                                onTap: () => _awardPoints(12),
+                                                rateSubtitle: translate(
+                                                  'bus_points_rate',
+                                                  locale,
+                                                  params: {
+                                                    'multiplier': '5',
+                                                  },
+                                                ),
+                                                onTap: () =>
+                                                    _showEarnPointsEngineeringDialog(
+                                                  titleKey: 'public_transport',
+                                                  icon: Icons.directions_bus,
+                                                  kind: _EnginePointKind
+                                                      .publicTransport,
+                                                ),
                                               ),
                                             ),
                                             const SizedBox(width: 8),
@@ -2080,121 +2604,272 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                               child: _ActionChip(
                                                 icon: Icons.water_drop,
                                                 label: translate(
-                                                    'save_water', locale),
-                                                points: 6,
-                                                onTap: () => _awardPoints(6),
+                                                  'save_water',
+                                                  locale,
+                                                ),
+                                                rateSubtitle: translate(
+                                                  'water_points_rate',
+                                                  locale,
+                                                  params: {
+                                                    'multiplier': '4',
+                                                  },
+                                                ),
+                                                onTap: () =>
+                                                    _showEarnPointsEngineeringDialog(
+                                                  titleKey: 'save_water',
+                                                  icon: Icons.water_drop,
+                                                  kind: _EnginePointKind.water,
+                                                ),
                                               ),
                                             ),
                                           ],
-                                        );
-                                      }
-                                    },
-                                  ),
-                                ],
+                                        ),
+                                      ],
+                                    );
+                                  } else {
+                                    // Tablet/Desktop: Yatay
+                                    return Row(
+                                      children: [
+                                        Expanded(
+                                          child: _ActionChip(
+                                            icon: Icons.recycling,
+                                            label: translate('recycle', locale),
+                                            rateSubtitle: translate(
+                                              'recycle_points_rate',
+                                              locale,
+                                              params: {
+                                                'multiplier': '20',
+                                              },
+                                            ),
+                                            onTap: () =>
+                                                _showEarnPointsEngineeringDialog(
+                                              titleKey: 'recycle',
+                                              icon: Icons.recycling,
+                                              kind: _EnginePointKind.recycle,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _ActionChip(
+                                            icon: Icons.directions_walk,
+                                            label: translate('walk', locale),
+                                            rateSubtitle: translate(
+                                              'walk_points_rate',
+                                              locale,
+                                              params: {
+                                                'multiplier': '10',
+                                              },
+                                            ),
+                                            onTap: () =>
+                                                _showEarnPointsEngineeringDialog(
+                                              titleKey: 'walk',
+                                              icon: Icons.directions_walk,
+                                              kind: _EnginePointKind.walk,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _ActionChip(
+                                            icon: Icons.directions_bus,
+                                            label: translate(
+                                              'public_transport',
+                                              locale,
+                                            ),
+                                            rateSubtitle: translate(
+                                              'bus_points_rate',
+                                              locale,
+                                              params: {
+                                                'multiplier': '5',
+                                              },
+                                            ),
+                                            onTap: () =>
+                                                _showEarnPointsEngineeringDialog(
+                                              titleKey: 'public_transport',
+                                              icon: Icons.directions_bus,
+                                              kind: _EnginePointKind
+                                                  .publicTransport,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _ActionChip(
+                                            icon: Icons.water_drop,
+                                            label:
+                                                translate('save_water', locale),
+                                            rateSubtitle: translate(
+                                              'water_points_rate',
+                                              locale,
+                                              params: {
+                                                'multiplier': '4',
+                                              },
+                                            ),
+                                            onTap: () =>
+                                                _showEarnPointsEngineeringDialog(
+                                              titleKey: 'save_water',
+                                              icon: Icons.water_drop,
+                                              kind: _EnginePointKind.water,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }
+                                },
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      // Hedef kartları
-                      if (_goals.isEmpty)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Text(
-                              translate('no_goals', locale),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyLarge
-                                  ?.copyWith(
-                                    color:
-                                        (isDark ? Colors.white : Colors.black)
-                                            .withValues(alpha: 0.7),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Hedef kartları
+                  if (_goals.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(
+                          translate('no_goals', locale),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(
+                                color: (isDark ? Colors.white : Colors.black)
+                                    .withValues(alpha: 0.7),
+                              ),
+                        ),
+                      ),
+                    )
+                  else
+                    ..._goals.map(
+                      (goal) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _GoalCard(
+                          goal: goal,
+                          languageProvider: widget.languageProvider,
+                          onDelete: _userId != null
+                              ? () => _deleteGoal(goal.id)
+                              : null,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  // Yeni hedef — başlık konteynır dışında
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.flag_outlined,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          translate('set_new_goal', locale),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.2,
                                   ),
-                            ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: isDark
+                                ? [
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.2),
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.1),
+                                  ]
+                                : [
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.2),
+                                    Theme.of(
+                                      context,
+                                    )
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.1),
+                                  ],
                           ),
-                        )
-                      else
-                        ..._goals.map(
-                          (goal) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _GoalCard(
-                              goal: goal,
-                              languageProvider: widget.languageProvider,
-                              onDelete: _userId != null
-                                  ? () => _deleteGoal(goal.id)
-                                  : null,
-                            ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 2,
                           ),
                         ),
-                      const SizedBox(height: 16),
-                      // Yeni hedef ekleme butonu
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: isDark
-                                    ? [
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.2),
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.1),
-                                      ]
-                                    : [
-                                        // Açık temada yeşil tonları
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.2),
-                                        Theme.of(
-                                          context,
-                                        )
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.1),
-                                      ],
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                translate('set_new_goal_help', locale),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color:
+                                          (isDark ? Colors.white : Colors.black)
+                                              .withValues(alpha: 0.65),
+                                      height: 1.35,
+                                    ),
                               ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Theme.of(context).colorScheme.primary,
-                                width: 2,
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    translate('set_new_goal', locale),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(
-                                          color: isDark
-                                              ? Colors.white
-                                              : Colors.black,
-                                        ),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: _userId != null
+                                    ? () => _showAddGoalDialog()
+                                    : null,
+                                style: ButtonStyle(
+                                  minimumSize: const WidgetStatePropertyAll(
+                                    Size.fromHeight(48),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    translate('set_new_goal_help', locale),
+                                  shape: WidgetStatePropertyAll(
+                                    StadiumBorder(
+                                      side: BorderSide(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.add),
+                                label: Text(translate('add_goal', locale)),
+                              ),
+                              if (_userId == null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    translate(
+                                        'login_required_for_goals', locale),
                                     style: Theme.of(context)
                                         .textTheme
                                         .bodySmall
@@ -2202,60 +2877,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                           color: (isDark
                                                   ? Colors.white
                                                   : Colors.black)
-                                              .withValues(alpha: 0.65),
-                                          height: 1.35,
+                                              .withValues(alpha: 0.6),
                                         ),
                                   ),
-                                  const SizedBox(height: 12),
-                                  FilledButton.icon(
-                                    onPressed: _userId != null
-                                        ? () => _showAddGoalDialog()
-                                        : null,
-                                    style: ButtonStyle(
-                                      minimumSize: const WidgetStatePropertyAll(
-                                        Size.fromHeight(48),
-                                      ),
-                                      shape: WidgetStatePropertyAll(
-                                        StadiumBorder(
-                                          side: BorderSide(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    icon: const Icon(Icons.add),
-                                    label: Text(translate('add_goal', locale)),
-                                  ),
-                                  if (_userId == null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Text(
-                                        translate(
-                                            'login_required_for_goals', locale),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: (isDark
-                                                      ? Colors.white
-                                                      : Colors.black)
-                                                  .withValues(alpha: 0.6),
-                                            ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              );
-            },
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -2757,9 +3391,30 @@ class _PredictionLoadingShellState extends State<_PredictionLoadingShell>
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: base.withValues(alpha: 0.08),
+            gradient: widget.isDark
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.2),
+                      Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.1),
+                    ],
+                  ),
+            color: widget.isDark
+                ? Colors.black.withValues(alpha: 0.4)
+                : null,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: base.withValues(alpha: 0.12)),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary,
+              width: widget.isDark ? 1 : 2,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2839,6 +3494,82 @@ class _PredictionLoadingShellState extends State<_PredictionLoadingShell>
   }
 }
 
+/// Tahmin kartındaki kg ve benzeri değerler için okunabilir binlik ayracı (TR: 1.234,567 / EN: 1,234.567).
+String _formatDecimalWithSeparators(
+  double value,
+  Locale locale, {
+  int fractionDigits = 3,
+}) {
+  final bool tr = locale.languageCode == 'tr';
+  final String sepThousands = tr ? '.' : ',';
+  final String sepDecimal = tr ? ',' : '.';
+
+  final fixed = value.abs().toStringAsFixed(fractionDigits);
+  final parts = fixed.split('.');
+  String intPart = parts[0];
+  final String frac = parts.length > 1 ? parts[1] : '';
+  final bool negative = value < 0;
+
+  if (intPart.startsWith('-')) {
+    intPart = intPart.substring(1);
+  }
+
+  final buf = StringBuffer();
+  for (int i = 0; i < intPart.length; i++) {
+    if (i > 0 && (intPart.length - i) % 3 == 0) {
+      buf.write(sepThousands);
+    }
+    buf.write(intPart[i]);
+  }
+  final String numStr = buf.toString();
+  final String dec = frac.isNotEmpty ? '$sepDecimal$frac' : '';
+  final String sign = negative ? '-' : '';
+  return '$sign$numStr$dec';
+}
+
+/// Geniş kart: yan yana gösterge + metin; dar kart: gösterge üstte, alt alta içgörü kartları.
+const double _kPredictionSideBySideBreakpoint = 520;
+const double _kInsightCardsColumnBreakpoint = 440;
+
+Widget _predictionMetaLine(
+  BuildContext context, {
+  required MonthlyPrediction prediction,
+  required Locale locale,
+  required bool isTr,
+  required bool isDark,
+}) {
+  final TextStyle? base = Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.78),
+      );
+  final String targetFmt =
+      _formatDecimalWithSeparators(prediction.targetMonthEndKg, locale);
+  final String paceFmt =
+      _formatDecimalWithSeparators(prediction.currentAverageKgPerDay, locale);
+
+  return Wrap(
+    crossAxisAlignment: WrapCrossAlignment.center,
+    runSpacing: 8,
+    children: [
+      Text(isTr ? 'Hedef: ' : 'Target: ', style: base),
+      Text(targetFmt, style: base),
+      const SizedBox(width: 8),
+      Text('kg CO₂e', style: base),
+      Text(' · ', style: base),
+      Text(isTr ? 'Günlük tempo: ' : 'Pace: ', style: base),
+      Text(paceFmt, style: base),
+      const SizedBox(width: 8),
+      Text(isTr ? 'kg/gün' : 'kg/day', style: base),
+      Text(' · ', style: base),
+      Text(
+        isTr
+            ? 'Kalan gün: ${prediction.remainingDays}'
+            : 'Days left: ${prediction.remainingDays}',
+        style: base,
+      ),
+    ],
+  );
+}
+
 class _PredictionCard extends StatelessWidget {
   const _PredictionCard({
     required this.prediction,
@@ -2856,248 +3587,358 @@ class _PredictionCard extends StatelessWidget {
     final isTr = locale.languageCode == 'tr';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
-    final efficiencyPct = (prediction.gaugeEfficiency * 100.0);
+    final double gaugeSafe = prediction.gaugeEfficiency.isFinite
+        ? prediction.gaugeEfficiency.clamp(0.0, 1.0)
+        : 0.0;
+    final efficiencyPct = gaugeSafe * 100.0;
+    final double screenW = MediaQuery.sizeOf(context).width;
+    final double cardOuterPad = screenW < 360 ? 16.0 : 24.0;
+    final String worldDiffFmt = _formatDecimalWithSeparators(
+        prediction.worldDiffPercent, locale,
+        fractionDigits: 3);
     final String badgeLabel = prediction.worldRoughlyEqual
         ? (isTr
             ? 'Küresel günlük ortalamayla aynı hizada'
             : 'Aligned with global daily average')
         : prediction.isBetterThanWorldAverage
             ? (isTr
-                ? 'Dünya Ortalamasından %${prediction.worldDiffPercent.toStringAsFixed(3)} Daha İyi'
-                : '${prediction.worldDiffPercent.toStringAsFixed(3)}% better than world avg')
+                ? 'Dünya Ortalamasından %$worldDiffFmt Daha İyi'
+                : '$worldDiffFmt% better than world avg')
             : (isTr
-                ? 'Dünya Ortalamasından %${prediction.worldDiffPercent.toStringAsFixed(3)} Daha Yüksek'
-                : '${prediction.worldDiffPercent.toStringAsFixed(3)}% above world avg');
+                ? 'Dünya Ortalamasından %$worldDiffFmt Daha Yüksek'
+                : '$worldDiffFmt% above world avg');
+
+    final Color unitColor = isDark ? Colors.white70 : Colors.black54;
 
     Widget card = ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(cardOuterPad),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.14),
+            gradient: isDark
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.2),
+                      Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.1),
+                    ],
+                  ),
+            color: isDark ? Colors.black.withValues(alpha: 0.4) : null,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: prediction.isOnTrack
-                  ? Colors.green.withValues(alpha: 0.8)
-                  : Colors.orange.withValues(alpha: 0.8),
+              color: Theme.of(context).colorScheme.primary,
+              width: isDark ? 1 : 2,
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 108,
-                    height: 108,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        SizedBox.expand(
-                          child: CircularProgressIndicator(
-                            value: prediction.gaugeEfficiency.clamp(0.0, 1.0),
-                            strokeWidth: 8,
-                            backgroundColor:
-                                (isDark ? Colors.white : Colors.black)
-                                    .withValues(alpha: 0.12),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              prediction.isOnTrack
-                                  ? Colors.greenAccent.shade400
-                                  : Colors.orangeAccent.shade200,
-                            ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double cw = constraints.maxWidth;
+              final bool sideBySide = cw >= _kPredictionSideBySideBreakpoint;
+              final bool insightColumn = cw < _kInsightCardsColumnBreakpoint;
+
+              final double gaugeSize = sideBySide
+                  ? (((cw - 12) * 2 / 5) - 8).clamp(120.0, 220.0)
+                  : (cw * 0.42).clamp(110.0, 200.0);
+              final double gaugeStroke =
+                  (gaugeSize / 108.0 * 8.0).clamp(6.0, 12.0);
+
+              Widget gaugeBox() {
+                return SizedBox(
+                  width: gaugeSize,
+                  height: gaugeSize,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox.expand(
+                        child: CircularProgressIndicator(
+                          value: gaugeSafe,
+                          strokeWidth: gaugeStroke,
+                          backgroundColor: (isDark ? Colors.white : Colors.black)
+                              .withValues(alpha: 0.12),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            prediction.isOnTrack
+                                ? Colors.greenAccent.shade400
+                                : Colors.orangeAccent.shade200,
                           ),
                         ),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${efficiencyPct.toStringAsFixed(3)}%',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelLarge
-                                  ?.copyWith(
-                                    color: isDark
-                                        ? Colors.white
-                                        : Colors.black87,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13,
-                                  ),
-                            ),
-                            Text(
-                              isTr ? 'verim' : 'eff.',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: (isDark ? Colors.white : Colors.black)
-                                        .withValues(alpha: 0.65),
-                                    fontSize: 10,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                      ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${_formatDecimalWithSeparators(efficiencyPct, locale, fractionDigits: 3)}%',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelLarge
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Colors.white
+                                      : Colors.black87,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: gaugeSize >= 170 ? 14 : 12,
+                                ),
+                          ),
+                          Text(
+                            isTr ? 'verim' : 'eff.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: (isDark ? Colors.white : Colors.black)
+                                      .withValues(alpha: 0.65),
+                                  fontSize: gaugeSize >= 170 ? 11 : 10,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
+                );
+              }
+
+              Widget rightTexts() {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: prediction.worldRoughlyEqual
+                            ? Colors.blueGrey.shade700
+                                .withValues(alpha: 0.35)
+                            : prediction.isBetterThanWorldAverage
+                                ? Colors.green.shade700
+                                    .withValues(alpha: 0.35)
+                                : Colors.deepOrange.shade800
+                                    .withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: prediction.worldRoughlyEqual
+                              ? Colors.blueGrey.shade400
+                                  .withValues(alpha: 0.85)
+                              : prediction.isBetterThanWorldAverage
+                                  ? Colors.greenAccent.shade400
+                                      .withValues(alpha: 0.9)
+                                  : Colors.orange.shade700
+                                      .withValues(alpha: 0.85),
+                        ),
+                      ),
+                      child: Text(
+                        badgeLabel,
+                        softWrap: true,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               color: prediction.worldRoughlyEqual
-                                  ? Colors.blueGrey.shade700
-                                      .withValues(alpha: 0.35)
+                                  ? Colors.blueGrey.shade100
                                   : prediction.isBetterThanWorldAverage
-                                      ? Colors.green.shade700
-                                          .withValues(alpha: 0.35)
-                                      : Colors.deepOrange.shade800
-                                          .withValues(alpha: 0.35),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: prediction.worldRoughlyEqual
-                                    ? Colors.blueGrey.shade400
-                                        .withValues(alpha: 0.85)
-                                    : prediction.isBetterThanWorldAverage
-                                        ? Colors.greenAccent.shade400
-                                            .withValues(alpha: 0.9)
-                                        : Colors.orange.shade700
-                                            .withValues(alpha: 0.85),
+                                      ? Colors.lightGreenAccent.shade100
+                                      : Colors.orange.shade100,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      isTr
+                          ? 'Tahmini ay sonu toplamı'
+                          : 'Projected month-end',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: 0.65),
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    LayoutBuilder(
+                      builder: (context, c2) {
+                        final projStr = _formatDecimalWithSeparators(
+                          prediction.projectedMonthEndKg,
+                          locale,
+                        );
+                        final double valueFont =
+                            (c2.maxWidth * 0.095).clamp(20.0, 36.0);
+                        final unitFont =
+                            (valueFont * 0.42).clamp(12.0, 16.0);
+                        final valueStyle = Theme.of(context)
+                            .textTheme
+                            .displaySmall
+                            ?.copyWith(
+                              color: isDark ? Colors.white : cs.primary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: valueFont,
+                              height: 1.05,
+                            );
+                        final unitStyle = Theme.of(context)
+                            .textTheme
+                            .labelLarge
+                            ?.copyWith(
+                              color: unitColor,
+                              fontWeight: FontWeight.w500,
+                              fontSize: unitFont,
+                            );
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                projStr,
+                                style: valueStyle,
+                                maxLines: 4,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            child: Text(
-                              badgeLabel,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: prediction.worldRoughlyEqual
-                                        ? Colors.blueGrey.shade100
-                                        : prediction.isBetterThanWorldAverage
-                                            ? Colors.lightGreenAccent.shade100
-                                            : Colors.orange.shade100,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.2,
-                                  ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Text('kg CO₂e', style: unitStyle),
                             ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _predictionMetaLine(
+                      context,
+                      prediction: prediction,
+                      locale: locale,
+                      isTr: isTr,
+                      isDark: isDark,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          prediction.isOnTrack
+                              ? Icons.check_circle
+                              : Icons.warning_amber,
+                          size: 18,
+                          color: prediction.isOnTrack
+                              ? Colors.green
+                              : Colors.orange,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            prediction.trackMessage,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: prediction.isOnTrack
+                                      ? Colors.green
+                                      : Colors.orange,
+                                  fontWeight: FontWeight.w700,
+                                ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: (isDark ? Colors.white : Colors.black)
-                                        .withValues(alpha: 0.65),
-                                  ),
-                        ),
-                        Text(
-                          prediction.projectedMonthEndKg.toStringAsFixed(3),
-                          style:
-                              Theme.of(context).textTheme.displaySmall?.copyWith(
-                                    color: isDark
-                                        ? Colors.white
-                                        : cs.primary,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 34,
-                                    height: 1.05,
-                                  ),
-                        ),
-                        Text(
-                          'kg CO₂e',
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    color: (isDark ? Colors.white : Colors.black)
-                                        .withValues(alpha: 0.75),
-                                    fontWeight: FontWeight.w600,
-                                  ),
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                isTr
-                    ? 'Hedef: ${prediction.targetMonthEndKg.toStringAsFixed(3)} kg CO₂e · Günlük tempo: ${prediction.currentAverageKgPerDay.toStringAsFixed(3)} kg/gün · Kalan gün: ${prediction.remainingDays}'
-                    : 'Target: ${prediction.targetMonthEndKg.toStringAsFixed(3)} kg CO₂e · Pace: ${prediction.currentAverageKgPerDay.toStringAsFixed(3)} kg/day · Days left: ${prediction.remainingDays}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black)
-                          .withValues(alpha: 0.78),
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    prediction.isOnTrack
-                        ? Icons.check_circle
-                        : Icons.warning_amber,
-                    size: 18,
-                    color: prediction.isOnTrack ? Colors.green : Colors.orange,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      prediction.trackMessage,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: prediction.isOnTrack
-                                ? Colors.green
-                                : Colors.orange,
-                            fontWeight: FontWeight.w700,
+                    const SizedBox(height: 12),
+                    Text(
+                      prediction.impactSummary,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: 0.8),
                           ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                prediction.impactSummary,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black)
-                          .withValues(alpha: 0.8),
-                    ),
-              ),
-              const SizedBox(height: 14),
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: _InsightMiniCard(
-                        title: isTr ? 'Neden?' : 'Why?',
-                        body: isTr
-                            ? prediction.insightWhyTr
-                            : prediction.insightWhyEn,
-                        isDark: isDark,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _InsightMiniCard(
-                        title: isTr ? 'Tavsiye' : 'Tip',
-                        body: isTr
-                            ? prediction.insightTipTr
-                            : prediction.insightTipEn,
-                        isDark: isDark,
-                      ),
-                    ),
                   ],
-                ),
-              ),
-            ],
+                );
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (sideBySide)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: Center(child: gaugeBox()),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(flex: 3, child: rightTexts()),
+                      ],
+                    )
+                  else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(child: gaugeBox()),
+                        SizedBox(height: screenW < 360 ? 12 : 16),
+                        rightTexts(),
+                      ],
+                    ),
+                  SizedBox(height: screenW < 360 ? 10 : 12),
+                  if (insightColumn)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _InsightMiniCard(
+                          title: isTr ? 'Neden?' : 'Why?',
+                          body: isTr
+                              ? prediction.insightWhyTr
+                              : prediction.insightWhyEn,
+                          isDark: isDark,
+                          fillVerticalSpace: false,
+                        ),
+                        SizedBox(height: screenW < 360 ? 10 : 12),
+                        _InsightMiniCard(
+                          title: isTr ? 'Tavsiye' : 'Tip',
+                          body: isTr
+                              ? prediction.insightTipTr
+                              : prediction.insightTipEn,
+                          isDark: isDark,
+                          fillVerticalSpace: false,
+                        ),
+                      ],
+                    )
+                  else
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: _InsightMiniCard(
+                              title: isTr ? 'Neden?' : 'Why?',
+                              body: isTr
+                                  ? prediction.insightWhyTr
+                                  : prediction.insightWhyEn,
+                              isDark: isDark,
+                              fillVerticalSpace: true,
+                            ),
+                          ),
+                          SizedBox(width: screenW < 360 ? 10 : 12),
+                          Expanded(
+                            child: _InsightMiniCard(
+                              title: isTr ? 'Tavsiye' : 'Tip',
+                              body: isTr
+                                  ? prediction.insightTipTr
+                                  : prediction.insightTipEn,
+                              isDark: isDark,
+                              fillVerticalSpace: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -3128,48 +3969,132 @@ class _InsightMiniCard extends StatelessWidget {
     required this.title,
     required this.body,
     required this.isDark,
+    this.fillVerticalSpace = true,
   });
 
   final String title;
   final String body;
   final bool isDark;
+  /// Yan yana [IntrinsicHeight]+[Row] için tam yükseklik; dar ekranda alt alta dizilirken false.
+  final bool fillVerticalSpace;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final pad = MediaQuery.sizeOf(context).width < 360 ? 12.0 : 16.0;
+    final box = Container(
       width: double.infinity,
-      height: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.all(pad),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.07),
         border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+          color:
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
         ),
       ),
-      alignment: Alignment.topLeft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : Colors.black87,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+            ),
+            SizedBox(height: pad > 12 ? 6 : 4),
+            Text(
+              body,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: (isDark ? Colors.white : Colors.black)
+                        .withValues(alpha: 0.88),
+                    height: 1.35,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!fillVerticalSpace) return box;
+    return SizedBox.expand(child: box);
+  }
+}
+
+bool _isCompactGoalCardLayout(String type) {
+  return type == 'electricity_saving' ||
+      type == 'co2_reduction' ||
+      type == 'water_saving';
+}
+
+String? _goalInfoTranslationKey(String type) {
+  switch (type) {
+    case 'electricity_saving':
+      return 'goal_info_electricity_saving';
+    case 'co2_reduction':
+      return 'goal_info_co2_reduction';
+    case 'water_saving':
+      return 'goal_info_water_saving';
+    default:
+      return null;
+  }
+}
+
+/// Elektrik / CO₂ / su hedef kartlarında kısa dikey ilerleme çubuğu.
+class _CompactGoalProgressBar extends StatelessWidget {
+  const _CompactGoalProgressBar({
+    required this.progress,
+    required this.isCompleted,
+    required this.fillColor,
+  });
+
+  final double progress;
+  final bool isCompleted;
+  final Color fillColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final double p = progress.clamp(0.0, 1.0);
+    return SizedBox(
+      width: 12,
+      height: 92,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Stack(
+          alignment: Alignment.bottomCenter,
+          children: [
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              color: Colors.white.withValues(alpha: 0.2),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: FractionallySizedBox(
+                heightFactor: p,
+                widthFactor: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: isCompleted
+                        ? LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.green,
+                              Colors.green.shade300,
+                            ],
+                          )
+                        : null,
+                    color: isCompleted ? null : fillColor,
+                  ),
                 ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            body,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: (isDark ? Colors.white : Colors.black)
-                      .withValues(alpha: 0.88),
-                  height: 1.35,
-                ),
-          ),
-        ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3251,222 +4176,376 @@ class _GoalCard extends StatelessWidget {
     final locale = languageProvider?.currentLocale ?? const Locale('tr');
     final bool isCompleted = goal.progress >= 1.0;
     final localizedTitle = _localizedGoalTitle(locale);
+    final String? infoKey = _goalInfoTranslationKey(goal.type);
+    final bool compactLayout = _isCompactGoalCardLayout(goal.type);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          decoration: BoxDecoration(
-            gradient: isCompleted
-                ? null
-                : (isDark
-                    ? null
-                    : LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.2),
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.1),
-                        ],
-                      )),
-            color: isCompleted
-                ? Colors.green.withValues(alpha: 0.15)
-                : (isDark ? Colors.black.withValues(alpha: 0.4) : null),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isCompleted
-                  ? Colors.green
-                  : (Theme.of(context).brightness == Brightness.dark)
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.primary,
-              width: isCompleted ? 2 : (isDark ? 1 : 2),
-            ),
-            boxShadow: isCompleted
-                ? [
-                    BoxShadow(
-                      color: Colors.green.withValues(alpha: 0.3),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              alignment: Alignment.center,
               children: [
-                Row(
-                  children: [
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        if (isCompleted)
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.green.withValues(alpha: 0.2),
-                            ),
+                if (isCompleted)
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.green.withValues(alpha: 0.2),
+                    ),
+                  ),
+                Icon(
+                  goal.icon,
+                  color: isCompleted ? Colors.green : goal.color,
+                  size: 28,
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          localizedTitle,
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                        ),
+                      ),
+                      if (infoKey != null)
+                        IconButton(
+                          icon: Icon(
+                            Icons.info_outline,
+                            size: 22,
+                            color: Colors.orangeAccent.withValues(alpha: 0.95),
                           ),
-                        Icon(
-                          goal.icon,
-                          color: isCompleted ? Colors.green : goal.color,
-                          size: 28,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          onPressed: () {
+                            showDialog<void>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text(localizedTitle),
+                                content: SingleChildScrollView(
+                                  child: Text(translate(infoKey, locale)),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: Text(translate('ok', locale)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                  if (isCompleted) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          translate('goal_completed', locale),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
                         ),
                       ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            localizedTitle,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  color: isDark ? Colors.white : Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                          ),
-                          if (isCompleted) ...[
-                            const SizedBox(height: 4),
-                            Row(
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              decoration: BoxDecoration(
+                gradient: isCompleted
+                    ? null
+                    : (isDark
+                        ? null
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.2),
+                              Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.1),
+                            ],
+                          )),
+                color: isCompleted
+                    ? Colors.green.withValues(alpha: 0.15)
+                    : (isDark ? Colors.black.withValues(alpha: 0.4) : null),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isCompleted
+                      ? Colors.green
+                      : Theme.of(context).colorScheme.primary,
+                  width: isCompleted ? 2 : (isDark ? 1 : 2),
+                ),
+                boxShadow: isCompleted
+                    ? [
+                        BoxShadow(
+                          color: Colors.green.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (compactLayout)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '${translate('goal_progress_label', locale)} · ${(goal.progress * 100).toStringAsFixed(0)}%',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color:
+                                        (isDark ? Colors.white : Colors.black)
+                                            .withValues(alpha: 0.78),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          )
+                        else
+                          const SizedBox.shrink(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.green,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 4),
                                 Text(
-                                  translate('goal_completed', locale),
+                                  '${goal.current.toStringAsFixed(1)}/${goal.target.toStringAsFixed(1)} ${goal.unit}',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                ),
+                                Text(
+                                  '${(goal.progress * 100).toStringAsFixed(0)}%',
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
                                       ?.copyWith(
-                                        color: Colors.green,
+                                        color: isCompleted
+                                            ? Colors.green
+                                            : (isDark
+                                                    ? Colors.white
+                                                    : Colors.black)
+                                                .withValues(alpha: 0.7),
                                         fontWeight: FontWeight.w600,
-                                        fontSize: 12,
                                       ),
                                 ),
                               ],
                             ),
+                            if (onDelete != null)
+                              IconButton(
+                                icon:
+                                    const Icon(Icons.delete_outline, size: 20),
+                                onPressed: onDelete,
+                                tooltip: translate('delete', locale),
+                                color: isDark ? Colors.white70 : Colors.black54,
+                              ),
                           ],
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: compactLayout ? 12 : 14),
+                    if (compactLayout) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _CompactGoalProgressBar(
+                            progress: goal.progress,
+                            isCompleted: isCompleted,
+                            fillColor: goal.color,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _monthlyComparisonText(locale),
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: isCompleted
+                                                  ? Colors.green
+                                                  : (isDark
+                                                          ? Colors.white
+                                                          : Colors.black)
+                                                      .withValues(alpha: 0.85),
+                                              fontWeight: FontWeight.w600,
+                                              height: 1.35,
+                                            ),
+                                      ),
+                                    ),
+                                    if (isCompleted)
+                                      const Padding(
+                                        padding: EdgeInsets.only(left: 4),
+                                        child: Icon(Icons.celebration,
+                                            color: Colors.amber, size: 18),
+                                      ),
+                                  ],
+                                ),
+                                if (goal.recommendation.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    goal.recommendation,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Colors.orange
+                                              .withValues(alpha: 0.95),
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.35,
+                                        ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          '${goal.current.toStringAsFixed(1)}/${goal.target.toStringAsFixed(1)} ${goal.unit}',
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: isDark ? Colors.white : Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
+                    ] else ...[
+                      Stack(
+                        children: [
+                          LinearProgressIndicator(
+                            value: goal.progress.clamp(0.0, 1.0),
+                            minHeight: 10,
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.2),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              isCompleted ? Colors.green : goal.color,
+                            ),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          if (isCompleted)
+                            Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(5),
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.green,
+                                      Colors.green.shade300,
+                                    ],
                                   ),
-                        ),
-                        Text(
-                          '${(goal.progress * 100).toStringAsFixed(0)}%',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _monthlyComparisonText(locale),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
                                     color: isCompleted
                                         ? Colors.green
                                         : (isDark ? Colors.white : Colors.black)
                                             .withValues(alpha: 0.7),
                                     fontWeight: FontWeight.w600,
                                   ),
+                            ),
+                          ),
+                          if (isCompleted)
+                            const Icon(Icons.celebration,
+                                color: Colors.amber, size: 18),
+                        ],
+                      ),
+                      if (goal.recommendation.trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          goal.recommendation,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                color: Colors.orange.withValues(alpha: 0.95),
+                                fontWeight: FontWeight.w600,
+                              ),
                         ),
                       ],
-                    ),
-                    if (onDelete != null) ...[
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        onPressed: onDelete,
-                        tooltip: translate('delete', locale),
-                        color: isDark ? Colors.white70 : Colors.black54,
-                      ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 14),
-                Stack(
-                  children: [
-                    LinearProgressIndicator(
-                      value: goal.progress.clamp(0.0, 1.0),
-                      minHeight: 10,
-                      backgroundColor: Colors.white.withValues(alpha: 0.2),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        isCompleted ? Colors.green : goal.color,
-                      ),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    if (isCompleted)
-                      Positioned.fill(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(5),
-                            gradient: LinearGradient(
-                              colors: [Colors.green, Colors.green.shade300],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _monthlyComparisonText(locale),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: isCompleted
-                                  ? Colors.green
-                                  : (isDark ? Colors.white : Colors.black)
-                                      .withValues(
-                                      alpha: 0.7,
-                                    ),
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                    if (isCompleted)
-                      const Icon(Icons.celebration,
-                          color: Colors.amber, size: 18),
-                  ],
-                ),
-                if (goal.recommendation.trim().isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    goal.recommendation,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.orange.withValues(alpha: 0.95),
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -3660,72 +4739,95 @@ class _ActionChip extends StatelessWidget {
   const _ActionChip({
     required this.icon,
     required this.label,
-    required this.points,
+    required this.rateSubtitle,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
-  final int points;
+  final String rateSubtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final locale = context.watch<LanguageProvider>().currentLocale;
+    final Color primary = Theme.of(context).colorScheme.primary;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+          color: primary.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+            color: primary.withValues(alpha: 0.35),
             width: 1,
           ),
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.2),
+                color: primary.withValues(alpha: 0.22),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 icon,
-                size: 18,
-                color: Theme.of(context).colorScheme.primary,
+                size: 20,
+                color: primary,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     label,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: isDark ? Colors.white : Colors.black,
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 4),
                   Text(
-                    '+$points',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
+                    rateSubtitle,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: (isDark ? Colors.white : Colors.black)
+                              .withValues(alpha: 0.65),
+                          fontSize: 10,
+                          height: 1.25,
                         ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: primary.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Text(
+                translate('chip_tap_to_log', locale),
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: primary,
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
             ),
           ],

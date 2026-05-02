@@ -10,6 +10,10 @@ class AppTheme {
     0xFFF4F4E8,
   ); // Card/containers (light)
 
+  /// Bilgi (i) diyalogları: ThemeMode'dan bağımsız, her zaman açık yeşil + koyu yeşil metin.
+  static const Color infoDialogBackground = Color(0xFFDCEDC8);
+  static const Color infoDialogForeground = Color(0xFF304411);
+
   static ThemeData buildThemeData(ThemeMode mode) {
     final bool isDark = mode == ThemeMode.dark;
     final primaryColor = isDark ? darkPrimaryColor : lightPrimaryColor;

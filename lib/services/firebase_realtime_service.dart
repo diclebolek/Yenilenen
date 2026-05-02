@@ -816,7 +816,9 @@ class FirebaseRealtimeService {
         };
       }
 
-      return Map<String, bool>.from(snapshot.value as Map<Object?, Object?>);
+      return mergeBadgeDefaults(
+        Map<String, bool>.from(snapshot.value as Map<Object?, Object?>),
+      );
     } catch (e, st) {
       dev.log(
         'Firebase rozet getirme hatası: $e',
@@ -854,8 +856,10 @@ class FirebaseRealtimeService {
           };
         }
 
-        return Map<String, bool>.from(
-          event.snapshot.value as Map<Object?, Object?>,
+        return mergeBadgeDefaults(
+          Map<String, bool>.from(
+            event.snapshot.value as Map<Object?, Object?>,
+          ),
         );
       });
     } catch (e, st) {
@@ -874,6 +878,17 @@ class FirebaseRealtimeService {
         'eco_warrior': false,
       });
     }
+  }
+
+  /// RTDB'den eksik anahtar gelmesini önler (`Unexpected null` ve UI'daki `!` crash).
+  Map<String, bool> mergeBadgeDefaults(Map<String, bool> raw) {
+    return {
+      'environment_friendly': raw['environment_friendly'] ?? false,
+      'energy_saving': raw['energy_saving'] ?? false,
+      'water_protector': raw['water_protector'] ?? false,
+      'goal_master': raw['goal_master'] ?? false,
+      'eco_warrior': raw['eco_warrior'] ?? false,
+    };
   }
 
   /// Rozetleri kaydet

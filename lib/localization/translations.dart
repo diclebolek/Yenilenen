@@ -53,6 +53,9 @@ const Map<String, String> trTranslations = {
       'Windows\'ta fatura tarama desteklenmiyor. Android/iOS\'ta deneyin.',
   'ocr_web_not_supported':
       'Fatura OCR yalnızca Android ve iOS uygulamasında çalışır. Web için değerleri manuel girebilirsiniz.',
+  'bill_scan_manual_redirect_title': 'Fatura tarama kullanılamıyor',
+  'bill_scan_manual_redirect_body':
+      'Bu ortamda fatura taranamaz. Manuel karbon hesaplaması için Raporlar sekmesindeki manuel giriş ve grafikleri kullanabilirsiniz.',
   'weather_adjustments': 'Hava Durumuna Dayalı Ayarlamalar (Yakında)',
   'weather_desc':
       'Yerel hava durumuna göre HVAC ve enerji kıyaslamalarını ayarlayacak entegrasyonlar planlanmaktadır.',
@@ -107,6 +110,36 @@ const Map<String, String> trTranslations = {
   // Consumption Form
   'manual_data_entry': 'Manuel Veri Girişi',
   'electricity_consumption': 'Elektrik Tüketimi',
+  'electricity_unit_kwh': 'kWh',
+  'electricity_unit_wh': 'Wh',
+  'electricity_unit_mwh': 'MWh',
+  'electricity_label_kwh': 'Elektrik (kWh)',
+  'electricity_hint_kwh': 'Örn: 150.5',
+  'electricity_label_wh': 'Elektrik (Wh)',
+  'electricity_hint_wh': 'Örn: 150500',
+  'electricity_label_mwh': 'Elektrik (MWh)',
+  'electricity_hint_mwh': 'Örn: 0,15',
+  'electricity_tip_manual_units':
+      'Manuel satır ile cihazlar toplanır; birimler otomatik kWh’a çevrilir.',
+  'waste_unit_kg': 'kg',
+  'waste_unit_tonnes': 'ton',
+  'waste_unit_g': 'g',
+  'waste_label_kg': 'Atık (kg)',
+  'waste_hint_kg': 'Örn: 12',
+  'waste_label_tonnes': 'Atık (ton)',
+  'waste_hint_tonnes': 'Örn: 0,012',
+  'waste_label_g': 'Atık (g)',
+  'waste_hint_g': 'Örn: 3500',
+  'waste_tip_units':
+      'Atığı kg, ton veya gram olarak girebilirsiniz; kayıt her zaman kg üzerindendir.',
+  'fuel_unit_liquid': 'Sıvı (L)',
+  'fuel_unit_gas': 'Gaz (m³)',
+  'fuel_label_liquid': 'Yakıt (litre)',
+  'fuel_hint_liquid': 'Örn: 25.3',
+  'fuel_label_gas': 'Doğalgaz (m³)',
+  'fuel_hint_gas': 'Örn: 18.5',
+  'fuel_tip_units':
+      'Sıvı yakıt litre; doğalgaz şebeke sayacı m³. Araçlar sıvı yakıt olarak eklenir.',
   'fuel_consumption': 'Yakıt Tüketimi',
   'water_consumption': 'Su Tüketimi',
   'waste_production': 'Atık Üretimi',
@@ -118,6 +151,12 @@ const Map<String, String> trTranslations = {
   'fuel_hint': 'Örn: 25.3',
   'water_cubic': 'Su (m³)',
   'water_hint_form': 'Örn: 8.7',
+  'water_liters_label': 'Su (litre)',
+  'water_hint_liters': 'Örn: 4200',
+  'water_unit_m3': 'm³',
+  'water_unit_liters': 'Litre',
+  'water_tip_liters':
+      'Su tüketiminizi litre cinsinden girin. 1000 litre = 1 m³.',
   'waste_kg': 'Atık (kg)',
   'waste_hint_form': 'Örn: 12.0',
   'required': 'Zorunlu',
@@ -209,6 +248,7 @@ const Map<String, String> trTranslations = {
   'global_trend_description':
       'Dünya geneli son 7 yılın yıllık CO₂ emisyon trendi (normalize edilmiş)',
   'no_data_available': 'Henüz veri yok',
+  'sensor_data_waiting': 'Veri bekleniyor...',
   'real_data': 'Gerçek Veri',
   'estimated_data': 'Tahmini Veri',
   'y_axis_kg_co2e': 'Y ekseni: kg CO₂e (Karbon dioksit eşdeğeri)',
@@ -216,6 +256,10 @@ const Map<String, String> trTranslations = {
   'pdf_reporting_title': 'PDF Raporlama',
   'pdf_reporting_desc':
       'Kullanıcının haftalık veya aylık karbon raporunu ISO 14064 basit özet formatıyla PDF olarak al.',
+  'pdf_export_language': 'Rapor dili',
+  'pdf_lang_follow_app': 'Uygulama dili',
+  'pdf_lang_tr': 'Türkçe',
+  'pdf_lang_en': 'English',
   'pdf_weekly_button': 'Haftalık PDF',
   'pdf_monthly_button': 'Aylık PDF',
   'pdf_weekly_report_title': 'Haftalık Karbon Raporu',
@@ -239,6 +283,16 @@ const Map<String, String> trTranslations = {
       'Not: Bu belge ISO 14064 standardının sadeleştirilmiş bir özet raporudur.',
   'tonnes_co2e': 'ton CO₂e',
   'greenhouse_gas_emissions': 'Sera Gazı\nEmisyonları',
+  'gauge_info_title': 'Gösterge: M ve E',
+  'gauge_info_body':
+      'M: Manuel — aşağıdaki manuel veri girişi veya kayıtlı manuel verilerinizle hesaplanan günlük toplam emisyondur.\n\n'
+      'E: ESP — canlı sensör (ESP) ve Shelly ölçümlerinin birleşik günlük toplam emisyondur.\n\n'
+      'Ortadaki değer bugüne ait tahmini CO₂e\'yi gösterir; dış halka bu toplamın bir üst referansa göre doluluk oranını yansıtır. '
+      'Mod değiştirmek için bu beyaz yuvarlağın herhangi bir yerine dokunun.',
+  'category_distribution_info_title': 'Kategori dağılımı',
+  'category_distribution_info_body':
+      'Bu grafik elektrik, su ve doğalgaz tüketimlerinizin günlük karbon ayak izindeki payını yüzde olarak gösterir. '
+      'Veriler manuel giriş veya canlı sensör (M/E) moduna göre güncellenir.',
   'manual': 'Manuel',
   'mon': 'Pzt',
   'tue': 'Sal',
@@ -306,12 +360,63 @@ const Map<String, String> trTranslations = {
   'completed_goals': 'Tamamlanan',
   'badges_earned': 'Rozet',
   'earn_points': 'Puan Kazan',
+  'recycle': 'Geri dönüşüm',
+  'walk': 'Yürüyüş',
+  'public_transport': 'Toplu taşıma',
+  'save_water': 'Su tasarrufu',
+  'points_per_log_short': 'Kayıt başına +{points} puan',
+  'earn_points_dialog_explain':
+      'Bu eylemi bugün kaç kez yaptığınızı seçin. Her kayıt +{points} puan ekler; toplam puan aşağıda hesaplanır.',
+  'how_many_times_question': 'Bugün kaç kez?',
+  'earn_points_dialog_explain_walk':
+      'Yürüyüş puanı = km × {multiplier}. Bugünkü toplam yürüyüş mesafesini girin; toplam puan anında hesaplanır.',
+  'earn_points_dialog_explain_bus':
+      'Toplu taşıma puanı = km × {multiplier}. Bugün toplu taşımayla kat ettiğiniz km’yi girin.',
+  'earn_points_dialog_explain_recycle':
+      'Geri dönüşüm puanı = kg × {multiplier}. Ayrıştırdığınız atık miktarını (kg) girin.',
+  'earn_points_dialog_explain_water':
+      'Su tasarrufu puanı = litre × {multiplier}. Bugün ölçtüğünüz veya tahmini tasarrufu (L) girin.',
+  'how_many_km_today': 'Bugün kaç km?',
+  'how_many_kg_recycled': 'Kaç kg atık ayrıştırıldı?',
+  'how_many_liters_water_saved': 'Bugün kaç litre su tasarrufu?',
+  'numeric_entry_hint': '0 veya pozitif sayı',
+  'slider_quick_set': 'Hızlı ayar',
+  'weekly_challenge_title': 'Haftalık görev',
+  'weekly_challenge_walk_desc':
+      'Bu hafta toplam 10 km yürü; +100 bonus puan kazan.',
+  'weekly_progress_km': '{current} / {target} km',
+  'weekly_bonus_claimed': 'Haftalık bonus bu hafta alındı',
+  'weekly_bonus_pending': '10 km’ye ulaşınca +100 bonus',
+  'savings_bonus_available':
+      'Tasarruf rozeti: Günlük salınımınız dünya ortalamasının altında (+{points} puan, günde bir kez)',
+  'savings_bonus_used_today': 'Tasarruf bonusu bugün kullanıldı',
+  'savings_bonus_not_eligible':
+      'Tasarruf bonusu: günlük salınım dünya ortalamasının üzerinde',
+  'savings_bonus_requires_login':
+      'Tasarruf rozet bonusu için oturum açın; günlük salınımınız tahminle karşılaştırılır.',
+  'walk_points_rate': '{multiplier} puan/km',
+  'bus_points_rate': '{multiplier} puan/km',
+  'recycle_points_rate': '{multiplier} puan/kg',
+  'water_points_rate': '{multiplier} puan/L',
+  'chip_tap_to_log': 'Kaydet',
+  'points_total_label': 'Toplam: {points} puan',
+  'log_action_confirm': 'Puanı ekle',
+  'goal_progress_label': 'İlerleme',
+  'goal_info_electricity_saving':
+      'Bu kart, önceki aya göre elektrik kullanımınızdaki yüzde düşüşü izler. İlerleme, faturalarınız veya ölçüm verilerinizle otomatik güncellenir.',
+  'goal_info_co2_reduction':
+      'CO₂ hedefi, aylık toplam karbon ayak izinizdeki azalmayı (kg CO₂e) önceki dönemlere göre takip eder; verileriniz güncellendikçe doluluk artar.',
+  'goal_info_water_saving':
+      'Su tasarrufu, önceki aya göre su kullanımınızdaki yüzde iyileşmeyi gösterir. Sayaç veya manuel girişlerle otomatik hesaplanır.',
   'green_score': 'Yeşil Skor',
   'virtual_tree': 'sanal ağaç',
   'achievement_badges_info':
       'Başarı rozetleri, çevre dostu davranışlarınız ve hedeflerinize ulaşmanız için verilen ödüllerdir. Her rozet farklı bir başarıyı temsil eder.',
   'green_score_info':
       'Yeşil Skor, çevre dostu aktiviteleriniz ve hedeflerinize ulaşmanız sonucu kazandığınız puanlardır. Daha fazla puan kazanarak rozetler açabilir ve seviye atlayabilirsiniz.',
+  'next_month_outlook': 'Gelecek Ay Beklentisi',
+  'next_month_outlook_info':
+      'Günlük tüketim temponuza göre ay sonu CO₂e tahmini, hedefinize göre durumunuz ve dünya ortalamasıyla karşılaştırma bu kartta özetlenir. Verimlilik göstergesi ve metinler, kalan gün ve güncel verilerle birlikte güncellenir.',
 
   // Login Screen
   'welcome_back': 'Tekrar Hoş Geldiniz',
@@ -427,6 +532,9 @@ const Map<String, String> enTranslations = {
       'Bill scanning is not supported on Windows. Please try on Android or iOS.',
   'ocr_web_not_supported':
       'Bill OCR runs on Android and iOS only. On web, please enter values manually.',
+  'bill_scan_manual_redirect_title': 'Bill scanning unavailable',
+  'bill_scan_manual_redirect_body':
+      'Bills cannot be scanned on this platform. Use the Reports tab for manual entry and charts to calculate your footprint.',
   'weather_adjustments': 'Weather-Based Adjustments (Coming Soon)',
   'weather_desc':
       'Integrations are planned to adjust HVAC and energy comparisons based on local weather conditions.',
@@ -482,6 +590,36 @@ const Map<String, String> enTranslations = {
   // Consumption Form
   'manual_data_entry': 'Manual Data Entry',
   'electricity_consumption': 'Electricity Consumption',
+  'electricity_unit_kwh': 'kWh',
+  'electricity_unit_wh': 'Wh',
+  'electricity_unit_mwh': 'MWh',
+  'electricity_label_kwh': 'Electricity (kWh)',
+  'electricity_hint_kwh': 'E.g: 150.5',
+  'electricity_label_wh': 'Electricity (Wh)',
+  'electricity_hint_wh': 'E.g: 150500',
+  'electricity_label_mwh': 'Electricity (MWh)',
+  'electricity_hint_mwh': 'E.g: 0.15',
+  'electricity_tip_manual_units':
+      'Manual entry is added to devices; units convert to kWh automatically.',
+  'waste_unit_kg': 'kg',
+  'waste_unit_tonnes': 't',
+  'waste_unit_g': 'g',
+  'waste_label_kg': 'Waste (kg)',
+  'waste_hint_kg': 'E.g: 12',
+  'waste_label_tonnes': 'Waste (tonnes)',
+  'waste_hint_tonnes': 'E.g: 0.012',
+  'waste_label_g': 'Waste (g)',
+  'waste_hint_g': 'E.g: 3500',
+  'waste_tip_units':
+      'Enter waste as kg, tonnes, or grams; storage is always in kg.',
+  'fuel_unit_liquid': 'Liquid (L)',
+  'fuel_unit_gas': 'Gas (m³)',
+  'fuel_label_liquid': 'Fuel (liters)',
+  'fuel_hint_liquid': 'E.g: 25.3',
+  'fuel_label_gas': 'Natural gas (m³)',
+  'fuel_hint_gas': 'E.g: 18.5',
+  'fuel_tip_units':
+      'Liquid fuel in liters; natural gas meter in m³. Vehicles count as liquid fuel.',
   'fuel_consumption': 'Fuel Consumption',
   'water_consumption': 'Water Consumption',
   'waste_production': 'Waste Production',
@@ -493,6 +631,12 @@ const Map<String, String> enTranslations = {
   'fuel_hint': 'E.g: 25.3',
   'water_cubic': 'Water (m³)',
   'water_hint_form': 'E.g: 8.7',
+  'water_liters_label': 'Water (liters)',
+  'water_hint_liters': 'E.g: 4200',
+  'water_unit_m3': 'm³',
+  'water_unit_liters': 'Liters',
+  'water_tip_liters':
+      'Enter water consumption in liters. 1000 L = 1 m³.',
   'waste_kg': 'Waste (kg)',
   'waste_hint_form': 'E.g: 12.0',
   'required': 'Required',
@@ -584,6 +728,7 @@ const Map<String, String> enTranslations = {
   'global_trend_description':
       'Global annual CO₂ emissions trend for last 7 years (normalized)',
   'no_data_available': 'No data available yet',
+  'sensor_data_waiting': 'Waiting for data...',
   'real_data': 'Real Data',
   'estimated_data': 'Estimated Data',
   'y_axis_kg_co2e': 'Y axis: kg CO₂e (carbon dioxide equivalent)',
@@ -592,6 +737,10 @@ const Map<String, String> enTranslations = {
   'pdf_reporting_title': 'PDF Reporting',
   'pdf_reporting_desc':
       'Download the user weekly or monthly carbon report as a PDF with a simple ISO 14064 style summary.',
+  'pdf_export_language': 'Report language',
+  'pdf_lang_follow_app': 'App language',
+  'pdf_lang_tr': 'Turkish',
+  'pdf_lang_en': 'English',
   'pdf_weekly_button': 'Weekly PDF',
   'pdf_monthly_button': 'Monthly PDF',
   'pdf_weekly_report_title': 'Weekly Carbon Report',
@@ -615,6 +764,16 @@ const Map<String, String> enTranslations = {
       'Note: This file is a simplified summary inspired by ISO 14064 reporting.',
   'tonnes_co2e': 'tonnes CO₂e',
   'greenhouse_gas_emissions': 'Greenhouse Gas\nEmissions',
+  'gauge_info_title': 'Gauge: M and E',
+  'gauge_info_body':
+      'M: Manual — daily total from manual entry below or your saved manual records.\n\n'
+      'E: ESP — combined daily total from the live ESP sensor and Shelly readings.\n\n'
+      'The center value is today\'s estimated CO₂e; the outer ring shows fill vs. a reference scale. '
+      'Tap anywhere on the white circle to switch modes.',
+  'category_distribution_info_title': 'Category distribution',
+  'category_distribution_info_body':
+      'This chart shows how electricity, water, and natural gas contribute to your daily carbon footprint as percentages. '
+      'Figures update based on manual entry or live sensor (M/E) mode.',
   'manual': 'Manual',
   'mon': 'Mon',
   'tue': 'Tue',
@@ -680,12 +839,63 @@ const Map<String, String> enTranslations = {
   'completed_goals': 'Completed',
   'badges_earned': 'Badges',
   'earn_points': 'Earn Points',
+  'recycle': 'Recycling',
+  'walk': 'Walking',
+  'public_transport': 'Public transport',
+  'save_water': 'Water saving',
+  'points_per_log_short': '+{points} pts per log',
+  'earn_points_dialog_explain':
+      'Choose how many times you did this today. Each log adds +{points} points; the total is calculated below.',
+  'how_many_times_question': 'How many times today?',
+  'earn_points_dialog_explain_walk':
+      'Walking points = km × {multiplier}. Enter today’s total walking distance; points update live.',
+  'earn_points_dialog_explain_bus':
+      'Transit points = km × {multiplier}. Enter km travelled by public transport today.',
+  'earn_points_dialog_explain_recycle':
+      'Recycling points = kg × {multiplier}. Enter sorted waste mass (kg).',
+  'earn_points_dialog_explain_water':
+      'Water-saving points = liters × {multiplier}. Enter estimated liters saved today.',
+  'how_many_km_today': 'How many km today?',
+  'how_many_kg_recycled': 'How many kg of waste sorted?',
+  'how_many_liters_water_saved': 'How many liters of water saved today?',
+  'numeric_entry_hint': 'Non-negative number',
+  'slider_quick_set': 'Quick set',
+  'weekly_challenge_title': 'Weekly challenge',
+  'weekly_challenge_walk_desc':
+      'Walk 10 km total this week to earn +100 bonus points.',
+  'weekly_progress_km': '{current} / {target} km',
+  'weekly_bonus_claimed': 'Weekly bonus claimed this week',
+  'weekly_bonus_pending': '+100 bonus when you reach 10 km',
+  'savings_bonus_available':
+      'Savings badge: daily footprint below world average (+{points} pts, once per day)',
+  'savings_bonus_used_today': 'Savings bonus already claimed today',
+  'savings_bonus_not_eligible':
+      'Savings bonus: daily footprint is above world average',
+  'savings_bonus_requires_login':
+      'Sign in to unlock the savings badge bonus (uses your daily footprint vs world average).',
+  'walk_points_rate': '{multiplier} pts/km',
+  'bus_points_rate': '{multiplier} pts/km',
+  'recycle_points_rate': '{multiplier} pts/kg',
+  'water_points_rate': '{multiplier} pts/L',
+  'chip_tap_to_log': 'Log',
+  'points_total_label': 'Total: {points} pts',
+  'log_action_confirm': 'Add points',
+  'goal_progress_label': 'Progress',
+  'goal_info_electricity_saving':
+      'This card tracks your month-over-month electricity reduction (%). Progress updates automatically from bills or meter data.',
+  'goal_info_co2_reduction':
+      'This goal tracks how much your monthly CO₂ footprint drops (kg CO₂e) compared to earlier periods; it fills as your data updates.',
+  'goal_info_water_saving':
+      'Water savings shows your usage improvement vs the previous month (%). It is calculated from meter or manual entries.',
   'green_score': 'Green Score',
   'virtual_tree': 'virtual tree',
   'achievement_badges_info':
       'Achievement badges are rewards given for your environmentally friendly behaviors and reaching your goals. Each badge represents a different achievement.',
   'green_score_info':
       'Green Score is the points you earn as a result of your environmentally friendly activities and reaching your goals. You can unlock badges and level up by earning more points.',
+  'next_month_outlook': 'Next Month Outlook',
+  'next_month_outlook_info':
+      'This card summarizes your projected month-end CO₂e from your current daily pace, how you compare to your goal and the world average. The efficiency gauge and text update as remaining days and data change.',
 
   // Login Screen
   'welcome_back': 'Welcome Back',

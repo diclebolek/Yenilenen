@@ -50,6 +50,12 @@ flutter:
 
   assets:
     - assets/images/
+    # Web: 'assets/' ile başlayan anahtarlar çoğu zaman assets/assets/... 404 verir;
+    # PDF TTF'leri proje kökündeki fonts/ altında (tek assets/ öneki).
+    - fonts/NotoSans-Regular.ttf
+    - fonts/NotoSans-Bold.ttf
+    - fonts/OpenSans-Regular.ttf
+    - fonts/OpenSans-Bold.ttf
 
   fonts:
     - family: PlayfairDisplay

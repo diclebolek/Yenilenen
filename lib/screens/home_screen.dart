@@ -12,6 +12,11 @@ import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
 import '../services/carbon_data_service.dart';
 
+/// Ana sayfa bölüm aralığı ve kart içi boşluk (diğer ekranlarla uyumlu ritim).
+const double _kHomeSectionGap = 20;
+const double _kHomeTitleBelowGap = 12;
+const EdgeInsets _kHomeCardPadding = EdgeInsets.all(16);
+
 /// Home screen showing title, tips, and weather placeholder.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -86,8 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {
                   _currentPage = roundedPage;
                 });
-                debugPrint(
-                    '📄 Web listener: page=$webPage, rounded=$roundedPage');
               }
             }
           }
@@ -148,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
       } catch (e) {
-        debugPrint('Hero auto scroll error: $e');
+        // Sessiz: hero otomatik kaydırma hatası
       }
     });
 
@@ -200,11 +203,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
               );
-              debugPrint(
-                  '🔄 Otomatik kaydırma (Mobil): $currentPage -> $nextPage');
             }
           } catch (e) {
-            debugPrint('Mobil controller animasyon hatası: $e');
+            // Controller hazır değil veya animasyon iptal
           }
         }
 
@@ -227,24 +228,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.easeInOutCubic, // Web için daha akıcı curve
               );
-              debugPrint(
-                  '🔄 Otomatik kaydırma (Web): $actualWebPage -> $nextPage (page=$webPage)');
-            } else if (isAnimating) {
-              // Animasyon devam ediyor, bekle
-              debugPrint(
-                  '⏸️ Web slider animasyon devam ediyor: page=$webPage, hedef=$nextPage');
-            } else {
-              // Sayfa zaten değişmiş
-              debugPrint(
-                  '⏸️ Web slider sayfa değişmiş: mevcut=$actualWebPage, beklenen=$currentPage, hedef=$nextPage');
             }
           } catch (e) {
-            // Controller henüz hazır değilse hata verme
-            debugPrint('Web controller error: $e');
+            // Controller henüz hazır değil
           }
         }
       } catch (e) {
-        debugPrint('Auto scroll error: $e');
+        // Sessiz: ipuçları otomatik kaydırma
       }
     });
 
@@ -435,6 +425,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final tips = _getTips(locale);
 
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final TextStyle homeTitleStyle = TextStyle(
+      fontSize: 18,
+      fontWeight: FontWeight.bold,
+      color: isDark ? Colors.white : Colors.black,
+      height: 1.2,
+    );
+    final TextStyle homeSubStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.normal,
+      color: isDark ? Colors.white70 : Colors.black54,
+      height: 1.35,
+    );
+    final double homeHorizontalPad =
+        MediaQuery.sizeOf(context).width < 360 ? 12.0 : 16.0;
     return Scaffold(
       appBar: null,
       backgroundColor: isDark ? Colors.black : Colors.white,
@@ -446,9 +450,9 @@ class _HomeScreenState extends State<HomeScreen> {
             // İçerik
             ListView(
               padding: EdgeInsets.fromLTRB(
+                homeHorizontalPad,
                 16,
-                16,
-                16,
+                homeHorizontalPad,
                 16 +
                     MediaQuery.of(context).padding.bottom +
                     80, // Bottom nav bar için ekstra padding
@@ -474,9 +478,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'assets/images/herosectionafis3.png',
                           ];
                           return Container(
-                            margin: isWide
-                                ? EdgeInsets.zero
-                                : const EdgeInsets.symmetric(horizontal: 8),
+                            margin: EdgeInsets.zero,
                             decoration: BoxDecoration(
                               borderRadius: isWide
                                   ? BorderRadius.zero
@@ -515,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 // Hero slider indicator dots
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -537,49 +539,40 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   }),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeSectionGap),
                 // Ağaç bağışı bölümü için görsel ve CTA
                 HeroDonateBanner(
                   imageAssetPath: 'assets/images/olive-drab_small.webp',
                   languageProvider: widget.languageProvider,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: _kHomeSectionGap),
                 // İşletme karşılaştırma tablosu
                 Text(
                   translate('business_comparison_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 _BusinessComparisonTable(locale: locale, isDark: isDark),
-                const SizedBox(height: 32),
+                const SizedBox(height: _kHomeSectionGap),
                 // Fatura tarama başlığı
                 Text(
                   translate('bill_scanning_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 // Fatura tarama kartı
                 BillScannerCard(
                   languageProvider: widget.languageProvider,
                   onCalculated: (value) =>
                       setState(() => _dailyEmissionKg = value),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: _kHomeSectionGap),
                 // GNÇ tarzında başlık
                 Text(
                   translate('energy_tips_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 900;
@@ -609,8 +602,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                   setState(() {
                                     _currentPage = index.toDouble();
                                   });
-                                  debugPrint(
-                                      '📄 Web onPageChanged: $index (toplam: ${tips.length})');
                                 }
                               },
                               itemBuilder: (context, index) {
@@ -769,27 +760,23 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   },
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: _kHomeSectionGap),
                 // Hava durumu bölümü başlığı ve şehir adı - Konteynır dışında
                 Text(
                   translate('weather_energy_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 Text(
                   _currentWeather != null && _currentWeather!['city'] != null
                       ? _currentWeather!['city']
                       : 'Sakarya',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+                  style: homeSubStyle.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 // Hava durumu bölümü - Konteynır
                 ClipRRect(
                   borderRadius: BorderRadius.circular(16),
@@ -823,7 +810,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: _kHomeCardPadding,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1129,16 +1116,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: _kHomeSectionGap),
                 // Gerçek zamanlı iklim verileri
                 Text(
                   translate('climate_realtime_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: BackdropFilter(
@@ -1171,7 +1155,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: _kHomeCardPadding,
                         child: _isLoadingWeather
                             ? const Center(
                                 child: Padding(
@@ -1348,32 +1332,26 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: _kHomeSectionGap),
                 // Emisyon farkındalık / karşılaştırma (placeholder hesap)
                 Text(
                   translate('emission_awareness_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 _EmissionComparisonCard(
                   userDailyEmissionKg: _dailyEmissionKg ?? 12.0,
                   nationalAvgKg: _nationalAverageKg ?? 6.8,
                   globalAvgKg: _globalAverageKg ?? 4.1,
                   locale: locale,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: _kHomeSectionGap),
                 // Eşdeğer görselleştirme
                 Text(
                   translate('impact_equivalents_title', locale),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: homeTitleStyle,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: _kHomeTitleBelowGap),
                 _EquivalentsCard(
                   dailyEmissionKg: _dailyEmissionKg ?? 12.0,
                   locale: locale,
@@ -1526,7 +1504,7 @@ class _ClimateInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
@@ -1557,20 +1535,21 @@ class _ClimateInfoCard extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.7)
-                            : Colors.black.withValues(alpha: 0.7),
-                        fontWeight: FontWeight.w500,
-                      ),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.normal,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                    height: 1.35,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   value,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1635,7 +1614,7 @@ class _EmissionComparisonCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: _kHomeCardPadding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1826,11 +1805,10 @@ class _EquivalentsCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: _kHomeCardPadding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 0),
                 Row(
                   children: [
                     metric(

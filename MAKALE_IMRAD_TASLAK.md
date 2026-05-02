@@ -7,7 +7,7 @@
 
 ## Özet
 
-İklim değişikliğine ilişkin politika ve raporlama çerçevelerinde, sera gazı emisyonlarının **karbon dioksit eşdeğeri (CO₂e)** cinsinden izlenmesi yaygın bir beklenti olarak öne çıkmaktadır. Bu çalışmada, küçük ve orta ölçekli işletme bağlamında tüketim verilerinin toplanması, emisyonların hesaplanması ve görselleştirilmesi amacıyla geliştirilmiş **çok platformlu (web ve mobil)** bir uygulama mimarisi anlatılmaktadır. Yazılım, **Flutter** çatısı ile tek kod tabanından **Android, iOS ve web** hedeflerine derlenebilmekte; kimlik doğrulama ve gerçek zamanlı veri için **Firebase** bileşenleri, isteğe bağlı kurumsal kayıt için **HTTP üzerinden PostgreSQL API** erişimi ve sensör verisi için **ESP8266** ile **Shelly Plug S** entegrasyonu kullanılmaktadır. Emisyon hesapları, aktivite verisi × emisyon faktörü biçiminde, **GHG Protocol** ve **ISO 14064** ile uyumlu düşünülebilecek bir yaklaşımla yapılandırılmıştır; faktör değerleri literatürdeki bantlarla karşılaştırıldığında, elektrik şebeke faktörünün tekil bir sabitle temsil edildiği ve yıllık güncellemeye açık olduğu belirtilmektedir. Arayüz metinleri **Türkçe ve İngilizce** olacak şekilde yerelleştirilebilmektedir. Sonuç bölümünde, sistemin güçlü yönleri ile ölçüm hataları, faktör seçimi ve kapsam sınırları gibi **belirsizlik kaynakları** tartışılmaktadır.
+İklim değişikliğine ilişkin politika ve raporlama çerçevelerinde, sera gazı emisyonlarının **karbon dioksit eşdeğeri (CO₂e)** cinsinden izlenmesi yaygın bir beklenti olarak öne çıkmaktadır. Bu çalışmada, küçük ve orta ölçekli işletme bağlamında tüketim verilerinin toplanması, emisyonların hesaplanması, görselleştirilmesi, **dışa aktarılabilir raporlama** ve **kısa vadeli tahmin (projeksiyon)** sunulması amacıyla geliştirilmiş **çok platformlu (web ve mobil)** bir uygulama mimarisi anlatılmaktadır. Yazılım, **Flutter** çatısı ile tek kod tabanından **Android, iOS ve web** hedeflerine derlenebilmekte; kimlik doğrulama ve gerçek zamanlı veri için **Firebase** bileşenleri, isteğe bağlı kurumsal kayıt için **HTTP üzerinden PostgreSQL API** erişimi ve sensör verisi için **ESP8266** ile **Shelly Plug S** entegrasyonu kullanılmaktadır. Emisyon hesapları, aktivite verisi × emisyon faktörü biçiminde, **GHG Protocol** ve **ISO 14064** ile uyumlu düşünülebilecek bir yaklaşımla yapılandırılmıştır; faktör değerleri literatürdeki bantlarla karşılaştırıldığında, elektrik şebeke faktörünün tekil bir sabitle temsil edildiği ve yıllık güncellemeye açık olduğu belirtilmektedir. Arayüz metinleri **Türkçe ve İngilizce** olacak şekilde yerelleştirilebilmekte; **PDF karbon raporu** üretiminde de dil (**TR/EN**) kullanıcı tarafından seçilebilmektedir. **Ay sonu CO₂e tahmini**, son günlük seriden türetilen tempo ile hesaplanmakta; CO₂ azaltım hedefi ile karşılaştırma ve Our World in Data tabanlı küresel günlük referansla bağlamsal yorum içerebilmektedir. Sonuç bölümünde, sistemin güçlü yönleri ile ölçüm hataları, faktör seçimi ve kapsam sınırları gibi **belirsizlik kaynakları** tartışılmaktadır.
 
 **Anahtar kelimeler:** Karbon ayak izi, CO₂e, GHG Protocol, Flutter, Firebase, IoT, çok platformlu uygulama, işletme emisyonları
 
@@ -37,11 +37,11 @@ Küçük işletmelerde (örneğin hizmet sektörü) elektrik, su, ısınma için
 
 ### 2.1. Yazılım yığını ve sürümler
 
-Uygulama **Dart** dili ve **Flutter** çatısı ile geliştirilmiştir (`sdk: '>=3.0.0 <4.0.0'`). Arayüz için **Material 3** tasarım ilkeleri kullanılmaktadır. Grafik bileşenleri için **fl_chart** kütüphanesi tercih edilmiştir. Durum yönetimi için **provider** paketinden yararlanılmaktadır. Kimlik doğrulama ve bulutta veri için **Firebase Authentication** ile **Firebase Realtime Database** entegrasyonu bulunmaktadır. İsteğe bağlı olarak, yerel veya uzak bir **HTTP API** (`http://localhost:3000/api` varsayılanı) üzerinden **PostgreSQL** ile etkileşim hedeflenmiştir; bağlantı başarısız olsa bile uygulamanın çalışmaya devam edeceği şekilde hata toleransı kodlanmıştır. Ağ işlemleri için **http** paketi; bağlantı durumu için **connectivity_plus** kullanılmaktadır. Görüntüden metin çıkarma amacıyla **Google ML Kit Text Recognition** ve **image_picker** bileşenleri yer almaktadır.
+Uygulama **Dart** dili ve **Flutter** çatısı ile geliştirilmiştir (`sdk: '>=3.0.0 <4.0.0'`). Arayüz için **Material 3** tasarım ilkeleri kullanılmaktadır. Grafik bileşenleri için **fl_chart** kütüphanesi tercih edilmiştir. **PDF** üretimi ve tarayıcı/istemci yazdırma akışı için **pdf** ve **printing** paketleri kullanılmaktadır (Unicode/Türkçe karakterler için gömülü yazı tipi teması). Durum yönetimi için **provider** paketinden yararlanılmaktadır. Kimlik doğrulama ve bulutta veri için **Firebase Authentication** ile **Firebase Realtime Database** entegrasyonu bulunmaktadır. İsteğe bağlı olarak, yerel veya uzak bir **HTTP API** (`http://localhost:3000/api` varsayılanı) üzerinden **PostgreSQL** ile etkileşim hedeflenmiştir; bağlantı başarısız olsa bile uygulamanın çalışmaya devam edeceği şekilde hata toleransı kodlanmıştır. Ağ işlemleri için **http** paketi; bağlantı durumu için **connectivity_plus** kullanılmaktadır. Görüntüden metin çıkarma amacıyla **Google ML Kit Text Recognition** ve **image_picker** bileşenleri yer almaktadır.
 
 ### 2.2. Çok platformlu dağıtım
 
-**Tek kod tabanı** ile **Android**, **iOS**, **web** ve (projede yapılandırılmışsa) masaüstü hedefleri üretilebilmektedir. Web için **Firebase Hosting** yapılandırması (`firebase.json`) ile tek sayfa uygulama yönlendirmesi tanımlanmıştır. Arayüz, ekran genişliğine göre **kompakt** (yaklaşık 1100 piksel altı) ve **geniş** düzen arasında ayrışmaktadır; örneğin ayarlar sekmesi dar ekranlarda alt gezinme yerine yan panel diyalog ile sunulabilmektedir. Bu yaklaşım, mobil tarayıcı ve masaüstü web için uyumlu bir deneyim hedeflemektedir; ancak tüm cihazlarda aynı kullanılabilirliğin sağlandığı **garanti edilmemelidir** (tarayıcı, işletim sistemi ve donanım farklılıklarına bağlı değişkenlik söz konusu olabilir).
+**Tek kod tabanı** ile **Android**, **iOS**, **web** ve (projede yapılandırılmışsa) masaüstü hedefleri üretilebilmektedir. Web için **Firebase Hosting** yapılandırması (`firebase.json`) ile tek sayfa uygulama yönlendirmesi tanımlanmıştır. Ayrıca, çok aşamalı bir **Docker** görüntüsü ile `flutter build web --release` çıktısının **nginx** üzerinden sunulması mümkündür (`Dockerfile`: Flutter derleme aşaması + `nginx:alpine` çalışma aşaması; `docker-compose.yml` ile örneğin **8080** bağlantı noktası üzerinden erişim). Bu, kurumsal veya demo ortamında web istemcisinin tutarlı biçimde paketlenmesine olanak tanır. Arayüz, ekran genişliğine göre **kompakt** (yaklaşık 1100 piksel altı) ve **geniş** düzen arasında ayrışmaktadır; örneğin ayarlar sekmesi dar ekranlarda alt gezinme yerine yan panel diyalog ile sunulabilmektedir. Bu yaklaşım, mobil tarayıcı ve masaüstü web için uyumlu bir deneyim hedeflemektedir; ancak tüm cihazlarda aynı kullanılabilirliğin sağlandığı **garanti edilmemelidir** (tarayıcı, işletim sistemi ve donanım farklılıklarına bağlı değişkenlik söz konusu olabilir).
 
 ### 2.3. Dil yerelleştirmesi (Türkçe / İngilizce)
 
@@ -116,8 +116,8 @@ Bu değerlerin her biri, ulusal envanterler, IPCC kılavuzları veya sektörel o
 - **Fatura tarama (OCR):** ML Kit ile metin çıkarımı ve düzenli ifadelerle kWh, m³ vb. alanların parse edilmesi.  
 - **Hava durumu:** `WeatherService` ile üçüncü parti API (ör. Open-Meteo) kullanımı projede tanımlanmıştır.  
 - **Hedefler (Goals):** Firebase üzerinden hedef takibi; bazı hedef türlerinde aylık tüketim veya emisyon farkına dayalı ilerleme güncellemesi. Son sürümde sabit hedefler yerine, son üç ay eğilimine bağlı **dinamik hedef** üretimi ve hedefin gerisinde kalındığında saat bazlı tüketim yoğunluğuna göre **otomatik öneri** metinleri (ör. belirli saatlerde %X azaltım) eklenmiştir.  
-- **PDF raporlama:** Kullanıcı, haftalık ve aylık karbon çıktısını ISO 14064 yaklaşımının sade bir özetine göre PDF olarak dışa aktarabilmektedir. Rapor, dönem bilgisi, toplam/ortalama emisyon ve kategori dağılım tablosunu içermektedir.  
-- **Tahminleme (Prediction):** Ay sonu emisyon tahmini, mevcut ay temposu ile üretilmekte; hava sıcaklığı ve kayıt yoğunluğu gibi etkiler katsayılaştırılarak “hedefe ulaşma/ulaşamama” uyarısı sunulmaktadır.  
+- **PDF raporlama (Raporlar ekranı):** Kullanıcı, **haftalık** veya **aylık** karbon özetini ISO 14064 düşüncesine uygun **sade bir metin özetine** göre PDF olarak dışa aktarabilmektedir. Rapor; dönem etiketi, üretim zamanı, toplam ve ortalama kg CO₂e, kısa metodoloji ve kapsam notları, kategori dağılım tablosu ve sorumluluk reddi metnini içermektedir. Rapor dili, uygulama dilinden bağımsız olarak **Türkçe** veya **İngilizce** seçilebilmekte; böylece karanlık tema veya genel arayüz dili ile çakışma azaltılmaya çalışılmıştır. Aylık PDF için haftalık toplamlardan türetilmiş bir ölçekleme kullanıldığı (ör. haftalık toplam × 4) kodda tercih edilmiştir; bu, “kesin aylık envanter” yerine **hızlı özet** niteliğindedir.  
+- **Tahminleme / projeksiyon (Hedefler ekranı):** **Ay sonu CO₂e projeksiyonu**, ay başından bugüne kadar **manuel + ESP8266 + Shelly** verilerinin birleştirildiği günlük toplamlar üzerinden, **son 7 gün** için tahmini günlük ortalamaya dayalı olarak hesaplanmaktadır (projeksiyon ≈ günlük ortalama × ayın gün sayısı). Sonuç, kullanıcının **CO₂ azaltım hedefi** (kg, ay sonu) ile karşılaştırılarak “hedefte / hedef üzerinde” durumu metin ve gösterge ile sunulmaktadır. Ek olarak, Our World in Data eğiliminden türetilen **küresel günlük referans** ile kullanıcı temposu kıyaslanabilmekte; mümkün olduğunda **son 7 gün ile önceki 7 gün** karşılaştırması (ESP ağırlıklı veya birleşik seri) ile haftadan haftaya değişim yüzdesi açıklanabilmektedir. Hedef temposunun üzerinde kalındığında, bekleme tüketimi azaltımına yönelik **sayısal ipucu** (kg CO₂e cinsinden düşük güvenilirlikli tahmin) üretilebilmektedir.  
 - **Enerji verimliliği algoritmaları:** `EnergyEfficiencyAlgorithm` ve tarife benzeri saat katsayıları ile gelişmiş analiz yolları kodda bulunmaktadır; kullanıcı arayüzünde ne ölçüde görünür olduğu sürüme bağlı olabilir.
 
 ---
@@ -130,8 +130,8 @@ Bu bölüm deneysel istatistik yerine, geliştirilen sistemin **işlevsel özell
 
 - **Kimlik ve oturum:** Giriş ve kayıt ekranları; Firebase Authentication ile e-posta tabanlı akış.  
 - **Ana sayfa:** İklim/hava ve bilgilendirici bileşenler; işletme veya kampanya odaklı içerikler.  
-- **Raporlar:** Günlük emisyon göstergesi, manuel / ESP veri seçimi, grafikler, IoT kartları (ESP anlık veriler, Shelly), küresel/kişisel trend karşılaştırması.  
-- **Hedefler:** Kullanıcı hedeflerinin listelenmesi ve kısmen otomatik güncellenmesi.  
+- **Raporlar:** Günlük emisyon göstergesi, manuel / ESP veri seçimi, grafikler, IoT kartları (ESP anlık veriler, Shelly), küresel/kişisel trend karşılaştırması; **haftalık/aylık PDF dışa aktarımı** (dil seçimi TR/EN), ISO uyumlu özet metinleri ve kategori tablosu.  
+- **Hedefler:** Kullanıcı hedeflerinin listelenmesi ve kısmen otomatik güncellenmesi; **ay sonu CO₂e tahmini**, hedefe göre izleme çizgisi, küresel günlük referansla karşılaştırma ve haftalık değişim açıklamaları.  
 - **Ayarlar:** Tema, dil, yazı boyutu, profil ayarları.
 
 ### 3.2. Çok dillilik ve arayüz
@@ -142,7 +142,7 @@ Türkçe ve İngilizce dil seçimi, uygulama genelinde `translate(anahtar, local
 
 Tüketim girdileri ve seçilen emisyon faktörleri ile **kg CO₂e** cinsinden toplam ve kategori dağılımları üretilebilmektedir. Gösterim birimi, değerin büyüklüğüne göre gram, kilogram veya ton CO₂e olarak ölçeklenebilmektedir (kullanıcı arayüzü mantığı).
 
-Son güncellemelerle birlikte çıktılar yalnızca anlık/günlük raporlamayla sınırlı kalmamış; (i) haftalık ve aylık PDF dışa aktarımı, (ii) önceki ay kıyasına dayalı ilerleme anlatımı, (iii) ay sonu projeksiyonu ve hedefe ulaşma olasılığı gibi öngörü bileşenleri de kullanıcıya sunulmuştur.
+Son güncellemelerle birlikte çıktılar yalnızca anlık/günlük raporlamayla sınırlı kalmamış; (i) haftalık ve aylık **PDF** dışa aktarımı (bağımsız dil seçimi), (ii) hedef modülünde **son 7 gün temposuna** dayalı ay sonu projeksiyonu ve hedef ile uyum göstergesi, (iii) Our World in Data tabanlı **küresel günlük** referansla kullanıcı temposunun kıyası ve (iv) mümkün olduğunda **son 7 gün / önceki 7 gün** haftalık değişim metni gibi öngörü ve raporlama bileşenleri kullanıcıya sunulmuştur.
 
 ---
 
@@ -162,10 +162,11 @@ Firebase Realtime Database, düşük gecikmeli senkronizasyon için uygundur; ö
 
 ### 4.4. Güçlü yönler
 
-- Tek kod tabanı ile **web ve mobil** dağıtım.  
-- **İki dil** desteği ve genişletilebilir çeviri yapısı.  
+- Tek kod tabanı ile **web ve mobil** dağıtım; isteğe bağlı **Docker** ile web ön yüzünün statik barındırılması.  
+- **İki dil** desteği ve genişletilebilir çeviri yapısı; PDF raporunda **ayrı dil seçimi**.  
 - **ESP8266** ve **Shelly** ile ölçüm kanalı çeşitliliği.  
-- **OWID** gibi açık veri ile küresel bağlam sunma çabası.
+- **OWID** gibi açık veri ile küresel bağlam sunma çabası; hedef ekranında tahmin ve karşılaştırma ile birleştirilmesi.  
+- **PDF raporlama** ve **ay sonu projeksiyonu** ile yönetişim odaklı çıktılar.
 
 ### 4.5. Sınırlılıklar ve belirsizlikler
 
@@ -181,9 +182,9 @@ Bu sınırlılıklar, sonuçların **kesin** olduğu şeklinde yorumlanmaması g
 
 ## 5. Sonuç ve Öneriler (Conclusion)
 
-Bu çalışmada, karbon ayak izinin izlenmesi için **Flutter** tabanlı, **Firebase** ve isteğe bağlı **PostgreSQL API** ile desteklenen, **Türkçe/İngilizce** arayüze sahip ve **web ile mobil** istemcilerde çalışabilen bir mimari anlatılmıştır. Emisyonlar, CO₂e cinsinden, aktivite verilerinin emisyon faktörleri ile çarpımına dayalı olarak hesaplanmaktadır; doğal gaz ve sıvı yakıt birimleri ayrıştırılmaya çalışılmıştır. Literatürdeki benzer sistemlerle karşılaştırıldığında, IoT ve OCR entegrasyonunun bir arada sunulması uygulamanın ayırt edici yönleri arasında sayılabilir.
+Bu çalışmada, karbon ayak izinin izlenmesi için **Flutter** tabanlı, **Firebase** ve isteğe bağlı **PostgreSQL API** ile desteklenen, **Türkçe/İngilizce** arayüze sahip ve **web ile mobil** istemcilerde çalışabilen bir mimari anlatılmıştır. Emisyonlar, CO₂e cinsinden, aktivite verilerinin emisyon faktörleri ile çarpımına dayalı olarak hesaplanmaktadır; doğal gaz ve sıvı yakıt birimleri ayrıştırılmaya çalışılmıştır. Uygulama, **haftalık/aylık PDF raporu** ve **Hedefler** bölümünde **ay sonu projeksiyonu** ile raporlama ve öngörü kapasitesini genişletmiştir. Literatürdeki benzer sistemlerle karşılaştırıldığında, IoT ve OCR entegrasyonunun bir arada sunulması ile birlikte **dışa aktarılabilir rapor** ve **kısa vadeli tahmin** bileşenleri uygulamanın ayırt edici yönleri arasında sayılabilir.
 
-Gelecek çalışmalar için şunlar **önerilebilir**: (i) elektrik faktörünün yıllık resmi verilerle güncellenmesi, (ii) kullanıcı testleri ile arayüz ve anlaşılabilirlik değerlendirmesi, (iii) ölçüm doğruluğu için kalibrasyon prosedürlerinin dokümante edilmesi, (iv) kurumsal raporlama ihtiyacına uygun dışa aktarım (CSV/PDF) ve (v) Kapsam 3 kapsamının genişletilmesi için tedarikçi verisi entegrasyonu.
+Gelecek çalışmalar için şunlar **önerilebilir**: (i) elektrik faktörünün yıllık resmi verilerle güncellenmesi, (ii) kullanıcı testleri ile arayüz ve anlaşılabilirlik değerlendirmesi, (iii) ölçüm doğruluğu için kalibrasyon prosedürlerinin dokümante edilmesi, (iv) kurumsal raporlama için **CSV/Excel** veya denetim izi (audit trail) düzeyinde dışa aktarım, projeksiyon için **belirsizlik aralığı** ve senaryo analizi, (v) Kapsam 3 kapsamının genişletilmesi için tedarikçi verisi entegrasyonu.
 
 ---
 

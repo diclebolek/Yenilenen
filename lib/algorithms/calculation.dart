@@ -16,12 +16,17 @@ class Calculation {
   static const double factorWaterKgPerM3 = 0.344; // kg CO2e per m3
   static const double factorWasteKgPerKg = 1.9; // kg CO2e per kg
 
-  /// Yakıt satırı: doğalgaz m³ veya sıvı yakıt litre ([ConsumptionEntry.fuelIsNaturalGasM3]).
+  /// Yakıt satırı: doğalgaz m³ veya sıvı yakıt litre ([ConsumptionEntry.fuelIsNaturalGasM3]);
+  /// [ConsumptionEntry.additiveLiquidFuelLiters] araç sıvı yakıtını doğalgaz girişiyle birlikte ekler.
   static double fuelEmissionKgCo2e(ConsumptionEntry entry) {
+    double main;
     if (entry.fuelIsNaturalGasM3) {
-      return entry.fuelLiters * factorNaturalGasKgPerM3;
+      main = entry.fuelLiters * factorNaturalGasKgPerM3;
+    } else {
+      main = entry.fuelLiters * factorFuelKgPerLiter;
     }
-    return entry.fuelLiters * factorFuelKgPerLiter;
+    return main +
+        entry.additiveLiquidFuelLiters * factorFuelKgPerLiter;
   }
 
   // Tarife oranları (Türkiye için örnek değerler)

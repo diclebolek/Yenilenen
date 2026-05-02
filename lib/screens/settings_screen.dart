@@ -49,8 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void didUpdateWidget(covariant SettingsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.isDarkMode != widget.isDarkMode &&
-        _isDarkModeLocal != widget.isDarkMode) {
+    if (oldWidget.isDarkMode != widget.isDarkMode) {
       _isDarkModeLocal = widget.isDarkMode;
     }
   }

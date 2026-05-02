@@ -10,6 +10,7 @@ import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
+import 'theme_independent_info_dialog.dart';
 
 /// Fatura tarama kartı widget'ı
 class BillScannerCard extends StatefulWidget {
@@ -72,45 +73,19 @@ class _BillScannerCardState extends State<BillScannerCard> {
     super.dispose();
   }
 
-  Future<void> _openManualEntry() async {
-    // Windows için manuel veri girişi dialog'u
-    final result = await showDialog<ConsumptionEntry>(
-      context: context,
-      builder: (context) =>
-          _ManualEntryDialog(languageProvider: widget.languageProvider),
+  void _showManualCalculationOnReportsDialog() {
+    if (!mounted) return;
+    final locale =
+        widget.languageProvider?.currentLocale ?? const Locale('tr');
+    showThemeIndependentInfoDialog(
+      context,
+      title: translate('bill_scan_manual_redirect_title', locale),
+      body: translate('bill_scan_manual_redirect_body', locale),
+      okLabel: translate('ok', locale),
     );
-
-    if (result != null) {
-      // Karbon ayak izi hesapla
-      final co2e = Calculation.calculateDailyEmission(result);
-      // Dışarı bildirim
-      widget.onCalculated?.call(co2e);
-
-      // Başarı mesajı göster
-      if (mounted) {
-        final locale =
-            widget.languageProvider?.currentLocale ?? const Locale('tr');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              translate(
-                'data_success',
-                locale,
-                params: {'co2e': co2e.toStringAsFixed(2)},
-              ),
-            ),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _scanBill() async {
-    final locale =
-        widget.languageProvider?.currentLocale ?? const Locale('tr');
-
     setState(() {
       _isScanning = true;
     });
@@ -121,15 +96,8 @@ class _BillScannerCardState extends State<BillScannerCard> {
           _isScanning = false;
         });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(translate('ocr_web_not_supported', locale)),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 4),
-            ),
-          );
+          _showManualCalculationOnReportsDialog();
         }
-        await _openManualEntry();
         return;
       }
 
@@ -154,19 +122,12 @@ class _BillScannerCardState extends State<BillScannerCard> {
       }
 
       if (_textRecognizer == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(translate('windows_not_supported', locale)),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
         setState(() {
           _isScanning = false;
         });
-        await _openManualEntry();
+        if (mounted) {
+          _showManualCalculationOnReportsDialog();
+        }
         return;
       }
 
@@ -650,143 +611,6 @@ class _BillOcrParser {
       wasteKg: waste,
       createdAt: DateTime.now(),
       fuelIsNaturalGasM3: gas > 0,
-    );
-  }
-}
-
-/// Windows için manuel veri girişi dialog'u
-class _ManualEntryDialog extends StatefulWidget {
-  const _ManualEntryDialog({this.languageProvider});
-
-  final LanguageProvider? languageProvider;
-
-  @override
-  State<_ManualEntryDialog> createState() => _ManualEntryDialogState();
-}
-
-class _ManualEntryDialogState extends State<_ManualEntryDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _electricityController = TextEditingController();
-  final _gasController = TextEditingController();
-  final _waterController = TextEditingController();
-  final _wasteController = TextEditingController();
-
-  @override
-  void dispose() {
-    _electricityController.dispose();
-    _gasController.dispose();
-    _waterController.dispose();
-    _wasteController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
-    return AlertDialog(
-      title: Text(translate('manual_entry_title', locale)),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _electricityController,
-              decoration: InputDecoration(
-                labelText: translate('electricity_label', locale),
-                hintText: translate('electricity_hint', locale),
-              ),
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return translate('required_field', locale);
-                }
-                if (double.tryParse(value) == null) {
-                  return translate('valid_number', locale);
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _gasController,
-              decoration: InputDecoration(
-                labelText: translate('gas_label', locale),
-                hintText: translate('gas_hint', locale),
-              ),
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return translate('required_field', locale);
-                }
-                if (double.tryParse(value) == null) {
-                  return translate('valid_number', locale);
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _waterController,
-              decoration: InputDecoration(
-                labelText: translate('water_label', locale),
-                hintText: translate('water_hint', locale),
-              ),
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return translate('required_field', locale);
-                }
-                if (double.tryParse(value) == null) {
-                  return translate('valid_number', locale);
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _wasteController,
-              decoration: InputDecoration(
-                labelText: translate('waste_label', locale),
-                hintText: translate('waste_hint', locale),
-              ),
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return translate('required_field', locale);
-                }
-                if (double.tryParse(value) == null) {
-                  return translate('valid_number', locale);
-                }
-                return null;
-              },
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(translate('cancel', locale)),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (_formKey.currentState!.validate()) {
-              final gasVal = double.parse(_gasController.text);
-              final entry = ConsumptionEntry(
-                electricityKwh: double.parse(_electricityController.text),
-                fuelLiters: gasVal,
-                waterCubicMeters: double.parse(_waterController.text),
-                wasteKg: double.parse(_wasteController.text),
-                createdAt: DateTime.now(),
-                fuelIsNaturalGasM3: gasVal > 0,
-              );
-              Navigator.of(context).pop(entry);
-            }
-          },
-          child: Text(translate('calculate', locale)),
-        ),
-      ],
     );
   }
 }

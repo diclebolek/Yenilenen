@@ -8,6 +8,29 @@ import '../services/firebase_auth_service.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
 
+enum _WaterInputUnit { cubicMeters, liters }
+
+/// Manuel elektrik satırı — dahili olarak her zaman kWh’a normalize edilir.
+enum _ElectricityManualUnit { kWh, wh, mwh }
+
+/// Cihaz gücü girişi — dahili olarak her zaman Watt saklanır.
+enum _DevicePowerUnit { watts, kilowatts }
+
+enum _WasteInputUnit { kg, tonnes, grams }
+
+/// Sıvı yakıt (L) veya doğalgaz sayacı (m³).
+enum _FuelInputUnit { liquidLiters, naturalGasM3 }
+
+/// Manuel giriş cam panelinde tema bağımsız ön plan / çerçeve (koyu moddaki görünümün light modda korunması için).
+const Color _kManualEntryOnGlass = Color(0xFFE8F0E4);
+const Color _kManualEntryOutlineOnGlass = Color(0xB3FFFFFF);
+
+/// Kategori çerçeve/yazı vurguları — tema’dan bağımsız sabit renkler.
+const Color _kAccentElectric = Color(0xFFFFC107);
+const Color _kAccentWater = Color(0xFF42A5F5);
+const Color _kAccentWaste = Color(0xFF8D6E63);
+const Color _kAccentFuel = Color(0xFFFF9800);
+
 /// Form to enter electricity, fuel, water, and waste data with validation.
 /// Stores data in-memory and emits a calculation result via [onCalculated].
 class ConsumptionForm extends StatefulWidget {
@@ -39,14 +62,21 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   final TextEditingController _bulbWattageCtrl = TextEditingController();
   final TextEditingController _bulbHoursCtrl = TextEditingController();
 
-  ConsumptionEntry? _lastEntry;
   late TabController _tabController;
+
+  /// TabBarView yükseklikleri — sekme sırası: elektrik, atık, su, yakıt.
+  static const List<double> _kTabViewHeights = [620.0, 480.0, 430.0, 500.0];
+  double _tabViewHeight = 620.0;
 
   // Her kategori için ayrı CO2 değerleri
   double? _electricityCo2;
   double? _fuelCo2;
   double? _waterCo2;
   double? _wasteCo2;
+  _WaterInputUnit _waterInputUnit = _WaterInputUnit.cubicMeters;
+  _ElectricityManualUnit _electricityManualUnit = _ElectricityManualUnit.kWh;
+  _WasteInputUnit _wasteInputUnit = _WasteInputUnit.kg;
+  _FuelInputUnit _fuelInputUnit = _FuelInputUnit.liquidLiters;
 
   // Cihaz seçimi için durum
   final List<_DevicePreset> _devicePresets = const [
@@ -204,14 +234,23 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   final List<_SelectedVehicle> _selectedVehicles = [];
   // inline panel kullanılmıyor
 
+  void _syncTabViewHeight() {
+    final h = _kTabViewHeights[_tabController.index];
+    if (_tabViewHeight != h) {
+      setState(() => _tabViewHeight = h);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(_syncTabViewHeight);
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_syncTabViewHeight);
     _electricityCtrl.dispose();
     _fuelCtrl.dispose();
     _waterCtrl.dispose();
@@ -261,8 +300,178 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   }
 
   double _parseOrZero(String text) {
-    final v = double.tryParse(text.trim());
+    final normalized = text.trim().replaceAll(',', '.');
+    final v = double.tryParse(normalized);
     return (v == null || !v.isFinite) ? 0.0 : v;
+  }
+
+  /// Form alanındaki değeri her zaman m³ cinsine çevirir (hesaplama ve kayıt için).
+  double _waterCubicMetersFromField() {
+    final v = _parseOrZero(_waterCtrl.text);
+    return _waterInputUnit == _WaterInputUnit.liters ? v / 1000.0 : v;
+  }
+
+  /// Sıfırla vb. nötr çerçeve.
+  ButtonStyle get _neutralManualOutlined => OutlinedButton.styleFrom(
+        foregroundColor: _kManualEntryOnGlass,
+        iconColor: _kManualEntryOnGlass,
+        side: const BorderSide(color: _kManualEntryOutlineOnGlass, width: 1),
+      );
+
+  ButtonStyle _outlinedAccent(Color accent) => OutlinedButton.styleFrom(
+        foregroundColor: accent,
+        iconColor: accent,
+        side: BorderSide(color: accent, width: 1),
+      );
+
+  ButtonStyle _segmentedAccent(Color accent) => ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        foregroundColor: WidgetStateProperty.all<Color>(accent),
+        iconColor: WidgetStateProperty.all<Color>(accent),
+        backgroundColor:
+            WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+          if (states.contains(WidgetState.selected)) {
+            return accent.withValues(alpha: 0.22);
+          }
+          return accent.withValues(alpha: 0.08);
+        }),
+        side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+          final double a =
+              states.contains(WidgetState.selected) ? 0.55 : 0.35;
+          return BorderSide(color: accent.withValues(alpha: a));
+        }),
+      );
+
+  ButtonStyle get _manualFilledAccentStyle => FilledButton.styleFrom(
+        foregroundColor: _kManualEntryOnGlass,
+        iconColor: _kManualEntryOnGlass,
+        backgroundColor: const Color(0xFF3D5238),
+      );
+
+  void _onWaterUnitChanged(Set<_WaterInputUnit> selected) {
+    if (selected.isEmpty) return;
+    final newUnit = selected.first;
+    if (newUnit == _waterInputUnit) return;
+    final v = _parseOrZero(_waterCtrl.text);
+    if (v > 0) {
+      if (_waterInputUnit == _WaterInputUnit.cubicMeters &&
+          newUnit == _WaterInputUnit.liters) {
+        final liters = v * 1000.0;
+        _waterCtrl.text =
+            liters >= 100 ? liters.round().toString() : liters.toStringAsFixed(1);
+      } else if (_waterInputUnit == _WaterInputUnit.liters &&
+          newUnit == _WaterInputUnit.cubicMeters) {
+        final m3 = v / 1000.0;
+        _waterCtrl.text = m3.toStringAsFixed(m3 < 1 ? 4 : 3);
+      }
+    }
+    setState(() {
+      _waterInputUnit = newUnit;
+      _waterCo2 = null;
+    });
+  }
+
+  /// Manuel elektrik alanı — seçilen birime göre günlük kWh.
+  double _manualElectricityKwhFromField() {
+    final v = _parseOrZero(_electricityCtrl.text);
+    switch (_electricityManualUnit) {
+      case _ElectricityManualUnit.kWh:
+        return v;
+      case _ElectricityManualUnit.wh:
+        return v / 1000.0;
+      case _ElectricityManualUnit.mwh:
+        return v * 1000.0;
+    }
+  }
+
+  void _onElectricityManualUnitChanged(Set<_ElectricityManualUnit> selected) {
+    if (selected.isEmpty) return;
+    final newUnit = selected.first;
+    if (newUnit == _electricityManualUnit) return;
+    final v = _parseOrZero(_electricityCtrl.text);
+    if (v > 0) {
+      final kwhEquiv = _manualElectricityKwhFromField();
+      switch (newUnit) {
+        case _ElectricityManualUnit.kWh:
+          _electricityCtrl.text = kwhEquiv < 1
+              ? kwhEquiv.toStringAsFixed(5)
+              : kwhEquiv.toStringAsFixed(kwhEquiv < 10 ? 3 : 2);
+          break;
+        case _ElectricityManualUnit.wh:
+          final wh = kwhEquiv * 1000.0;
+          _electricityCtrl.text =
+              wh >= 100 ? wh.round().toString() : wh.toStringAsFixed(1);
+          break;
+        case _ElectricityManualUnit.mwh:
+          _electricityCtrl.text =
+              (kwhEquiv / 1000.0).toStringAsFixed(kwhEquiv >= 1000 ? 4 : 6);
+          break;
+      }
+    }
+    setState(() {
+      _electricityManualUnit = newUnit;
+      _electricityCo2 = null;
+    });
+  }
+
+  double _wasteKgFromField() {
+    final v = _parseOrZero(_wasteCtrl.text);
+    switch (_wasteInputUnit) {
+      case _WasteInputUnit.kg:
+        return v;
+      case _WasteInputUnit.tonnes:
+        return v * 1000.0;
+      case _WasteInputUnit.grams:
+        return v / 1000.0;
+    }
+  }
+
+  void _onWasteUnitChanged(Set<_WasteInputUnit> selected) {
+    if (selected.isEmpty) return;
+    final newUnit = selected.first;
+    if (newUnit == _wasteInputUnit) return;
+    final v = _parseOrZero(_wasteCtrl.text);
+    if (v > 0) {
+      final kgEquiv = _wasteKgFromField();
+      switch (newUnit) {
+        case _WasteInputUnit.kg:
+          _wasteCtrl.text = kgEquiv.toStringAsFixed(kgEquiv < 1 ? 4 : 3);
+          break;
+        case _WasteInputUnit.tonnes:
+          _wasteCtrl.text =
+              (kgEquiv / 1000.0).toStringAsFixed(kgEquiv >= 10000 ? 4 : 6);
+          break;
+        case _WasteInputUnit.grams:
+          final g = kgEquiv * 1000.0;
+          _wasteCtrl.text = g >= 100 ? g.round().toString() : g.toStringAsFixed(1);
+          break;
+      }
+    }
+    setState(() {
+      _wasteInputUnit = newUnit;
+      _wasteCo2 = null;
+    });
+  }
+
+  /// Yakıt CO₂ (manuel satır + araçlar); sıvı L veya gaz m³.
+  double _fuelCo2FromManualAndVehicles() {
+    final manual = _parseOrZero(_fuelCtrl.text);
+    final veh = _calculateVehiclesFuelLiters();
+    if (_fuelInputUnit == _FuelInputUnit.naturalGasM3) {
+      return manual * Calculation.factorNaturalGasKgPerM3 +
+          veh * Calculation.factorFuelKgPerLiter;
+    }
+    return (manual + veh) * Calculation.factorFuelKgPerLiter;
+  }
+
+  void _onFuelUnitChanged(Set<_FuelInputUnit> selected) {
+    if (selected.isEmpty) return;
+    final nu = selected.first;
+    if (nu == _fuelInputUnit) return;
+    setState(() {
+      _fuelInputUnit = nu;
+      _fuelCo2 = null;
+    });
   }
 
   // Ampul hesaplaması için yardımcı fonksiyon
@@ -523,9 +732,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        final bool isDark = Theme.of(context).brightness == Brightness.dark;
         return Dialog(
-          backgroundColor: isDark ? Colors.grey[900] : Colors.white,
+          backgroundColor: Theme.of(context).colorScheme.surface,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 24,
@@ -558,8 +766,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           const Spacer(),
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            icon: Icon(Icons.close,
-                                color: isDark ? Colors.white : Colors.black),
+                            icon: Icon(
+                              Icons.close,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
                           ),
                         ],
                       ),
@@ -625,9 +835,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                              color: isDark
-                                                  ? Colors.white
-                                                  : Colors.black),
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -642,16 +853,18 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                     },
                                     icon: Icon(
                                       Icons.add_circle,
-                                      color:
-                                          isDark ? Colors.white : Colors.black,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                     ),
                                   ),
                                   Text(
                                     '${v.quantity}',
                                     style: TextStyle(
-                                        color: isDark
-                                            ? Colors.white
-                                            : Colors.black),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
+                                    ),
                                   ),
                                   IconButton(
                                     onPressed: () {
@@ -665,8 +878,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                     },
                                     icon: Icon(
                                       Icons.remove_circle,
-                                      color:
-                                          isDark ? Colors.white : Colors.black,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                     ),
                                   ),
                                 ],
@@ -684,19 +898,25 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                   .textTheme
                                   .bodyMedium
                                   ?.copyWith(
-                                    color: isDark ? Colors.white : Colors.black,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface,
                                     fontWeight: FontWeight.w600,
                                   ),
                             ),
                           ),
                           FilledButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            child: Text(
+                            style: FilledButton.styleFrom(
+                              foregroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .onPrimary,
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.primary,
+                            ),
+                            child: const Text(
                               'Tamam',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: TextStyle(fontWeight: FontWeight.w700),
                             ),
                           ),
                         ],
@@ -734,13 +954,13 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     await showDialog(
       context: context,
       builder: (context) {
-        final bool isDark = Theme.of(context).brightness == Brightness.dark;
+        final scheme = Theme.of(context).colorScheme;
         return AlertDialog(
-          backgroundColor: isDark ? Colors.black : Colors.white,
+          backgroundColor: scheme.surface,
           title: Text(
             'Düzenle: ${preset.name}',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: isDark ? Colors.white : Colors.black,
+                  color: scheme.onSurface,
                   fontWeight: FontWeight.w700,
                 ),
           ),
@@ -752,10 +972,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                style: TextStyle(color: scheme.onSurface),
                 decoration: InputDecoration(
                   labelText: 'Litre / 100km',
-                  labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
+                  labelStyle: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ),
               const SizedBox(height: 8),
@@ -764,10 +984,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                style: TextStyle(color: scheme.onSurface),
                 decoration: InputDecoration(
                   labelText: 'Km / Gün',
-                  labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
+                  labelStyle: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ),
             ],
@@ -777,10 +997,16 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               onPressed: () => Navigator.of(context).pop(),
               child: Text(
                 'İptal',
-                style: TextStyle(color: isDark ? Colors.white70 : null),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+              ),
               onPressed: () {
                 final l100 = double.tryParse(l100Ctrl.text);
                 final km = double.tryParse(kmCtrl.text);
@@ -822,68 +1048,122 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     await showDialog(
       context: context,
       builder: (context) {
-        final bool isDark = Theme.of(context).brightness == Brightness.dark;
-        return AlertDialog(
-          backgroundColor: isDark ? Colors.black : Colors.white,
-          title: Text(
-            'Düzenle: ${preset.name}',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: powerCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: 'Watt (W)',
-                  labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
-                ),
+        var powerUnit = _DevicePowerUnit.watts;
+        final scheme = Theme.of(context).colorScheme;
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return AlertDialog(
+              backgroundColor: scheme.surface,
+              title: Text(
+                'Düzenle: ${preset.name}',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: hoursCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: 'Saat / Gün',
-                  labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
-                ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SegmentedButton<_DevicePowerUnit>(
+                    segments: const [
+                      ButtonSegment(
+                        value: _DevicePowerUnit.watts,
+                        label: Text('W'),
+                      ),
+                      ButtonSegment(
+                        value: _DevicePowerUnit.kilowatts,
+                        label: Text('kW'),
+                      ),
+                    ],
+                    selected: {powerUnit},
+                    onSelectionChanged: (Set<_DevicePowerUnit> s) {
+                      if (s.isEmpty) return;
+                      final nu = s.first;
+                      if (nu == powerUnit) return;
+                      final t = powerCtrl.text.replaceAll(',', '.').trim();
+                      final pv = double.tryParse(t);
+                      if (pv != null && pv >= 0) {
+                        if (powerUnit == _DevicePowerUnit.watts &&
+                            nu == _DevicePowerUnit.kilowatts) {
+                          powerCtrl.text = (pv / 1000.0).toStringAsFixed(
+                            pv >= 100000 ? 2 : 4,
+                          );
+                        } else if (powerUnit == _DevicePowerUnit.kilowatts &&
+                            nu == _DevicePowerUnit.watts) {
+                          powerCtrl.text = (pv * 1000.0).round().toString();
+                        }
+                      }
+                      setLocal(() => powerUnit = nu);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: powerCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    style: TextStyle(color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      labelText: powerUnit == _DevicePowerUnit.kilowatts
+                          ? 'Güç (kW)'
+                          : 'Güç (W)',
+                      labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: hoursCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    style: TextStyle(color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      labelText: 'Saat / Gün',
+                      labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(
-                'İptal',
-                style: TextStyle(color: isDark ? Colors.white70 : null),
-              ),
-            ),
-            FilledButton(
-              onPressed: () {
-                final pw = double.tryParse(powerCtrl.text);
-                final hr = double.tryParse(hoursCtrl.text);
-                if (pw != null && hr != null && pw >= 0 && hr >= 0) {
-                  result = _SelectedDevice(
-                    name: preset.name,
-                    powerW: pw,
-                    hoursPerDay: hr,
-                  );
-                }
-                Navigator.of(context).pop();
-              },
-              child: const Text('Kaydet'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(
+                    'İptal',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    foregroundColor: scheme.onPrimary,
+                    backgroundColor: scheme.primary,
+                  ),
+                  onPressed: () {
+                    final pwIn = double.tryParse(
+                      powerCtrl.text.replaceAll(',', '.').trim(),
+                    );
+                    final hr = double.tryParse(
+                      hoursCtrl.text.replaceAll(',', '.').trim(),
+                    );
+                    if (pwIn != null &&
+                        hr != null &&
+                        pwIn >= 0 &&
+                        hr >= 0) {
+                      final powerW = powerUnit == _DevicePowerUnit.kilowatts
+                          ? pwIn * 1000.0
+                          : pwIn;
+                      result = _SelectedDevice(
+                        name: preset.name,
+                        powerW: powerW,
+                        hoursPerDay: hr,
+                      );
+                    }
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Kaydet'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -914,82 +1194,134 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     await showDialog(
       context: context,
       builder: (context) {
-        final bool isDark = Theme.of(context).brightness == Brightness.dark;
-        return AlertDialog(
-          backgroundColor: isDark ? Colors.black : Colors.white,
-          title: Text(
-            'Düzenle: ${preset.name}',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: powerCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: 'Watt (W)',
-                  labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
-                ),
+        var powerUnit = _DevicePowerUnit.watts;
+        final scheme = Theme.of(context).colorScheme;
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return AlertDialog(
+              backgroundColor: scheme.surface,
+              title: Text(
+                'Düzenle: ${preset.name}',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: hoursCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: 'Saat / Gün',
-                  labelStyle: TextStyle(color: isDark ? Colors.white70 : null),
-                ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SegmentedButton<_DevicePowerUnit>(
+                    segments: const [
+                      ButtonSegment(
+                        value: _DevicePowerUnit.watts,
+                        label: Text('W'),
+                      ),
+                      ButtonSegment(
+                        value: _DevicePowerUnit.kilowatts,
+                        label: Text('kW'),
+                      ),
+                    ],
+                    selected: {powerUnit},
+                    onSelectionChanged: (Set<_DevicePowerUnit> s) {
+                      if (s.isEmpty) return;
+                      final nu = s.first;
+                      if (nu == powerUnit) return;
+                      final t = powerCtrl.text.replaceAll(',', '.').trim();
+                      final pv = double.tryParse(t);
+                      if (pv != null && pv >= 0) {
+                        if (powerUnit == _DevicePowerUnit.watts &&
+                            nu == _DevicePowerUnit.kilowatts) {
+                          powerCtrl.text = (pv / 1000.0).toStringAsFixed(
+                            pv >= 100000 ? 2 : 4,
+                          );
+                        } else if (powerUnit == _DevicePowerUnit.kilowatts &&
+                            nu == _DevicePowerUnit.watts) {
+                          powerCtrl.text = (pv * 1000.0).round().toString();
+                        }
+                      }
+                      setLocal(() => powerUnit = nu);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: powerCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    style: TextStyle(color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      labelText: powerUnit == _DevicePowerUnit.kilowatts
+                          ? 'Güç (kW)'
+                          : 'Güç (W)',
+                      labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: hoursCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    style: TextStyle(color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      labelText: 'Saat / Gün',
+                      labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(
-                'İptal',
-                style: TextStyle(color: isDark ? Colors.white70 : null),
-              ),
-            ),
-            FilledButton(
-              onPressed: () {
-                final pw = double.tryParse(powerCtrl.text);
-                final hr = double.tryParse(hoursCtrl.text);
-                if (pw != null && hr != null && pw >= 0 && hr >= 0) {
-                  setState(() {
-                    if (_selectedDevices.contains(existing)) {
-                      existing
-                        ..powerW = pw
-                        ..hoursPerDay = hr;
-                    } else {
-                      _selectedDevices.add(
-                        _SelectedDevice(
-                          name: preset.name,
-                          powerW: pw,
-                          hoursPerDay: hr,
-                        ),
-                      );
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(
+                    'İptal',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    foregroundColor: scheme.onPrimary,
+                    backgroundColor: scheme.primary,
+                  ),
+                  onPressed: () {
+                    final pwIn = double.tryParse(
+                      powerCtrl.text.replaceAll(',', '.').trim(),
+                    );
+                    final hr = double.tryParse(
+                      hoursCtrl.text.replaceAll(',', '.').trim(),
+                    );
+                    if (pwIn != null &&
+                        hr != null &&
+                        pwIn >= 0 &&
+                        hr >= 0) {
+                      final powerW = powerUnit == _DevicePowerUnit.kilowatts
+                          ? pwIn * 1000.0
+                          : pwIn;
+                      setState(() {
+                        if (_selectedDevices.contains(existing)) {
+                          existing
+                            ..powerW = powerW
+                            ..hoursPerDay = hr;
+                        } else {
+                          _selectedDevices.add(
+                            _SelectedDevice(
+                              name: preset.name,
+                              powerW: powerW,
+                              hoursPerDay: hr,
+                            ),
+                          );
+                        }
+                      });
+                      _calculateCategory('electricity');
+                      _calculateTotal(skipValidation: true);
                     }
-                  });
-                  // Cihaz düzenlendiğinde elektrik hesaplamasını güncelle
-                  _calculateCategory('electricity');
-                  // Toplam hesaplama ve kayıt yap (validation olmadan)
-                  _calculateTotal(skipValidation: true);
-                }
-                Navigator.of(context).pop();
-              },
-              child: const Text('Kaydet'),
-            ),
-          ],
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Kaydet'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -1011,11 +1343,37 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                translate('manual_data_entry', locale),
-                style: Theme.of(context).textTheme.titleLarge,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      translate('manual_data_entry', locale),
+                      style: Theme.of(context).textTheme.titleLarge,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: FilledButton.icon(
+                      onPressed: _calculateTotal,
+                      icon: const Icon(Icons.calculate, size: 20),
+                      label: const Text('TOPLAM CO₂ HESAPLA'),
+                      style: _manualFilledAccentStyle.copyWith(
+                        padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
+              Divider(
+                color: Colors.white.withValues(alpha: 0.3),
+              ),
+              const SizedBox(height: 8),
 
               // Kategori seçim tabları
               Container(
@@ -1053,9 +1411,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                       ),
                     ),
                     Tab(
-                      icon: const Icon(Icons.local_gas_station, size: 20),
+                      icon: const Icon(Icons.delete_outline, size: 20),
                       text: translate(
-                        'fuel',
+                        'waste',
                         widget.languageProvider?.currentLocale ??
                             const Locale('tr'),
                       ),
@@ -1069,9 +1427,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                       ),
                     ),
                     Tab(
-                      icon: const Icon(Icons.delete_outline, size: 20),
+                      icon: const Icon(Icons.local_gas_station, size: 20),
                       text: translate(
-                        'waste',
+                        'fuel',
                         widget.languageProvider?.currentLocale ??
                             const Locale('tr'),
                       ),
@@ -1082,49 +1440,42 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
               const SizedBox(height: 16),
 
-              // Tab içerikleri
-              SizedBox(
-                height: 560,
-                child: TabBarView(
-                  controller: _tabController,
-                  physics: const BouncingScrollPhysics(),
-                  children: [
-                    SingleChildScrollView(child: _buildElectricityTab()),
-                    SingleChildScrollView(child: _buildFuelTab()),
-                    SingleChildScrollView(child: _buildWaterTab()),
-                    SingleChildScrollView(child: _buildWasteTab()),
-                  ],
+              // Tab içerikleri (yükseklik sekmeye göre; kısa formlarda gereksiz boşluk olmasın)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  height: _tabViewHeight,
+                  child: TabBarView(
+                    controller: _tabController,
+                    physics: const BouncingScrollPhysics(),
+                    children: [
+                      SingleChildScrollView(child: _buildElectricityTab()),
+                      SingleChildScrollView(child: _buildWasteTab()),
+                      SingleChildScrollView(child: _buildWaterTab()),
+                      SingleChildScrollView(child: _buildFuelTab()),
+                    ],
+                  ),
                 ),
               ),
 
               const SizedBox(height: 16),
-              // Sadece reset butonu (toplam hesaplama son sekmede)
-              OutlinedButton.icon(
-                onPressed: _resetForm,
-                icon: const Icon(Icons.refresh),
-                label: Text(
-                  translate(
-                    'reset',
-                    widget.languageProvider?.currentLocale ??
-                        const Locale('tr'),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  style: _neutralManualOutlined,
+                  onPressed: _resetForm,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(
+                    translate(
+                      'reset',
+                      widget.languageProvider?.currentLocale ??
+                          const Locale('tr'),
+                    ),
                   ),
                 ),
               ),
-              if (_lastEntry != null) ...[
-                const SizedBox(height: 16),
-                Text(
-                  translate(
-                    'last_record',
-                    widget.languageProvider?.currentLocale ??
-                        const Locale('tr'),
-                  ),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                Text(
-                  _lastEntry.toString(),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
             ],
           ),
         ),
@@ -1143,12 +1494,50 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
+        SegmentedButton<_ElectricityManualUnit>(
+          segments: [
+            ButtonSegment<_ElectricityManualUnit>(
+              value: _ElectricityManualUnit.kWh,
+              label: Text(translate('electricity_unit_kwh', locale)),
+              icon: const Icon(Icons.bolt, size: 18),
+            ),
+            ButtonSegment<_ElectricityManualUnit>(
+              value: _ElectricityManualUnit.wh,
+              label: Text(translate('electricity_unit_wh', locale)),
+              icon: const Icon(Icons.flash_on, size: 18),
+            ),
+            ButtonSegment<_ElectricityManualUnit>(
+              value: _ElectricityManualUnit.mwh,
+              label: Text(translate('electricity_unit_mwh', locale)),
+              icon: const Icon(Icons.power, size: 18),
+            ),
+          ],
+          selected: {_electricityManualUnit},
+          onSelectionChanged: _onElectricityManualUnitChanged,
+          style: _segmentedAccent(_kAccentElectric),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          translate('electricity_tip_manual_units', locale),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _kManualEntryOnGlass.withValues(alpha: 0.88),
+              ),
+        ),
+        const SizedBox(height: 12),
         TextFormField(
           controller: _electricityCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            labelText: translate('electricity_label', locale),
-            hintText: translate('electricity_hint', locale),
+            labelText: _electricityManualUnit == _ElectricityManualUnit.kWh
+                ? translate('electricity_label_kwh', locale)
+                : _electricityManualUnit == _ElectricityManualUnit.wh
+                    ? translate('electricity_label_wh', locale)
+                    : translate('electricity_label_mwh', locale),
+            hintText: _electricityManualUnit == _ElectricityManualUnit.kWh
+                ? translate('electricity_hint_kwh', locale)
+                : _electricityManualUnit == _ElectricityManualUnit.wh
+                    ? translate('electricity_hint_wh', locale)
+                    : translate('electricity_hint_mwh', locale),
             prefixIcon: const Icon(Icons.electrical_services),
           ),
           validator: _validateOptionalNumeric,
@@ -1164,6 +1553,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           children: [
             Expanded(
               child: OutlinedButton.icon(
+                style: _outlinedAccent(_kAccentElectric),
                 onPressed: () => _calculateCategory('electricity'),
                 icon: const Icon(Icons.calculate),
                 label: const Text('Elektrik CO₂ Hesapla'),
@@ -1316,12 +1706,41 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
+        SegmentedButton<_FuelInputUnit>(
+          segments: [
+            ButtonSegment<_FuelInputUnit>(
+              value: _FuelInputUnit.liquidLiters,
+              label: Text(translate('fuel_unit_liquid', locale)),
+              icon: const Icon(Icons.local_gas_station, size: 18),
+            ),
+            ButtonSegment<_FuelInputUnit>(
+              value: _FuelInputUnit.naturalGasM3,
+              label: Text(translate('fuel_unit_gas', locale)),
+              icon: const Icon(Icons.local_fire_department, size: 18),
+            ),
+          ],
+          selected: {_fuelInputUnit},
+          onSelectionChanged: _onFuelUnitChanged,
+          style: _segmentedAccent(_kAccentFuel),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          translate('fuel_tip_units', locale),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _kManualEntryOnGlass.withValues(alpha: 0.88),
+              ),
+        ),
+        const SizedBox(height: 12),
         TextFormField(
           controller: _fuelCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            labelText: translate('fuel_liters', locale),
-            hintText: translate('fuel_hint', locale),
+            labelText: _fuelInputUnit == _FuelInputUnit.liquidLiters
+                ? translate('fuel_label_liquid', locale)
+                : translate('fuel_label_gas', locale),
+            hintText: _fuelInputUnit == _FuelInputUnit.liquidLiters
+                ? translate('fuel_hint_liquid', locale)
+                : translate('fuel_hint_gas', locale),
             prefixIcon: const Icon(Icons.local_gas_station),
           ),
           validator: _validateOptionalNumeric,
@@ -1336,6 +1755,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           children: [
             Expanded(
               child: OutlinedButton.icon(
+                style: _outlinedAccent(_kAccentFuel),
                 onPressed: () => _calculateCategory('fuel'),
                 icon: const Icon(Icons.calculate),
                 label: const Text('Yakıt CO₂ Hesapla'),
@@ -1366,6 +1786,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         Row(
           children: [
             OutlinedButton.icon(
+              style: _outlinedAccent(_kAccentFuel),
               onPressed: _openVehicleDialog,
               icon: const Icon(Icons.add_road),
               label: const Text('Araç ekle'),
@@ -1410,13 +1831,16 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               Text(
                 translate('tip', locale),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: _kManualEntryOnGlass,
+                      fontWeight: FontWeight.w600,
                     ),
               ),
               const SizedBox(height: 4),
               Text(
                 translate('fuel_tip', locale),
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _kManualEntryOnGlass,
+                    ),
               ),
             ],
           ),
@@ -1436,12 +1860,34 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
+        SegmentedButton<_WaterInputUnit>(
+          segments: [
+            ButtonSegment<_WaterInputUnit>(
+              value: _WaterInputUnit.cubicMeters,
+              label: Text(translate('water_unit_m3', locale)),
+              icon: const Icon(Icons.crop_square, size: 18),
+            ),
+            ButtonSegment<_WaterInputUnit>(
+              value: _WaterInputUnit.liters,
+              label: Text(translate('water_unit_liters', locale)),
+              icon: const Icon(Icons.opacity, size: 18),
+            ),
+          ],
+          selected: {_waterInputUnit},
+          onSelectionChanged: _onWaterUnitChanged,
+          style: _segmentedAccent(_kAccentWater),
+        ),
+        const SizedBox(height: 12),
         TextFormField(
           controller: _waterCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            labelText: translate('water_cubic', locale),
-            hintText: translate('water_hint_form', locale),
+            labelText: _waterInputUnit == _WaterInputUnit.cubicMeters
+                ? translate('water_cubic', locale)
+                : translate('water_liters_label', locale),
+            hintText: _waterInputUnit == _WaterInputUnit.cubicMeters
+                ? translate('water_hint_form', locale)
+                : translate('water_hint_liters', locale),
             prefixIcon: const Icon(Icons.water_drop),
           ),
           validator: _validateOptionalNumeric,
@@ -1456,6 +1902,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           children: [
             Expanded(
               child: OutlinedButton.icon(
+                style: _outlinedAccent(_kAccentWater),
                 onPressed: () => _calculateCategory('water'),
                 icon: const Icon(Icons.calculate),
                 label: const Text('Su CO₂ Hesapla'),
@@ -1494,13 +1941,18 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               Text(
                 translate('tip', locale),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: _kManualEntryOnGlass,
+                      fontWeight: FontWeight.w600,
                     ),
               ),
               const SizedBox(height: 4),
               Text(
-                translate('water_tip', locale),
-                style: Theme.of(context).textTheme.bodySmall,
+                _waterInputUnit == _WaterInputUnit.cubicMeters
+                    ? translate('water_tip', locale)
+                    : translate('water_tip_liters', locale),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _kManualEntryOnGlass,
+                    ),
               ),
             ],
           ),
@@ -1520,12 +1972,50 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
+        SegmentedButton<_WasteInputUnit>(
+          segments: [
+            ButtonSegment<_WasteInputUnit>(
+              value: _WasteInputUnit.kg,
+              label: Text(translate('waste_unit_kg', locale)),
+              icon: const Icon(Icons.scale, size: 18),
+            ),
+            ButtonSegment<_WasteInputUnit>(
+              value: _WasteInputUnit.tonnes,
+              label: Text(translate('waste_unit_tonnes', locale)),
+              icon: const Icon(Icons.inventory_2, size: 18),
+            ),
+            ButtonSegment<_WasteInputUnit>(
+              value: _WasteInputUnit.grams,
+              label: Text(translate('waste_unit_g', locale)),
+              icon: const Icon(Icons.pie_chart_outline, size: 18),
+            ),
+          ],
+          selected: {_wasteInputUnit},
+          onSelectionChanged: _onWasteUnitChanged,
+          style: _segmentedAccent(_kAccentWaste),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          translate('waste_tip_units', locale),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _kManualEntryOnGlass.withValues(alpha: 0.88),
+              ),
+        ),
+        const SizedBox(height: 12),
         TextFormField(
           controller: _wasteCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            labelText: translate('waste_kg', locale),
-            hintText: translate('waste_hint_form', locale),
+            labelText: _wasteInputUnit == _WasteInputUnit.kg
+                ? translate('waste_label_kg', locale)
+                : _wasteInputUnit == _WasteInputUnit.tonnes
+                    ? translate('waste_label_tonnes', locale)
+                    : translate('waste_label_g', locale),
+            hintText: _wasteInputUnit == _WasteInputUnit.kg
+                ? translate('waste_hint_kg', locale)
+                : _wasteInputUnit == _WasteInputUnit.tonnes
+                    ? translate('waste_hint_tonnes', locale)
+                    : translate('waste_hint_g', locale),
             prefixIcon: const Icon(Icons.delete_outline),
           ),
           validator: _validateOptionalNumeric,
@@ -1540,6 +2030,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           children: [
             Expanded(
               child: OutlinedButton.icon(
+                style: _outlinedAccent(_kAccentWaste),
                 onPressed: () => _calculateCategory('waste'),
                 icon: const Icon(Icons.calculate),
                 label: const Text('Atık CO₂ Hesapla'),
@@ -1578,27 +2069,18 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               Text(
                 translate('tip', locale),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: _kManualEntryOnGlass,
+                      fontWeight: FontWeight.w600,
                     ),
               ),
               const SizedBox(height: 4),
               Text(
                 translate('waste_tip', locale),
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _kManualEntryOnGlass,
+                    ),
               ),
             ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Toplam hesaplama butonu (son sekmede)
-        FilledButton.icon(
-          onPressed: _calculateTotal,
-          icon: const Icon(Icons.calculate),
-          label: const Text('TOPLAM CO₂ HESAPLA'),
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            backgroundColor: Theme.of(context).colorScheme.primary,
           ),
         ),
         const SizedBox(height: 12),
@@ -1757,25 +2239,23 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     double co2 = 0.0;
     switch (category) {
       case 'electricity':
-        final electricityKwh = _parseOrZero(_electricityCtrl.text) +
+        // Manuel satır (birime göre kWh) + cihazlardan gelen kWh/gün toplamı
+        final electricityKwh = _manualElectricityKwhFromField() +
             _calculateDevicesElectricity();
         co2 = electricityKwh * Calculation.factorElectricityKgPerKwh;
         setState(() => _electricityCo2 = co2);
         break;
       case 'fuel':
-        final fuelLiters =
-            _parseOrZero(_fuelCtrl.text) + _calculateVehiclesFuelLiters();
-        co2 = fuelLiters * Calculation.factorFuelKgPerLiter;
+        co2 = _fuelCo2FromManualAndVehicles();
         setState(() => _fuelCo2 = co2);
         break;
       case 'water':
-        final waterCubicMeters = _parseOrZero(_waterCtrl.text);
+        final waterCubicMeters = _waterCubicMetersFromField();
         co2 = waterCubicMeters * Calculation.factorWaterKgPerM3;
         setState(() => _waterCo2 = co2);
         break;
       case 'waste':
-        final wasteKg = _parseOrZero(_wasteCtrl.text);
-        co2 = wasteKg * Calculation.factorWasteKgPerKg;
+        co2 = _wasteKgFromField() * Calculation.factorWasteKgPerKg;
         setState(() => _wasteCo2 = co2);
         break;
     }
@@ -1793,18 +2273,23 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     _calculateCategory('water');
     _calculateCategory('waste');
 
-    // Elektrik tüketimi: Manuel alan + cihazlar toplamı
-    double electricityKwh = _parseOrZero(_electricityCtrl.text);
-    electricityKwh += _calculateDevicesElectricity();
+    // Elektrik tüketimi: Manuel alan (kWh’a normalize) + cihazlar kWh/gün
+    double electricityKwh =
+        _manualElectricityKwhFromField() + _calculateDevicesElectricity();
+
+    final manualFuel = _parseOrZero(_fuelCtrl.text);
+    final vehL = _calculateVehiclesFuelLiters();
+    final bool gasFuel = _fuelInputUnit == _FuelInputUnit.naturalGasM3;
 
     final entry = ConsumptionEntry(
       electricityKwh: electricityKwh,
-      fuelLiters: _parseOrZero(_fuelCtrl.text) + _calculateVehiclesFuelLiters(),
-      waterCubicMeters: _parseOrZero(_waterCtrl.text),
-      wasteKg: _parseOrZero(_wasteCtrl.text),
+      fuelLiters: gasFuel ? manualFuel : manualFuel + vehL,
+      waterCubicMeters: _waterCubicMetersFromField(),
+      wasteKg: _wasteKgFromField(),
       createdAt: DateTime.now(),
+      fuelIsNaturalGasM3: gasFuel,
+      additiveLiquidFuelLiters: gasFuel ? vehL : 0,
     );
-    setState(() => _lastEntry = entry);
     final result = Calculation.calculateDailyEmission(entry);
     // Update shared readings for goals auto-check
     final db = DatabaseService.instance;
@@ -1836,21 +2321,44 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   // Form sıfırlama fonksiyonu
   void _resetForm() {
     _electricityCtrl.clear();
+    _electricityManualUnit = _ElectricityManualUnit.kWh;
     _fuelCtrl.clear();
+    _fuelInputUnit = _FuelInputUnit.liquidLiters;
     _waterCtrl.clear();
+    _waterInputUnit = _WaterInputUnit.cubicMeters;
     _wasteCtrl.clear();
+    _wasteInputUnit = _WasteInputUnit.kg;
     _bulbCountCtrl.clear();
     _bulbWattageCtrl.clear();
     _bulbHoursCtrl.clear();
     _selectedDevices.clear();
     _selectedVehicles.clear();
     setState(() {
-      _lastEntry = null;
       _electricityCo2 = null;
       _fuelCo2 = null;
       _waterCo2 = null;
       _wasteCo2 = null;
     });
+    if (_tabController.index != 0) {
+      _tabController.index = 0;
+    }
+    _syncTabViewHeight();
+
+    final db = DatabaseService.instance;
+    db.updateReading('Elektrik (kWh)', 0);
+    db.updateReading('Yakıt (litre)', 0);
+    db.updateReading('Su (m³)', 0);
+    db.updateReading('Atık (kg)', 0);
+
+    final emptyEntry = ConsumptionEntry(
+      electricityKwh: 0,
+      fuelLiters: 0,
+      waterCubicMeters: 0,
+      wasteKg: 0,
+      createdAt: DateTime.now(),
+    );
+    widget.onCalculated(0.0);
+    widget.onEntryCalculated?.call(0.0, emptyEntry);
   }
 }
 
@@ -2059,7 +2567,11 @@ class _QtyButton extends StatelessWidget {
             color: const Color(0xFF304411).withValues(alpha: 0.28),
           ),
         ),
-        child: Icon(icon, size: 18, color: Colors.white),
+        child: Icon(
+          icon,
+          size: 18,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
       ),
     );
   }
@@ -2078,7 +2590,8 @@ class _VehicleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final onSurface = scheme.onSurface;
     return SizedBox(
       width: 170,
       child: InkWell(
@@ -2099,15 +2612,14 @@ class _VehicleTile extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(preset.icon,
-                      color: isDark ? Colors.black : Colors.white),
+                  Icon(preset.icon, color: scheme.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       preset.name,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.black : null,
+                            color: onSurface,
                           ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -2117,7 +2629,7 @@ class _VehicleTile extends StatelessWidget {
                     onPressed: onEdit,
                     icon: Icon(
                       Icons.edit,
-                      color: Theme.of(context).colorScheme.primary,
+                      color: scheme.primary,
                       size: 18,
                     ),
                     tooltip: 'Düzenle',
@@ -2128,7 +2640,7 @@ class _VehicleTile extends StatelessWidget {
               Text(
                 '${preset.litersPer100km.toStringAsFixed(1)} l/100km • ${preset.kmPerDay.toStringAsFixed(1)} km/g',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.lightGreenAccent,
+                      color: scheme.primary,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -2150,7 +2662,8 @@ class _VehicleTile extends StatelessWidget {
                   child: Text(
                     '+ Ekle',
                     style: TextStyle(
-                      color: isDark ? Colors.black : Colors.white,
+                      color: onSurface,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),

@@ -18,6 +18,7 @@ import 'services/postgres_service.dart';
 import 'services/firebase_realtime_service.dart';
 import 'services/notification_service.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,28 +35,22 @@ void main() async {
     // Firebase hatası olsa bile uygulama çalışmaya devam eder
   }
 
-  // PostgreSQL bağlantısını asenkron başlat (uygulama başlangıcını geciktirmemek için)
-  // Timeout ile hızlı başlatma
-  PostgresService.instance.connect().timeout(
-    const Duration(seconds: 3),
-    onTimeout: () {
-      debugPrint(
-        'PostgreSQL bağlantısı zaman aşımına uğradı (devam ediliyor)',
-      );
-      return;
-    },
-  ).catchError((e) {
-    debugPrint('PostgreSQL bağlantı hatası: $e');
-    // Uygulama yine de çalışır, sadece veritabanı işlemleri başarısız olur
-  });
-
-  try {
-    await NotificationService.instance.initialize();
-  } catch (_) {
-    // Bildirim servisi başlatılamazsa uygulama çalışmaya devam eder.
-  }
-
   runApp(const CarbonFootprintApp());
+
+  // İlk frame çizildikten sonra: açılışı bloklamaz; bildirim + opsiyonel API health.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    NotificationService.instance.initialize().catchError((_) {});
+    PostgresService.instance.connect().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {
+        debugPrint(
+          'PostgreSQL bağlantısı zaman aşımına uğradı (devam ediliyor)',
+        );
+      },
+    ).catchError((e) {
+      debugPrint('PostgreSQL bağlantı hatası: $e');
+    });
+  });
 }
 
 /// Root widget configuring Material 3, theming, and bottom navigation.
@@ -66,7 +61,10 @@ class CarbonFootprintApp extends StatefulWidget {
   State<CarbonFootprintApp> createState() => _CarbonFootprintAppState();
 }
 
-class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
+class _CarbonFootprintAppState extends State<CarbonFootprintApp>
+    with WidgetsBindingObserver {
+  static const String _kThemePrefKey = 'app_theme_mode';
+
   // Dialog ve sayfa geçişleri için güvenli Navigator erişimi
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   ThemeMode _themeMode = ThemeMode.system;
@@ -78,11 +76,68 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
   // Font scale ayarı - global olarak tutulacak
   double _fontScale = 1.0;
 
-  bool get _isDark => _themeMode == ThemeMode.dark;
+  /// Ayarlardaki anahtar ile MaterialApp’ın gerçekten kullandığı tema uyumlu olsun.
+  /// `ThemeMode.system` iken OS karanlıksa true döner (önceki `_themeMode == dark` hatayı giderir).
+  bool get _effectiveIsDark {
+    switch (_themeMode) {
+      case ThemeMode.dark:
+        return true;
+      case ThemeMode.light:
+        return false;
+      case ThemeMode.system:
+        return WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _languageProvider.initialize();
+    _loadThemePreference();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_themeMode == ThemeMode.system) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _loadThemePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_kThemePrefKey);
+      if (!mounted || saved == null) return;
+      setState(() {
+        switch (saved) {
+          case 'dark':
+            _themeMode = ThemeMode.dark;
+            break;
+          case 'light':
+            _themeMode = ThemeMode.light;
+            break;
+          case 'system':
+            _themeMode = ThemeMode.system;
+            break;
+        }
+      });
+    } catch (_) {}
+  }
 
   void _toggleThemeMode(bool isDark) {
     setState(() {
       _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
+    });
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString(_kThemePrefKey, isDark ? 'dark' : 'light');
     });
   }
 
@@ -166,7 +221,7 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
                     height: size.height,
                     color: theme.colorScheme.primary.withValues(alpha: 0.18),
                     child: SettingsScreen(
-                      isDarkMode: _isDark,
+                      isDarkMode: _effectiveIsDark,
                       onToggleTheme: _toggleThemeMode,
                       transparentBackground: true,
                       languageProvider: _languageProvider,
@@ -201,9 +256,6 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
     final theme = AppTheme.buildThemeData(ThemeMode.light);
     final darkTheme = AppTheme.buildThemeData(ThemeMode.dark);
 
-    // Language provider'ı başlat
-    _languageProvider.initialize();
-
     // Platform ve ekran tabanlı belirleme
     final double width = MediaQuery.of(context).size.width;
     // Telefon + tablet gibi küçük/orta layout'larda (web dahil) davranış
@@ -219,7 +271,7 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp> {
       GoalsScreen(languageProvider: _languageProvider),
       if (isCompactLayout)
         SettingsScreen(
-          isDarkMode: _isDark,
+          isDarkMode: _effectiveIsDark,
           onToggleTheme: _toggleThemeMode,
           languageProvider: _languageProvider,
           fontScale: _fontScale,

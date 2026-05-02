@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:developer' show log;
+import 'dart:typed_data' show ByteData;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'dart:ui' show ImageFilter;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
@@ -18,6 +21,74 @@ import '../services/firebase_auth_service.dart';
 import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
 import '../algorithms/calculation.dart';
+import '../widgets/theme_independent_info_dialog.dart';
+
+/// Kart içi metin ve grafik alanı — tüm panellerde aynı.
+const EdgeInsets _kReportsCardInnerPadding = EdgeInsets.all(16);
+
+/// Ana bölüm sarmalayıcıları — yatay boşluk [ListView] padding ile verilir (taşmayı önler).
+const EdgeInsets _kReportsSectionOuterPadding =
+    EdgeInsets.symmetric(vertical: 8);
+
+/// Kartlar arası dikey aralık.
+const double _kReportsSectionGap = 20;
+
+/// Shelly `energyKwh` alanı **kümülatif** sayaçtır; her kayıt için bir önceki örneğe
+/// göre tüketilen kWh (delta) ile [ConsumptionEntry] üretir — günlük emisyon için.
+List<ConsumptionEntry> _shellyDataListToDeltaConsumptionEntries(
+  List<ShellyData> raw,
+) {
+  if (raw.isEmpty) return [];
+  final sorted = List<ShellyData>.from(raw)
+    ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  final out = <ConsumptionEntry>[];
+  double? prevMeter;
+  for (final sd in sorted) {
+    var deltaKwh = 0.0;
+    if (prevMeter != null) {
+      final d = sd.energyKwh - prevMeter;
+      if (d >= 0) {
+        deltaKwh = d;
+      }
+    }
+    prevMeter = sd.energyKwh;
+    out.add(
+      ConsumptionEntry(
+        electricityKwh: deltaKwh,
+        waterCubicMeters: 0,
+        fuelLiters: 0,
+        wasteKg: 0,
+        createdAt: sd.timestamp,
+        fuelIsNaturalGasM3: true,
+      ),
+    );
+  }
+  return out;
+}
+
+/// Asset'teki “.ttf” dosyası gerçekten sfnt/OpenType başlığı taşıyor mu (HTML/404 yerine).
+/// Aksi halde [pw.Font.ttf] veya sonradan glif üretimi `FormatException` (UTF-8) fırlatabilir.
+bool _byteDataLooksLikeSfntFont(ByteData data) {
+  final n = data.lengthInBytes;
+  if (n < 12) return false;
+  final a = data.getUint8(0);
+  final b = data.getUint8(1);
+  final c = data.getUint8(2);
+  final d = data.getUint8(3);
+  // TrueType / OpenType glyf
+  if (a == 0x00 && b == 0x01 && c == 0x00 && d == 0x00) return true;
+  // TrueType 2.0
+  if (a == 0x00 && b == 0x00 && c == 0x01 && d == 0x00) return true;
+  // OpenType CFF: "OTTO"
+  if (a == 0x4f && b == 0x54 && c == 0x54 && d == 0x4f) return true;
+  // TrueType collection: "ttcf"
+  if (a == 0x74 && b == 0x74 && c == 0x63 && d == 0x66) return true;
+  return false;
+}
+
+/// Gösterge içi punto (beyaz daire üzerinde koyu metin; rapor tipografisinden ayrı).
+const double _kGaugeCenterValueSize = 18;
+const double _kGaugeCenterAuxSize = 12;
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key, this.languageProvider});
@@ -33,6 +104,97 @@ enum _InputMode { none, manual, raspberry }
 class _ReportsScreenState extends State<ReportsScreen> {
   // Terminal gürültüsünü azaltmak için ekran içi debug logları kapalı tutuyoruz.
   void debugPrint(String? message, {int? wrapWidth}) {}
+
+  /// PDF metinleri için (null = uygulama dili).
+  Locale? _pdfExportLocaleOverride;
+  pw.ThemeData? _cachedPdfUnicodeTheme;
+
+  Locale _localeForPdfExport() =>
+      _pdfExportLocaleOverride ??
+      widget.languageProvider?.currentLocale ??
+      const Locale('tr');
+
+  /// SegmentedButton seçimi: override yoksa geçerli uygulama diline göre 'tr' | 'en'.
+  String _pdfExportLocaleSegmentSelection() {
+    if (_pdfExportLocaleOverride != null) {
+      return _pdfExportLocaleOverride!.languageCode == 'tr' ? 'tr' : 'en';
+    }
+    final code = widget.languageProvider?.currentLocale.languageCode ?? 'tr';
+    return code == 'tr' ? 'tr' : 'en';
+  }
+
+  Future<pw.ThemeData?> _tryPdfThemeFromAssets(
+    String regularAsset,
+    String boldAsset,
+  ) async {
+    try {
+      final regularData = await rootBundle.load(regularAsset);
+      final boldData = await rootBundle.load(boldAsset);
+      if (!_byteDataLooksLikeSfntFont(regularData) ||
+          !_byteDataLooksLikeSfntFont(boldData)) {
+        return null;
+      }
+      final regular = pw.Font.ttf(regularData);
+      final bold = pw.Font.ttf(boldData);
+      return pw.ThemeData.withFont(
+        base: regular,
+        bold: bold,
+        italic: regular,
+        boldItalic: bold,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Türkçe için TTF. Repoda Noto dosyaları bazen HTML placeholder olabiliyor; önce geçerli
+  /// OpenSans denenir. Hiçbiri yüklenmezse yerleşik Helvetica (Türkçe glif eksik olabilir).
+  Future<pw.ThemeData> _pdfUnicodeTheme() async {
+    if (_cachedPdfUnicodeTheme != null) return _cachedPdfUnicodeTheme!;
+
+    const candidates = <List<String>>[
+      ['fonts/OpenSans-Regular.ttf', 'fonts/OpenSans-Bold.ttf'],
+      ['assets/fonts/OpenSans-Regular.ttf', 'assets/fonts/OpenSans-Bold.ttf'],
+      ['fonts/NotoSans-Regular.ttf', 'fonts/NotoSans-Bold.ttf'],
+      ['assets/fonts/NotoSans-Regular.ttf', 'assets/fonts/NotoSans-Bold.ttf'],
+    ];
+
+    for (final paths in candidates) {
+      final theme = await _tryPdfThemeFromAssets(paths[0], paths[1]);
+      if (theme != null) {
+        _cachedPdfUnicodeTheme = theme;
+        return theme;
+      }
+    }
+
+    _cachedPdfUnicodeTheme = pw.ThemeData.withFont(
+      base: pw.Font.helvetica(),
+      bold: pw.Font.helveticaBold(),
+      italic: pw.Font.helveticaOblique(),
+      boldItalic: pw.Font.helveticaBoldOblique(),
+    );
+    return _cachedPdfUnicodeTheme!;
+  }
+
+  ButtonStyle _pdfLangSegmentedStyle(BuildContext context) {
+    final Color accent = Theme.of(context).colorScheme.primary;
+    return ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      foregroundColor: WidgetStateProperty.all<Color>(accent),
+      iconColor: WidgetStateProperty.all<Color>(accent),
+      backgroundColor:
+          WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+        if (states.contains(WidgetState.selected)) {
+          return accent.withValues(alpha: 0.22);
+        }
+        return accent.withValues(alpha: 0.08);
+      }),
+      side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+        final double a = states.contains(WidgetState.selected) ? 0.55 : 0.35;
+        return BorderSide(color: accent.withValues(alpha: a));
+      }),
+    );
+  }
 
   double? _lastCalculatedKgCo2e;
   double? _manualCalculatedKgCo2e; // Manuel hesaplama sonucu
@@ -73,6 +235,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   StreamSubscription<ShellyData?>? _shellyDataSubscription;
   final ApiService _apiService = ApiService();
   final String _shellyDeviceId = 'shelly_plug_001';
+  /// Shelly sayacı kümülatif; emisyon için oturum içi tüketilen kWh (delta toplamı)
+  double _shellySessionKwhConsumed = 0;
+  double? _shellyPrevMeterKwh;
+  DateTime? _shellyConsumptionDayStart;
   final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
   bool _showGlobalTrend = false; // Kişisel mi dünya geneli mi?
   List<double> _globalDailyTrends = [0, 0, 0, 0, 0, 0, 0];
@@ -405,6 +571,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _buildLegendItem(
     String label,
     Color color, {
+    required TextStyle labelStyle,
     bool? isRealData,
     bool showDataSourceIcon = true,
   }) {
@@ -423,11 +590,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(width: 6),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.8),
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
+          style: labelStyle.copyWith(fontWeight: FontWeight.w500),
         ),
         if (showDataSourceIcon && isRealData != null) ...[
           const SizedBox(width: 4),
@@ -523,9 +686,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         .listenToFirebaseShellyData(_shellyDeviceId)
         .listen((shellyData) {
       if (shellyData != null && mounted) {
-        // Shelly verilerini ConsumptionEntry'ye dönüştür
+        _registerShellyMeterDelta(shellyData);
+        // Shelly ham verisini sakla (ör. hata ayıklama); kWh alanı kümülatiftir
         final entry = _apiService.shellyDataToConsumptionEntry(shellyData);
-        // Shelly ham verisini sakla (elektrik için)
         setState(() {
           _shellyEntry = entry;
           // Eğer ESP verisi seçiliyse, Shelly elektrik + ESP su+gaz toplamını göster
@@ -535,6 +698,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
         });
       }
     });
+  }
+
+  void _resetShellyMeterBaseline() {
+    _shellySessionKwhConsumed = 0;
+    _shellyPrevMeterKwh = null;
+    final n = DateTime.now();
+    _shellyConsumptionDayStart = DateTime(n.year, n.month, n.day);
+  }
+
+  /// Kümülatif Shelly sayacından (energyKwh) ardışık farkla tüketilen kWh biriktirir.
+  void _registerShellyMeterDelta(ShellyData d) {
+    final meter = d.energyKwh;
+    final today = DateTime.now();
+    final dayStart = DateTime(today.year, today.month, today.day);
+    if (_shellyConsumptionDayStart == null ||
+        _shellyConsumptionDayStart != dayStart) {
+      _shellySessionKwhConsumed = 0;
+      _shellyPrevMeterKwh = null;
+      _shellyConsumptionDayStart = dayStart;
+    }
+    if (_shellyPrevMeterKwh == null) {
+      _shellyPrevMeterKwh = meter;
+      return;
+    }
+    final delta = meter - _shellyPrevMeterKwh!;
+    if (delta < -1e-9) {
+      _shellyPrevMeterKwh = meter;
+      return;
+    }
+    _shellySessionKwhConsumed += delta;
+    _shellyPrevMeterKwh = meter;
   }
 
   /// Firebase'den en son manuel veriyi yükle
@@ -571,18 +765,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  /// ESP ve Shelly verilerini topla ve gauge'ı güncelle
-  /// ESP toggle açıkken: Shelly'den sadece elektrik, ESP'den sadece su+gaz
+  /// ESP ve Shelly verilerini topla ve gauge'ı güncelle (E modu, kg CO₂e).
+  /// Shelly sayacı kümülatiftir; elektrik emisyonu [_shellySessionKwhConsumed] (delta toplamı) ile hesaplanır.
   void _updateCombinedEmission() {
     double totalEmission = 0.0;
 
-    // Shelly'den sadece elektrik emisyonu (Shelly sadece elektrik ölçüyor)
+    // Shelly: yalnızca oturum içi tüketilen kWh (kümülatif sayaç × emisyon faktörü yapılmaz)
     if (_shellyEntry != null) {
-      final electricityEmission =
-          _shellyEntry!.electricityKwh * Calculation.factorElectricityKgPerKwh;
+      final electricityEmission = _shellySessionKwhConsumed *
+          Calculation.factorElectricityKgPerKwh;
       totalEmission += electricityEmission;
       debugPrint(
-        '📊 Shelly Elektrik: ${_shellyEntry!.electricityKwh.toStringAsFixed(2)} kWh × ${Calculation.factorElectricityKgPerKwh} = ${electricityEmission.toStringAsFixed(2)} kg CO2e',
+        '📊 Shelly Elektrik (delta toplamı): ${_shellySessionKwhConsumed.toStringAsFixed(4)} kWh × ${Calculation.factorElectricityKgPerKwh} = ${electricityEmission.toStringAsFixed(3)} kg CO2e',
       );
     }
 
@@ -702,6 +896,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
       debugPrint(
         '📊 Manuel kategori dağılımı güncellendi: E=${electricityPercent.toStringAsFixed(1)}%, G=${gasPercent.toStringAsFixed(1)}%, S=${waterPercent.toStringAsFixed(1)}%, A=${wastePercent.toStringAsFixed(1)}%',
       );
+    } else if (mounted) {
+      setState(() {
+        _categoryDistribution = {
+          'electricity': 0.0,
+          'gas': 0.0,
+          'water': 0.0,
+          'waste': 0.0,
+        };
+      });
     }
   }
 
@@ -712,10 +915,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     double totalWater = 0.0;
     double totalWaste = 0.0;
 
-    // Shelly'den elektrik
+    // Shelly'den elektrik (kümülatif değil, oturum delta toplamı)
     if (_shellyEntry != null) {
-      totalElectricity +=
-          _shellyEntry!.electricityKwh * Calculation.factorElectricityKgPerKwh;
+      totalElectricity += _shellySessionKwhConsumed *
+          Calculation.factorElectricityKgPerKwh;
     }
 
     // ESP'den su ve gaz
@@ -812,12 +1015,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final now = DateTime.now().subtract(Duration(days: _weekOffset * 7));
       final startDate = now.subtract(const Duration(days: 7));
       final endDate = now;
-      ConsumptionEntry? liveEspEntry;
+      final userId = FirebaseAuthService.instance.currentUser?.uid;
 
-      // Önce ESP'den güncel ölçümü çekip Firebase'e yazmayı dene.
-      // Böylece history/latest eski kaldığında (örn. fuel=400) trend ekranı
-      // gerçek anlık değere daha hızlı senkronize olur.
-      if (_weekOffset == 0) {
+      ConsumptionEntry? liveEspEntry;
+      List<ConsumptionEntry> espHistoryData = [];
+      List<ConsumptionEntry> shellyHistoryData = [];
+      List<ConsumptionEntry> manualHistoryData = [];
+
+      // Paralel yükleme: canlı ESP + üç Firebase geçmişi aynı anda (önceki sıralı bekleme yok).
+      Future<void> loadLiveEsp() async {
+        if (_weekOffset != 0) return;
         try {
           final liveEsp = await _apiService.fetchEspConsumptionOrNull(
             saveToFirebase: true,
@@ -837,51 +1044,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       }
 
-      // Firebase'den ESP geçmiş verileri çek - timeout ile
-      final espHistoryData = await _firebaseService
-          .getHistoryData(
-        deviceId: 'esp8266_001', // ESP8266 cihaz ID'si
-        startDate: startDate,
-        endDate: endDate,
-      )
-          .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          // Timeout durumunda boş liste döndür
-          return <ConsumptionEntry>[];
-        },
-      );
-
-      // Firebase'den Shelly geçmiş verileri çek - timeout ile
-      List<ConsumptionEntry> shellyHistoryData = [];
-      try {
-        final shellyDataList = await _apiService
-            .getFirebaseShellyHistory(
-              deviceId: _shellyDeviceId,
-              startDate: startDate,
-              endDate: endDate,
-            )
+      Future<void> loadEspHistory() async {
+        espHistoryData = await _firebaseService
+            .getHistoryData(
+          deviceId: 'esp8266_001',
+          startDate: startDate,
+          endDate: endDate,
+        )
             .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () => <ShellyData>[],
-            );
-
-        // Shelly verilerini ConsumptionEntry'ye dönüştür
-        shellyHistoryData = shellyDataList
-            .map((shellyData) =>
-                _apiService.shellyDataToConsumptionEntry(shellyData))
-            .toList();
-      } catch (e) {
-        debugPrint('Shelly geçmiş veri hatası: $e');
-        // Shelly verisi alınamazsa devam et
+          const Duration(seconds: 10),
+          onTimeout: () => <ConsumptionEntry>[],
+        );
       }
 
-      // Firebase'den manuel geçmiş verileri çek - timeout ile
-      List<ConsumptionEntry> manualHistoryData = [];
-      try {
-        // Kullanıcı giriş yapmışsa manuel verileri yükle
-        final userId = FirebaseAuthService.instance.currentUser?.uid;
-        if (userId != null) {
+      Future<void> loadShellyHistory() async {
+        try {
+          final shellyDataList = await _apiService
+              .getFirebaseShellyHistory(
+                deviceId: _shellyDeviceId,
+                startDate: startDate,
+                endDate: endDate,
+              )
+              .timeout(
+                const Duration(seconds: 10),
+                onTimeout: () => <ShellyData>[],
+              );
+          shellyHistoryData =
+              _shellyDataListToDeltaConsumptionEntries(shellyDataList);
+        } catch (e) {
+          debugPrint('Shelly geçmiş veri hatası: $e');
+        }
+      }
+
+      Future<void> loadManualHistory() async {
+        manualHistoryData = [];
+        if (userId == null) return;
+        try {
           manualHistoryData = await _firebaseService
               .getManualHistoryData(
                 userId: userId,
@@ -894,11 +1092,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
               );
           debugPrint(
               '📊 Manuel geçmiş veri yüklendi: ${manualHistoryData.length} kayıt');
+        } catch (e) {
+          debugPrint('Manuel geçmiş veri hatası: $e');
         }
-      } catch (e) {
-        debugPrint('Manuel geçmiş veri hatası: $e');
-        // Manuel verisi alınamazsa devam et
       }
+
+      await Future.wait([
+        loadLiveEsp(),
+        loadEspHistory(),
+        loadShellyHistory(),
+        loadManualHistory(),
+      ]);
 
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
@@ -911,8 +1115,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       // ESP'den canlı veri geldiyse mutlaka kaynak listeye ekle (Firebase latest
       // eski/bozuk olsa bile trend hesabı güncel değeri kullanabilsin).
-      if (liveEspEntry != null) {
-        historyData.add(liveEspEntry);
+      final liveEsp = liveEspEntry;
+      if (liveEsp != null) {
+        historyData.add(liveEsp);
       }
 
       // Eğer history'de veri yoksa, latest verilerini de kontrol et
@@ -938,8 +1143,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
             final latestShellyData =
                 await _firebaseService.getLatestShellyData(_shellyDeviceId);
             if (latestShellyData != null) {
-              shellyLatestEntry =
-                  _apiService.shellyDataToConsumptionEntry(latestShellyData);
+              // Tek anlık kümülatif sayaçla emisyon yapılmaz; bootstrap için elektrik 0
+              shellyLatestEntry = ConsumptionEntry(
+                electricityKwh: 0,
+                waterCubicMeters: 0,
+                fuelLiters: 0,
+                wasteKg: 0,
+                createdAt: latestShellyData.timestamp,
+                fuelIsNaturalGasM3: true,
+              );
             }
           } catch (e) {
             debugPrint('Shelly latest veri hatası: $e');
@@ -1136,39 +1348,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       }
 
-      // ESP ve Shelly verilerini birleştir
-      final Map<int, ConsumptionEntry> dailyData = {};
-      final Map<int, int> dailyDataCount = {};
-      final Map<int, List<String>> dailyDataSources = {};
+      // ESP + Shelly birleşimi (manuel bu seriye dahil edilmez — kişisel sensör trendi)
+      final Map<int, ConsumptionEntry> sensorDailyData = {};
+      final Map<int, int> sensorDailyDataCount = {};
+      final Map<int, List<String>> sensorDailyDataSources = {};
 
       for (int dayIndex = 0; dayIndex < 7; dayIndex++) {
         final espEntry = espDailyData[dayIndex];
         final shellyEntry = shellyDailyData[dayIndex];
-        final manualEntry = manualDailyData[dayIndex];
 
-        // Öncelik: Manuel > ESP+Shelly > ESP > Shelly
-        if (manualEntry != null) {
-          // Manuel veri varsa onu kullan
-          dailyData[dayIndex] = manualEntry;
-          dailyDataCount[dayIndex] = 1;
-          dailyDataSources[dayIndex] = ['Manuel'];
-          debugPrint(
-              '📅 Gün $dayIndex: Manuel veri kullanıldı: E=${manualEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${manualEntry.fuelLiters.toStringAsFixed(2)} L, S=${manualEntry.waterCubicMeters.toStringAsFixed(2)} m³');
-        } else if (espEntry != null && shellyEntry != null) {
-          // ESP + Shelly birleştir
+        if (espEntry != null && shellyEntry != null) {
           final combinedEntry = ConsumptionEntry(
-            electricityKwh: shellyEntry.electricityKwh, // Shelly'den elektrik
-            waterCubicMeters: espEntry.waterCubicMeters, // ESP'den su
-            fuelLiters: espEntry.fuelLiters, // ESP'den gaz m³
-            wasteKg: (espEntry.wasteKg + shellyEntry.wasteKg) / 2, // Ortalama
+            electricityKwh: shellyEntry.electricityKwh,
+            waterCubicMeters: espEntry.waterCubicMeters,
+            fuelLiters: espEntry.fuelLiters,
+            wasteKg: (espEntry.wasteKg + shellyEntry.wasteKg) / 2,
             createdAt: shellyEntry.createdAt.isAfter(espEntry.createdAt)
                 ? shellyEntry.createdAt
-                : espEntry.createdAt, // En güncel tarih
+                : espEntry.createdAt,
             fuelIsNaturalGasM3: espEntry.fuelIsNaturalGasM3,
           );
-          dailyData[dayIndex] = combinedEntry;
-          dailyDataCount[dayIndex] = 2;
-          dailyDataSources[dayIndex] = ['ESP', 'Shelly'];
+          sensorDailyData[dayIndex] = combinedEntry;
+          sensorDailyDataCount[dayIndex] = 2;
+          sensorDailyDataSources[dayIndex] = ['ESP', 'Shelly'];
           debugPrint('📅 Gün $dayIndex: ESP + Shelly birleştirildi:');
           debugPrint(
               '   ESP: E=${espEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${espEntry.fuelLiters.toStringAsFixed(2)} L, S=${espEntry.waterCubicMeters.toStringAsFixed(2)} m³');
@@ -1177,17 +1379,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
           debugPrint(
               '   Birleşik: E=${combinedEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${combinedEntry.fuelLiters.toStringAsFixed(2)} L, S=${combinedEntry.waterCubicMeters.toStringAsFixed(2)} m³');
         } else if (espEntry != null) {
-          // Sadece ESP verisi
-          dailyData[dayIndex] = espEntry;
-          dailyDataCount[dayIndex] = 1;
-          dailyDataSources[dayIndex] = ['ESP'];
+          sensorDailyData[dayIndex] = espEntry;
+          sensorDailyDataCount[dayIndex] = 1;
+          sensorDailyDataSources[dayIndex] = ['ESP'];
           debugPrint(
               '📅 Gün $dayIndex: Sadece ESP verisi: E=${espEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${espEntry.fuelLiters.toStringAsFixed(2)} L, S=${espEntry.waterCubicMeters.toStringAsFixed(2)} m³');
         } else if (shellyEntry != null) {
-          // Sadece Shelly verisi
-          dailyData[dayIndex] = shellyEntry;
-          dailyDataCount[dayIndex] = 1;
-          dailyDataSources[dayIndex] = ['Shelly'];
+          sensorDailyData[dayIndex] = shellyEntry;
+          sensorDailyDataCount[dayIndex] = 1;
+          sensorDailyDataSources[dayIndex] = ['Shelly'];
           debugPrint(
               '📅 Gün $dayIndex: Sadece Shelly verisi: E=${shellyEntry.electricityKwh.toStringAsFixed(2)} kWh, Y=${shellyEntry.fuelLiters.toStringAsFixed(2)} L, S=${shellyEntry.waterCubicMeters.toStringAsFixed(2)} m³');
         }
@@ -1195,9 +1395,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       // Özet bilgi
       debugPrint('📊 ========== GÜNLÜK VERİ ÖZETİ ==========');
-      dailyDataCount.forEach((day, count) {
-        final sources = dailyDataSources[day] ?? [];
-        final entry = dailyData[day]!;
+      sensorDailyDataCount.forEach((day, count) {
+        final sources = sensorDailyDataSources[day] ?? [];
+        final entry = sensorDailyData[day]!;
         final emission = Calculation.calculateDailyEmission(entry);
         debugPrint('📅 Gün $day (${6 - day} gün önce):');
         debugPrint('   Kayıt sayısı: $count');
@@ -1218,21 +1418,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
       });
       debugPrint('📊 =========================================');
 
-      // Eğer hiç veri yoksa, en son veriyi kullan (bugün için)
-      if (dailyData.isEmpty && historyData.isNotEmpty) {
-        // En son (en güncel) veriyi kullan, tüm verileri toplama!
-        // Veriler zaten tarihe göre sıralı (en eski -> en yeni)
-        final latestEntry = historyData.last;
-        dailyData[0] = ConsumptionEntry(
-          electricityKwh: latestEntry.electricityKwh,
-          waterCubicMeters: latestEntry.waterCubicMeters,
-          fuelLiters: latestEntry.fuelLiters,
-          wasteKg: latestEntry.wasteKg,
-          createdAt: DateTime.now(), // Bugün olarak işaretle
-          fuelIsNaturalGasM3: latestEntry.fuelIsNaturalGasM3,
-        );
-        debugPrint(
-            '📅 Hiç günlük veri yok, en son veri bugün olarak kullanıldı');
+      // Sensör serisi boş ama geçmiş listede veri varsa: yalnızca ESP/Shelly kaynaklı
+      // son kayıt (manuel hariç) bugüne yansıtılsın
+      if (sensorDailyData.isEmpty && historyData.isNotEmpty) {
+        ConsumptionEntry? latestSensor;
+        for (var i = historyData.length - 1; i >= 0; i--) {
+          final e = historyData[i];
+          final ts = e.createdAt.millisecondsSinceEpoch;
+          if (espTimestamps.contains(ts) || shellyTimestamps.contains(ts)) {
+            latestSensor = e;
+            break;
+          }
+        }
+        if (latestSensor != null) {
+          sensorDailyData[0] = ConsumptionEntry(
+            electricityKwh: latestSensor.electricityKwh,
+            waterCubicMeters: latestSensor.waterCubicMeters,
+            fuelLiters: latestSensor.fuelLiters,
+            wasteKg: latestSensor.wasteKg,
+            createdAt: DateTime.now(),
+            fuelIsNaturalGasM3: latestSensor.fuelIsNaturalGasM3,
+          );
+          debugPrint(
+              '📅 Sensör günlük eşleşmesi yok; en son sensör kaydı bugüne taşındı');
+        }
       }
 
       // Manuel veriler zaten yukarıda işlendi (manualDailyData map'inde)
@@ -1246,11 +1455,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
       double totalWater = 0;
       double totalWaste = 0;
 
-      // ESP/Shelly verileri için döngü
+      // ESP/Shelly verileri için döngü (yalnızca sensör serisi — manuel hariç)
       for (int i = 6; i >= 0; i--) {
         // En eski günden en yeni güne (Pazartesi'den Pazar'a)
-        if (dailyData.containsKey(i)) {
-          final entry = dailyData[i]!;
+        if (sensorDailyData.containsKey(i)) {
+          final entry = sensorDailyData[i]!;
           final emission = Calculation.calculateDailyEmission(entry);
 
           // Debug: Detaylı emisyon bilgisi
@@ -1327,74 +1536,87 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       if (!mounted) return; // Widget dispose edilmişse işlemi durdur
 
-      // Bugünün toplam emisyonunu hesapla (gauge için)
-      double todayTotalEmission = 0.0;
-      if (dailyData.containsKey(0)) {
-        todayTotalEmission = Calculation.calculateDailyEmission(dailyData[0]!);
+      final double todaySensorEmission = sensorDailyData.containsKey(0)
+          ? Calculation.calculateDailyEmission(sensorDailyData[0]!)
+          : 0.0;
+      final double todayManualEmission = manualDailyData.containsKey(0)
+          ? Calculation.calculateDailyEmission(manualDailyData[0]!)
+          : 0.0;
+
+      double? gaugeKgCo2eForState() {
+        if (_useEspData) {
+          return todaySensorEmission > 0 ? todaySensorEmission : null;
+        }
+        if (todayManualEmission > 0) return todayManualEmission;
+        final m = _manualCalculatedKgCo2e;
+        if (m != null && m > 0) return m;
+        return null;
       }
 
-      if (totalEmission > 0) {
-        // Yüzdeleri hesapla
-        double electricityPercent = (totalElectricity / totalEmission * 100);
-        double gasPercent = (totalGas / totalEmission * 100);
-        double waterPercent = (totalWater / totalEmission * 100);
-        double wastePercent = (totalWaste / totalEmission * 100);
+      if (totalEmission > 0 || manualTotalEmission > 0) {
+        double electricityPercent = 0.0;
+        double gasPercent = 0.0;
+        double waterPercent = 0.0;
+        double wastePercent = 0.0;
 
-        // Eğer bir kategori 0 ise, minimum %2 göster (görünürlük için)
-        // Diğer kategorilerden orantılı olarak azalt
-        const double minPercent = 2.0;
-        double nonZeroTotal = 0;
-        int zeroCount = 0;
+        if (totalEmission > 0) {
+          electricityPercent = (totalElectricity / totalEmission * 100);
+          gasPercent = (totalGas / totalEmission * 100);
+          waterPercent = (totalWater / totalEmission * 100);
+          wastePercent = (totalWaste / totalEmission * 100);
 
-        if (electricityPercent == 0) {
-          zeroCount++;
-        } else {
-          nonZeroTotal += electricityPercent;
-        }
-        if (waterPercent == 0) {
-          zeroCount++;
-        } else {
-          nonZeroTotal += waterPercent;
-        }
-        if (gasPercent == 0) {
-          zeroCount++;
-        } else {
-          nonZeroTotal += gasPercent;
-        }
-        if (wastePercent == 0) {
-          zeroCount++;
-        } else {
-          nonZeroTotal += wastePercent;
-        }
+          const double minPercent = 2.0;
+          double nonZeroTotal = 0;
+          int zeroCount = 0;
 
-        if (zeroCount > 0 && nonZeroTotal > 0) {
-          // Sıfır olan kategorilere minimum %2 ver
-          final double remaining = 100 - (minPercent * zeroCount);
-
-          // Sıfır olmayan kategorileri orantılı olarak yeniden hesapla
-          if (electricityPercent > 0) {
-            electricityPercent =
-                (electricityPercent / nonZeroTotal) * remaining;
+          if (electricityPercent == 0) {
+            zeroCount++;
           } else {
-            electricityPercent = minPercent;
+            nonZeroTotal += electricityPercent;
+          }
+          if (waterPercent == 0) {
+            zeroCount++;
+          } else {
+            nonZeroTotal += waterPercent;
+          }
+          if (gasPercent == 0) {
+            zeroCount++;
+          } else {
+            nonZeroTotal += gasPercent;
+          }
+          if (wastePercent == 0) {
+            zeroCount++;
+          } else {
+            nonZeroTotal += wastePercent;
           }
 
-          if (waterPercent > 0) {
-            waterPercent = (waterPercent / nonZeroTotal) * remaining;
-          } else {
-            waterPercent = minPercent;
-          }
+          if (zeroCount > 0 && nonZeroTotal > 0) {
+            final double remaining = 100 - (minPercent * zeroCount);
 
-          if (gasPercent > 0) {
-            gasPercent = (gasPercent / nonZeroTotal) * remaining;
-          } else {
-            gasPercent = minPercent;
-          }
+            if (electricityPercent > 0) {
+              electricityPercent =
+                  (electricityPercent / nonZeroTotal) * remaining;
+            } else {
+              electricityPercent = minPercent;
+            }
 
-          if (wastePercent > 0) {
-            wastePercent = (wastePercent / nonZeroTotal) * remaining;
-          } else {
-            wastePercent = minPercent;
+            if (waterPercent > 0) {
+              waterPercent = (waterPercent / nonZeroTotal) * remaining;
+            } else {
+              waterPercent = minPercent;
+            }
+
+            if (gasPercent > 0) {
+              gasPercent = (gasPercent / nonZeroTotal) * remaining;
+            } else {
+              gasPercent = minPercent;
+            }
+
+            if (wastePercent > 0) {
+              wastePercent = (wastePercent / nonZeroTotal) * remaining;
+            } else {
+              wastePercent = minPercent;
+            }
           }
         }
 
@@ -1469,41 +1691,41 @@ class _ReportsScreenState extends State<ReportsScreen> {
         setState(() {
           _dailyEmissions = emissions;
           _manualDailyEmissions = manualEmissions;
-          // Toggle durumuna göre kategori dağılımını seç
-          // ESP seçiliyse ESP verilerinden, Manuel seçiliyse Manuel verilerinden
           if (_useEspData) {
-            _categoryDistribution = {
-              'electricity': electricityPercent,
-              'gas': gasPercent,
-              'water': waterPercent,
-              'waste': wastePercent,
-            };
-          } else {
-            // Manuel veriler için kategori dağılımı
-            if (manualTotalEmission > 0) {
-              _categoryDistribution = {
-                'electricity': manualElectricityPercent,
-                'gas': manualGasPercent,
-                'water': manualWaterPercent,
-                'waste': manualWastePercent,
-              };
-            } else {
-              // Manuel veri yoksa ESP verilerini göster
+            if (totalEmission > 0) {
               _categoryDistribution = {
                 'electricity': electricityPercent,
                 'gas': gasPercent,
                 'water': waterPercent,
                 'waste': wastePercent,
               };
+            } else {
+              _categoryDistribution = {
+                'electricity': 25.0,
+                'gas': 25.0,
+                'water': 25.0,
+                'waste': 25.0,
+              };
             }
+          } else if (manualTotalEmission > 0) {
+            _categoryDistribution = {
+              'electricity': manualElectricityPercent,
+              'gas': manualGasPercent,
+              'water': manualWaterPercent,
+              'waste': manualWastePercent,
+            };
+          } else {
+            _categoryDistribution = {
+              'electricity': 25.0,
+              'gas': 25.0,
+              'water': 25.0,
+              'waste': 25.0,
+            };
           }
-          // ESP verilerinden hesaplanan bugünün toplam emisyonunu gauge'a aktar
-          _lastCalculatedKgCo2e =
-              todayTotalEmission > 0 ? todayTotalEmission : null;
+          _lastCalculatedKgCo2e = gaugeKgCo2eForState();
           _isLoadingTrends = false;
         });
       } else {
-        // Veri olmadığında bile grafiği göstermek için eşit dağılım göster (4 kategori)
         setState(() {
           _dailyEmissions = emissions;
           _manualDailyEmissions = manualEmissions;
@@ -1513,11 +1735,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
             'water': 25.0,
             'waste': 25.0,
           };
-          // Veri yoksa bugünün emisyonunu da sıfırla
-          _lastCalculatedKgCo2e =
-              todayTotalEmission > 0 ? todayTotalEmission : null;
+          _lastCalculatedKgCo2e = gaugeKgCo2eForState();
           _isLoadingTrends = false;
         });
+      }
+      if (mounted && _useEspData) {
+        _updateCombinedEmission();
       }
     } catch (e) {
       // Hata durumunda varsayılan değerleri kullan
@@ -1557,153 +1780,205 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _generateCarbonPdfReport({required bool monthly}) async {
-    final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
-    final now = DateTime.now();
-    final title = monthly
-        ? translate('pdf_monthly_report_title', locale)
-        : translate('pdf_weekly_report_title', locale);
-    final periodLabel = monthly
-        ? '${now.year}-${now.month.toString().padLeft(2, '0')}'
-        : '${translate('week', locale)} ${_isoWeekNumber(now)}';
+    final locale = _localeForPdfExport();
+    try {
+      final pdfTheme = await _pdfUnicodeTheme();
+      final now = DateTime.now();
+      final title = monthly
+          ? translate('pdf_monthly_report_title', locale)
+          : translate('pdf_weekly_report_title', locale);
+      final periodLabel = monthly
+          ? '${now.year}-${now.month.toString().padLeft(2, '0')}'
+          : '${translate('week', locale)} ${_isoWeekNumber(now)}';
 
-    final activeDailyData =
-        _useEspData ? _dailyEmissions : _manualDailyEmissions;
-    final List<double> sourceData = activeDailyData.length == 7
-        ? List<double>.from(activeDailyData)
-        : List<double>.filled(7, 0);
-    final todayValue =
-        _useEspData ? _lastCalculatedKgCo2e : _manualCalculatedKgCo2e;
-    if (todayValue != null && sourceData.length == 7) {
-      sourceData[6] = todayValue;
-    }
+      final activeDailyData =
+          _useEspData ? _dailyEmissions : _manualDailyEmissions;
+      final List<double> sourceData = activeDailyData.length == 7
+          ? List<double>.from(
+              activeDailyData.map((e) => e.isFinite ? e : 0.0),
+            )
+          : List<double>.filled(7, 0);
+      final todayValue =
+          _useEspData ? _lastCalculatedKgCo2e : _manualCalculatedKgCo2e;
+      if (todayValue != null &&
+          todayValue.isFinite &&
+          sourceData.length == 7) {
+        sourceData[6] = todayValue;
+      }
 
-    final weeklyTotal = sourceData.fold<double>(0, (sum, e) => sum + e);
-    final weeklyAverage =
-        sourceData.isEmpty ? 0.0 : weeklyTotal / sourceData.length;
-    final monthlyEstimate = weeklyTotal * 4.0;
-    final selectedTotal = monthly ? monthlyEstimate : weeklyTotal;
-    final selectedAverage = monthly ? monthlyEstimate / 30.0 : weeklyAverage;
+      final weeklyTotal = sourceData.fold<double>(
+        0,
+        (sum, e) => sum + (e.isFinite ? e : 0),
+      );
+      final weeklyAverage = sourceData.isEmpty
+          ? 0.0
+          : weeklyTotal / sourceData.length;
+      final monthlyEstimate = weeklyTotal * 4.0;
+      final selectedTotal = monthly ? monthlyEstimate : weeklyTotal;
+      final selectedAverage =
+          monthly ? monthlyEstimate / 30.0 : weeklyAverage;
+      final safeTotal =
+          selectedTotal.isFinite ? selectedTotal : 0.0;
+      final safeAverage =
+          selectedAverage.isFinite ? selectedAverage : 0.0;
 
-    final categoryRows = [
-      _buildCategoryRowForPdf(
-        translate('electricity', locale),
-        _categoryDistribution['electricity'] ?? 0,
-        selectedTotal,
-      ),
-      _buildCategoryRowForPdf(
-        translate('water', locale),
-        _categoryDistribution['water'] ?? 0,
-        selectedTotal,
-      ),
-      _buildCategoryRowForPdf(
-        translate('gas_label', locale),
-        _categoryDistribution['gas'] ?? 0,
-        selectedTotal,
-      ),
-      _buildCategoryRowForPdf(
-        translate('waste', locale),
-        _categoryDistribution['waste'] ?? 0,
-        selectedTotal,
-      ),
-    ];
-
-    final pdf = pw.Document();
-    pdf.addPage(
-      pw.MultiPage(
-        pageTheme: const pw.PageTheme(
-          pageFormat: PdfPageFormat.a4,
-          margin: pw.EdgeInsets.all(28),
+      final categoryRows = [
+        _buildCategoryRowForPdf(
+          translate('electricity', locale),
+          _categoryDistribution['electricity'] ?? 0,
+          safeTotal,
         ),
-        build: (context) => [
-          pw.Text(
-            title,
-            style: pw.TextStyle(
-              fontSize: 18,
-              fontWeight: pw.FontWeight.bold,
-            ),
-          ),
-          pw.SizedBox(height: 4),
-          pw.Text(
-            '${translate('pdf_period', locale)}: $periodLabel',
-            style: const pw.TextStyle(fontSize: 12),
-          ),
-          pw.Text(
-            '${translate('pdf_generated_at', locale)}: ${now.toIso8601String().substring(0, 16)}',
-            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-          ),
-          pw.SizedBox(height: 16),
-          pw.Container(
-            padding: const pw.EdgeInsets.all(12),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.grey400),
-              borderRadius: pw.BorderRadius.circular(4),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  translate('pdf_iso_summary', locale),
-                  style: pw.TextStyle(
-                    fontSize: 13,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.SizedBox(height: 8),
-                pw.Bullet(
-                  text:
-                      '${translate('pdf_total_emission', locale)}: ${selectedTotal.toStringAsFixed(2)} kg CO2e',
-                ),
-                pw.Bullet(
-                  text:
-                      '${translate('pdf_average_emission', locale)}: ${selectedAverage.toStringAsFixed(2)} kg CO2e',
-                ),
-                pw.Bullet(
-                  text:
-                      '${translate('pdf_methodology_note', locale)}: ${translate('pdf_methodology_value', locale)}',
-                ),
-                pw.Bullet(
-                  text:
-                      '${translate('pdf_boundary_note', locale)}: ${translate('pdf_boundary_value', locale)}',
-                ),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 14),
-          pw.Text(
-            translate('pdf_category_breakdown', locale),
-            style: pw.TextStyle(
-              fontSize: 13,
-              fontWeight: pw.FontWeight.bold,
-            ),
-          ),
-          pw.SizedBox(height: 8),
-          pw.TableHelper.fromTextArray(
-            headers: [
-              translate('pdf_table_category', locale),
-              translate('pdf_table_percent', locale),
-              translate('pdf_table_kgco2e', locale),
-            ],
-            data: categoryRows,
-            border: pw.TableBorder.all(color: PdfColors.grey400),
-            cellStyle: const pw.TextStyle(fontSize: 10),
-            headerStyle: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 10,
-            ),
-          ),
-          pw.SizedBox(height: 14),
-          pw.Text(
-            translate('pdf_disclaimer', locale),
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-          ),
-        ],
-      ),
-    );
+        _buildCategoryRowForPdf(
+          translate('water', locale),
+          _categoryDistribution['water'] ?? 0,
+          safeTotal,
+        ),
+        _buildCategoryRowForPdf(
+          translate('gas_label', locale),
+          _categoryDistribution['gas'] ?? 0,
+          safeTotal,
+        ),
+        _buildCategoryRowForPdf(
+          translate('waste', locale),
+          _categoryDistribution['waste'] ?? 0,
+          safeTotal,
+        ),
+      ];
 
-    await Printing.layoutPdf(
-      name: monthly ? 'carbon-monthly-report.pdf' : 'carbon-weekly-report.pdf',
-      onLayout: (format) async => pdf.save(),
-    );
+      pw.Widget pdfBulletLine(String line) {
+        return pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: 5),
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('• ', style: const pw.TextStyle(fontSize: 10)),
+              pw.Expanded(
+                child: pw.Text(
+                  line,
+                  style:
+                      const pw.TextStyle(fontSize: 10, lineSpacing: 1.25),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.MultiPage(
+          pageTheme: pw.PageTheme(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(28),
+            theme: pdfTheme,
+          ),
+          build: (context) => [
+            pw.Text(
+              title,
+              style: pw.TextStyle(
+                fontSize: 18,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 4),
+            pw.Text(
+              '${translate('pdf_period', locale)}: $periodLabel',
+              style: const pw.TextStyle(fontSize: 12),
+            ),
+            pw.Text(
+              '${translate('pdf_generated_at', locale)}: ${now.toIso8601String().substring(0, 16)}',
+              style:
+                  const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+            ),
+            pw.SizedBox(height: 16),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey400),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    translate('pdf_iso_summary', locale),
+                    style: pw.TextStyle(
+                      fontSize: 13,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pdfBulletLine(
+                    '${translate('pdf_total_emission', locale)}: ${safeTotal.toStringAsFixed(2)} kg CO2e',
+                  ),
+                  pdfBulletLine(
+                    '${translate('pdf_average_emission', locale)}: ${safeAverage.toStringAsFixed(2)} kg CO2e',
+                  ),
+                  pdfBulletLine(
+                    '${translate('pdf_methodology_note', locale)}: ${translate('pdf_methodology_value', locale)}',
+                  ),
+                  pdfBulletLine(
+                    '${translate('pdf_boundary_note', locale)}: ${translate('pdf_boundary_value', locale)}',
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+            pw.Text(
+              translate('pdf_category_breakdown', locale),
+              style: pw.TextStyle(
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: [
+                translate('pdf_table_category', locale),
+                translate('pdf_table_percent', locale),
+                translate('pdf_table_kgco2e', locale),
+              ],
+              data: categoryRows,
+              border: pw.TableBorder.all(color: PdfColors.grey400),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 10,
+              ),
+            ),
+            pw.SizedBox(height: 14),
+            pw.Text(
+              translate('pdf_disclaimer', locale),
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+            ),
+          ],
+        ),
+      );
+
+      await Printing.layoutPdf(
+        name:
+            monthly ? 'carbon-monthly-report.pdf' : 'carbon-weekly-report.pdf',
+        onLayout: (format) async => pdf.save(),
+      );
+    } catch (e, st) {
+      log(
+        'PDF export failed',
+        name: 'ReportsScreen',
+        error: e,
+        stackTrace: st,
+      );
+      if (!mounted) return;
+      final isTr = locale.languageCode == 'tr';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isTr
+                ? 'PDF oluşturulamadı: $e'
+                : 'Could not create PDF: $e',
+          ),
+        ),
+      );
+    }
   }
 
   List<String> _buildCategoryRowForPdf(
@@ -1730,14 +2005,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
-    // MediaQuery'yi build metodunun başında hesapla - ListView içinde değil
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-    final listViewPadding = EdgeInsets.only(
-      top: 8,
-      left: 16,
-      right: 16,
-      bottom: 16 + bottomPadding + 80, // Bottom nav bar için ekstra padding
+    final TextStyle headerStyle = TextStyle(
+      fontSize: 18,
+      fontWeight: FontWeight.bold,
+      color: Colors.white,
+      fontFamily: Theme.of(context).textTheme.titleLarge?.fontFamily,
+      height: 1.2,
     );
+    final TextStyle subStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.normal,
+      color: Colors.white70,
+      fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+      height: 1.35,
+    );
+    // Üst/alt simetrik iç boşluk; alt bölüm için alt gezinme + güvenli alan.
+    final media = MediaQuery.of(context);
+    final double bottomPadding = media.padding.bottom;
+    const double bottomNavReserve = 80;
+    final double reportHorizontalPad =
+        media.size.width < 360 ? 12.0 : 16.0;
+    final EdgeInsets listViewPadding = EdgeInsets.only(
+      top: 16,
+      left: reportHorizontalPad,
+      right: reportHorizontalPad,
+      bottom: 16 + bottomPadding + bottomNavReserve,
+    );
+
+    // Web: Stack + LayoutBuilder + ListView bazen hit-test / mouse_tracker assert;
+    // genişlik MediaQuery ile (Hedefler ekranındaki gibi).
+    final double reportViewportW = media.size.width;
+    final bool isWide = reportViewportW >= 900;
+    final double gaugeSize = isWide
+        ? 240.0
+        : (reportViewportW * 0.38).clamp(160.0, 240.0);
+    final double headerHeight = isWide
+        ? 180.0
+        : (reportViewportW * 9.0 / 16.0).clamp(120.0, 180.0);
 
     return Scaffold(
       appBar: null,
@@ -1749,186 +2053,214 @@ class _ReportsScreenState extends State<ReportsScreen> {
             // Sayfanın tamamında arka plan görseli
             Image.asset('assets/images/bckgrnd2.jpeg', fit: BoxFit.cover),
             // İçerik
-            LayoutBuilder(
-              builder: (context, constraints) {
-                // Geniş ekranda sabit ölçülerle stabil yerleşim; mobilde orantılı
-                final bool isWide = constraints.maxWidth >= 900;
-                final double gaugeSize = isWide
-                    ? 240.0
-                    : (constraints.maxWidth * 0.38).clamp(160.0, 240.0);
-                final double headerHeight = isWide
-                    ? 180.0 // Daha küçük header - widget'ı yukarı taşımak için
-                    : (constraints.maxWidth * 9.0 / 16.0).clamp(120.0, 180.0);
-                final ThemeData baseTheme = Theme.of(context);
-                return Theme(
-                  // Tüm TextTheme renklerini beyaza uygula (başlıklar dahil)
-                  data: baseTheme.copyWith(
-                    textTheme: baseTheme.textTheme.apply(
-                      bodyColor: Colors.white,
-                      displayColor: Colors.white,
-                    ),
-                  ),
-                  child: DefaultTextStyle.merge(
-                    // Varsayılan Text rengi de beyaz
-                    style: const TextStyle(color: Colors.white),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: isWide ? 900 : double.infinity,
-                        ),
+            Theme(
+              // Tüm TextTheme renklerini beyaza uygula (başlıklar dahil)
+              data: Theme.of(context).copyWith(
+                textTheme: Theme.of(context).textTheme.apply(
+                  bodyColor: Colors.white,
+                  displayColor: Colors.white,
+                ),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(color: Colors.white),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: isWide ? 900 : double.infinity,
+                      ),
+                      child: RepaintBoundary(
                         child: ListView(
-                          clipBehavior: Clip.none,
-                          padding: listViewPadding, // Üst padding azaltıldı
+                          clipBehavior: Clip.hardEdge,
+                          padding: listViewPadding,
                           children: [
-                            // Üst alan: artık arka plan tüm sayfada, burada görsel yer tutucu ve ölçerin konumlandırılması var
-                            Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                SizedBox(height: headerHeight),
-                                // Position gauge higher up - widget'ı yukarı taşımak için
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: -(gaugeSize /
-                                      3), // Daha az overlap - widget daha yukarıda
-                                  child: Center(
-                                    child: _FootprintGauge(
-                                      kgCo2e: _lastCalculatedKgCo2e,
-                                      size: gaugeSize,
-                                      languageProvider: widget.languageProvider,
-                                      useEspData: _useEspData,
-                                      onToggleChanged: (value) {
-                                        setState(() {
-                                          _useEspData = value;
-                                          // Toggle değiştiğinde gösterilecek veriyi güncelle
-                                          if (value) {
-                                            // ESP verisi seçildiğinde ESP + Shelly toplamını göster
-                                            _updateCombinedEmission();
-                                          } else {
-                                            // Manuel veri seçildiğinde manuel hesaplamayı göster
-                                            // Eğer manuel veri varsa, gauge'ı güncelle
-                                            if (_manualCalculatedKgCo2e !=
-                                                    null &&
-                                                _manualEntry != null) {
-                                              _lastCalculatedKgCo2e =
-                                                  _manualCalculatedKgCo2e;
-                                              // Grafikteki bugünün değerini de güncelle (manuel veriler listesine)
-                                              if (_manualDailyEmissions
-                                                      .length ==
-                                                  7) {
-                                                _manualDailyEmissions[6] =
-                                                    _manualCalculatedKgCo2e!;
-                                                debugPrint(
-                                                  '📊 Toggle Manuel: Manuel grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
-                                                );
+                            Padding(
+                              padding: _kReportsSectionOuterPadding,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          translate(
+                                            'calculated_daily_emission',
+                                            locale,
+                                          ),
+                                          style: headerStyle,
+                                        ),
+                                      ),
+                                      _ReportsRoundInfoIcon(
+                                        onTap: () =>
+                                            _showGaugeInfoDialog(
+                                                context, locale),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      SizedBox(height: headerHeight),
+                                      Positioned(
+                                        left: 0,
+                                        right: 0,
+                                        bottom: -(gaugeSize / 3),
+                                        child: Center(
+                                          child: _FootprintGauge(
+                                            kgCo2e: _lastCalculatedKgCo2e,
+                                            size: gaugeSize,
+                                            languageProvider:
+                                                widget.languageProvider,
+                                            useEspData: _useEspData,
+                                            centerStatusOverride: _useEspData &&
+                                                    _lastCalculatedKgCo2e ==
+                                                        null
+                                                ? translate(
+                                                    'sensor_data_waiting',
+                                                    locale,
+                                                  )
+                                                : null,
+                                            onToggleChanged: (value) {
+                                              setState(() {
+                                                _useEspData = value;
+                                                if (value) {
+                                                  _resetShellyMeterBaseline();
+                                                  _updateCombinedEmission();
+                                                } else {
+                                                  if (_manualCalculatedKgCo2e !=
+                                                          null &&
+                                                      _manualEntry != null) {
+                                                    _lastCalculatedKgCo2e =
+                                                        _manualCalculatedKgCo2e;
+                                                    if (_manualDailyEmissions
+                                                            .length ==
+                                                        7) {
+                                                      _manualDailyEmissions[6] =
+                                                          _manualCalculatedKgCo2e!;
+                                                      debugPrint(
+                                                        '📊 Toggle Manuel: Manuel grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
+                                                      );
+                                                    }
+                                                    _updateCategoryDistributionFromEntry(
+                                                        _manualEntry!);
+                                                  }
+                                                }
+                                              });
+                                              if (!value &&
+                                                  (_manualCalculatedKgCo2e ==
+                                                          null ||
+                                                      _manualEntry == null)) {
+                                                _loadManualDataFromFirebase();
                                               }
-                                              // Manuel veri seçildiğinde kategori dağılımını güncelle
-                                              _updateCategoryDistributionFromEntry(
-                                                  _manualEntry!);
-                                            }
-                                          }
-                                        });
-                                        // Manuel veri yoksa Firebase'den yükle (setState dışında)
-                                        if (!value &&
-                                            (_manualCalculatedKgCo2e == null ||
-                                                _manualEntry == null)) {
-                                          _loadManualDataFromFirebase();
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(
-                              height: gaugeSize / 3 + 32,
-                            ), // Gauge overlap + içerik (toggle) için boşluk
-                            // Mode selector buttons
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () => setState(
-                                      () => _selectedMode = _InputMode.manual,
-                                    ),
-                                    style: ButtonStyle(
-                                      minimumSize: const WidgetStatePropertyAll(
-                                        Size.fromHeight(48),
-                                      ),
-                                      shape: WidgetStatePropertyAll(
-                                        StadiumBorder(
-                                          side: BorderSide(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
+                                              _loadTrendData();
+                                            },
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    icon: const Icon(Icons.edit_note),
-                                    label:
-                                        Text(translate('manual_entry', locale)),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => setState(
-                                      () => _selectedMode =
-                                          _selectedMode == _InputMode.raspberry
-                                              ? _InputMode.none
-                                              : _InputMode.raspberry,
-                                    ),
-                                    style: ButtonStyle(
-                                      minimumSize: const WidgetStatePropertyAll(
-                                        Size.fromHeight(48),
-                                      ),
-                                      foregroundColor:
-                                          const WidgetStatePropertyAll(
-                                        Colors.white,
-                                      ),
-                                      backgroundColor:
-                                          _selectedMode == _InputMode.raspberry
-                                              ? WidgetStatePropertyAll(
-                                                  Theme.of(context)
-                                                      .colorScheme
-                                                      .primary
-                                                      .withValues(alpha: 0.3),
-                                                )
-                                              : null,
-                                      shape: WidgetStatePropertyAll(
-                                        StadiumBorder(
-                                          side: BorderSide(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
+                                  SizedBox(height: gaugeSize / 3 + 32),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: FilledButton.icon(
+                                          onPressed: () => setState(
+                                            () => _selectedMode =
+                                                _InputMode.manual,
+                                          ),
+                                          style: ButtonStyle(
+                                            minimumSize:
+                                                const WidgetStatePropertyAll(
+                                              Size.fromHeight(48),
+                                            ),
+                                            shape: WidgetStatePropertyAll(
+                                              StadiumBorder(
+                                                side: BorderSide(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          icon: const Icon(Icons.edit_note),
+                                          label: Text(
+                                            translate('manual_entry', locale),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    icon: const Icon(Icons.sensors),
-                                    label: const Text('ESP8266'),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () => setState(
+                                            () => _selectedMode =
+                                                _selectedMode ==
+                                                        _InputMode.raspberry
+                                                    ? _InputMode.none
+                                                    : _InputMode.raspberry,
+                                          ),
+                                          style: ButtonStyle(
+                                            minimumSize:
+                                                const WidgetStatePropertyAll(
+                                              Size.fromHeight(48),
+                                            ),
+                                            foregroundColor:
+                                                const WidgetStatePropertyAll(
+                                              Colors.white,
+                                            ),
+                                            backgroundColor:
+                                                _selectedMode ==
+                                                        _InputMode.raspberry
+                                                    ? WidgetStatePropertyAll(
+                                                        Theme.of(context)
+                                                            .colorScheme
+                                                            .primary
+                                                            .withValues(
+                                                                alpha: 0.3),
+                                                      )
+                                                    : null,
+                                            shape: WidgetStatePropertyAll(
+                                              StadiumBorder(
+                                                side: BorderSide(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          icon: const Icon(Icons.sensors),
+                                          label: const Text('ESP8266'),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: _kReportsSectionGap),
                             // Manual Data Input - cam efekti (blur) + yarı saydam siyah zemin
                             if (_selectedMode == _InputMode.manual)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: BackdropFilter(
-                                  filter:
-                                      ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.28),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(8),
-                                      child: ConsumptionForm(
+                              Padding(
+                                padding: _kReportsSectionOuterPadding,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                        sigmaX: 18, sigmaY: 18),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.28),
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Padding(
+                                        padding: _kReportsCardInnerPadding,
+                                        child: ConsumptionForm(
                                         onCalculated: (valueKgCo2e) {
                                           setState(() {
                                             _manualCalculatedKgCo2e =
@@ -1971,68 +2303,77 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   ),
                                 ),
                               ),
+                            ),
                             // ESP8266 Anlık Veriler - Raspberry Pi butonuna basıldığında göster
                             if (_selectedMode == _InputMode.raspberry) ...[
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: BackdropFilter(
-                                  filter:
-                                      ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(16),
-                                      child: RealtimeEspDataWidget(),
+                              Padding(
+                                padding: _kReportsSectionOuterPadding,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                        sigmaX: 8, sigmaY: 8),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: const Padding(
+                                        padding: _kReportsCardInnerPadding,
+                                        child: RealtimeEspDataWidget(),
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: _kReportsSectionGap),
                               // Shelly Plug S Anlık Veriler - ESP'nin altında
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: BackdropFilter(
-                                  filter:
-                                      ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.1),
-                                        width: 1,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black
-                                              .withValues(alpha: 0.25),
-                                          blurRadius: 12,
-                                          spreadRadius: 0,
-                                          offset: const Offset(0, 4),
+                              Padding(
+                                padding: _kReportsSectionOuterPadding,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                        sigmaX: 8, sigmaY: 8),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.1),
+                                          width: 1,
                                         ),
-                                      ],
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(16),
-                                      child: RealtimeShellyDataWidget(
-                                        apiService: _apiService,
-                                        deviceId: _shellyDeviceId,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.25),
+                                            blurRadius: 12,
+                                            spreadRadius: 0,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Padding(
+                                        padding: _kReportsCardInnerPadding,
+                                        child: RealtimeShellyDataWidget(
+                                          apiService: _apiService,
+                                          deviceId: _shellyDeviceId,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 16),
-                            Stack(
-                              clipBehavior: Clip.none,
-                              children: [
+                            const SizedBox(height: _kReportsSectionGap),
+                            Padding(
+                              padding: _kReportsSectionOuterPadding,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(16),
                                   child: ClipRect(
@@ -2043,7 +2384,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                         color: Colors.black
                                             .withValues(alpha: 0.12),
                                         child: Padding(
-                                          padding: const EdgeInsets.all(16),
+                                          padding: _kReportsCardInnerPadding,
                                           child: Stack(
                                             clipBehavior: Clip.none,
                                             children: [
@@ -2071,14 +2412,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           maxLines: 2,
                                                           overflow: TextOverflow
                                                               .ellipsis,
-                                                          style:
-                                                              Theme.of(context)
-                                                                  .textTheme
-                                                                  .titleLarge
-                                                                  ?.copyWith(
-                                                                    color: Colors
-                                                                        .white,
-                                                                  ),
+                                                          style: headerStyle,
                                                         ),
                                                       ),
                                                       Align(
@@ -2142,18 +2476,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                 overflow:
                                                                     TextOverflow
                                                                         .ellipsis,
-                                                                style: Theme.of(
-                                                                        context)
-                                                                    .textTheme
-                                                                    .bodySmall
-                                                                    ?.copyWith(
-                                                                      color: Colors
-                                                                          .white
-                                                                          .withValues(
-                                                                        alpha:
-                                                                            0.7,
-                                                                      ),
-                                                                    ),
+                                                                style:
+                                                                    subStyle,
                                                               ),
                                                               const SizedBox(
                                                                   width: 2),
@@ -2184,7 +2508,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       ),
                                                     ],
                                                   ),
-                                                  const SizedBox(height: 16),
+                                                  Divider(
+                                                    color: Colors.white
+                                                        .withValues(alpha: 0.3),
+                                                  ),
+                                                  const SizedBox(height: 8),
                                                   // Çizgi grafiği
                                                   _isLoadingTrends
                                                       ? const SizedBox(
@@ -2219,18 +2547,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                   translate(
                                                                       'no_data_available',
                                                                       locale),
-                                                                  style: Theme.of(
-                                                                          context)
-                                                                      .textTheme
-                                                                      .bodyMedium
-                                                                      ?.copyWith(
-                                                                        color: Colors
-                                                                            .white
-                                                                            .withValues(
-                                                                          alpha:
-                                                                              0.7,
-                                                                        ),
-                                                                      ),
+                                                                  style: subStyle,
                                                                 ),
                                                               ),
                                                             )
@@ -2644,7 +2961,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                       const TextStyle(
                                                                                         color: Color(0xFFFFF176),
                                                                                         fontWeight: FontWeight.bold,
-                                                                                        fontSize: 11,
+                                                                                        fontSize: 12,
                                                                                       ),
                                                                                     ),
                                                                                     LineTooltipItem(
@@ -2652,7 +2969,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                       const TextStyle(
                                                                                         color: Colors.pinkAccent,
                                                                                         fontWeight: FontWeight.bold,
-                                                                                        fontSize: 11,
+                                                                                        fontSize: 12,
                                                                                       ),
                                                                                     ),
                                                                                   ];
@@ -2686,7 +3003,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                     TextStyle(
                                                                                       color: color,
                                                                                       fontWeight: FontWeight.bold,
-                                                                                      fontSize: 11,
+                                                                                      fontSize: 12,
                                                                                     ),
                                                                                   );
                                                                                 }).toList();
@@ -2750,17 +3067,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                 AxisTitles(
                                                                               sideTitles: SideTitles(
                                                                                 showTitles: true,
-                                                                                reservedSize: 30,
+                                                                                reservedSize: 34,
                                                                                 interval: 1,
                                                                                 getTitlesWidget: (
                                                                                   double value,
                                                                                   TitleMeta meta,
                                                                                 ) {
-                                                                                  const style = TextStyle(
-                                                                                    color: Colors.white,
-                                                                                    fontWeight: FontWeight.bold,
-                                                                                    fontSize: 12,
-                                                                                  );
+                                                                                  final axisDayStyle =
+                                                                                      subStyle;
                                                                                   Widget text;
                                                                                   switch (value.toInt()) {
                                                                                     case 0:
@@ -2769,7 +3083,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'mon',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     case 1:
@@ -2778,7 +3092,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'tue',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     case 2:
@@ -2787,7 +3101,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'wed',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     case 3:
@@ -2796,7 +3110,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'thu',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     case 4:
@@ -2805,7 +3119,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'fri',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     case 5:
@@ -2814,7 +3128,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'sat',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     case 6:
@@ -2823,13 +3137,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                           'sun',
                                                                                           locale,
                                                                                         ),
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                     default:
-                                                                                      text = const Text(
+                                                                                      text = Text(
                                                                                         '',
-                                                                                        style: style,
+                                                                                        style: axisDayStyle,
                                                                                       );
                                                                                       break;
                                                                                   }
@@ -2861,11 +3175,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                     padding: const EdgeInsets.only(right: 8),
                                                                                     child: Text(
                                                                                       label,
-                                                                                      style: const TextStyle(
-                                                                                        color: Colors.white,
-                                                                                        fontWeight: FontWeight.bold,
-                                                                                        fontSize: 12,
-                                                                                        shadows: [
+                                                                                      style: subStyle.copyWith(
+                                                                                        shadows: const [
                                                                                           Shadow(
                                                                                             color: Colors.black,
                                                                                             blurRadius: 3,
@@ -3037,18 +3348,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                               : _weekOffset == 0
                                                                   ? 'Bu hafta'
                                                                   : '$_weekOffset. hafta önce',
-                                                          style:
-                                                              Theme.of(context)
-                                                                  .textTheme
-                                                                  .bodySmall
-                                                                  ?.copyWith(
-                                                                    color: Colors
-                                                                        .white
-                                                                        .withValues(
-                                                                      alpha:
-                                                                          0.85,
-                                                                    ),
-                                                                  ),
+                                                          style: subStyle,
                                                         ),
                                                         IconButton(
                                                           onPressed:
@@ -3107,6 +3407,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                   : 'Sizin Verileriniz',
                                                               Colors
                                                                   .pinkAccent,
+                                                              labelStyle:
+                                                                  subStyle,
                                                             ),
                                                           // Ülke verileri
                                                           ..._countryTrends.keys
@@ -3116,6 +3418,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                               countryName,
                                                               _getCountryColor(
                                                                   countryName),
+                                                              labelStyle:
+                                                                  subStyle,
                                                               isRealData:
                                                                   _countryDataSources[
                                                                           countryName] ??
@@ -3161,17 +3465,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                               'real_data',
                                                               locale,
                                                             ),
-                                                            style: TextStyle(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.65),
-                                                              fontSize: 10,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w500,
-                                                            ),
+                                                            style: subStyle,
                                                           ),
                                                           const SizedBox(
                                                               width: 14),
@@ -3186,17 +3480,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                               'estimated_data',
                                                               locale,
                                                             ),
-                                                            style: TextStyle(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.65),
-                                                              fontSize: 10,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w500,
-                                                            ),
+                                                            style: subStyle,
                                                           ),
                                                         ],
                                                       ),
@@ -3210,16 +3494,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                         : translate(
                                                             'last_7_days_trend',
                                                             locale),
-                                                    textAlign: TextAlign.center,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(
-                                                          color: Colors.white
-                                                              .withValues(
-                                                            alpha: 0.7,
-                                                          ),
-                                                        ),
+                                                    textAlign: TextAlign.start,
+                                                    style: subStyle,
                                                   ),
                                                   // Y ekseni açıklaması
                                                   if (!_showGlobalTrend)
@@ -3227,23 +3503,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       padding:
                                                           const EdgeInsets.only(
                                                               top: 4),
-                                                      child: Center(
+                                                      child: Align(
+                                                        alignment:
+                                                            Alignment.centerLeft,
                                                         child: Text(
                                                           'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: kg CO2e',
-                                                          style: Theme.of(
-                                                                  context)
-                                                              .textTheme
-                                                              .bodySmall
-                                                              ?.copyWith(
-                                                                color: Colors
-                                                                    .white
-                                                                    .withValues(
-                                                                  alpha: 0.5,
-                                                                ),
-                                                                fontSize: 10,
-                                                              ),
+                                                          style: subStyle,
                                                           textAlign:
-                                                              TextAlign.center,
+                                                              TextAlign.start,
                                                         ),
                                                       ),
                                                     ),
@@ -3252,23 +3519,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       padding:
                                                           const EdgeInsets.only(
                                                               top: 4),
-                                                      child: Center(
+                                                      child: Align(
+                                                        alignment:
+                                                            Alignment.centerLeft,
                                                         child: Text(
                                                           'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: normalize endeks (%)',
-                                                          style: Theme.of(
-                                                                  context)
-                                                              .textTheme
-                                                              .bodySmall
-                                                              ?.copyWith(
-                                                                color: Colors
-                                                                    .white
-                                                                    .withValues(
-                                                                  alpha: 0.5,
-                                                                ),
-                                                                fontSize: 10,
-                                                              ),
+                                                          style: subStyle,
                                                           textAlign:
-                                                              TextAlign.center,
+                                                              TextAlign.start,
                                                         ),
                                                       ),
                                                     ),
@@ -3283,28 +3541,53 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                                child: Container(
-                                  color: Colors.black.withValues(alpha: 0.12),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          translate(
-                                              'category_distribution', locale),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(color: Colors.white),
+                            ),
+                            const SizedBox(height: _kReportsSectionGap),
+                            Padding(
+                              padding: _kReportsSectionOuterPadding,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: BackdropFilter(
+                                  filter:
+                                      ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.12),
+                                    child: Padding(
+                                      padding: _kReportsCardInnerPadding,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  translate(
+                                                    'category_distribution',
+                                                    locale,
+                                                  ),
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: headerStyle,
+                                                ),
+                                              ),
+                                              _ReportsRoundInfoIcon(
+                                                onTap: () =>
+                                                    _showCategoryDistributionInfoDialog(
+                                                  context,
+                                                  locale,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        Divider(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.3),
                                         ),
-                                        const SizedBox(height: 16),
+                                        const SizedBox(height: 8),
                                         LayoutBuilder(
                                           builder: (context, chartConstraints) {
                                             final bool compactChart =
@@ -3347,9 +3630,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           ? '${(_categoryDistribution['electricity'] ?? 0.0).toStringAsFixed(0)}%'
                                                           : '',
                                                       radius: 50,
-                                                      titleStyle:
-                                                          const TextStyle(
-                                                        fontSize: 12,
+                                                      titleStyle: subStyle
+                                                          .copyWith(
                                                         fontWeight:
                                                             FontWeight.bold,
                                                         color: Colors.white,
@@ -3369,18 +3651,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           ? '${(_categoryDistribution['water'] ?? 0.0).toStringAsFixed(0)}%'
                                                           : '',
                                                       radius: 50,
-                                                      titleStyle:
-                                                          const TextStyle(
-                                                        fontSize: 12,
+                                                      titleStyle: subStyle
+                                                          .copyWith(
                                                         fontWeight:
                                                             FontWeight.bold,
                                                         color: Colors.white,
                                                       ),
                                                     ),
-                                                    // Gaz - Beyaz/Açık Gri
+                                                    // Gaz — #47009C
                                                     PieChartSectionData(
-                                                      color:
-                                                          Colors.grey.shade300,
+                                                      color: const Color(
+                                                        0xFF47009C,
+                                                      ),
                                                       value:
                                                           _categoryDistribution[
                                                                   'gas'] ??
@@ -3392,12 +3674,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           ? '${(_categoryDistribution['gas'] ?? 0.0).toStringAsFixed(0)}%'
                                                           : '',
                                                       radius: 50,
-                                                      titleStyle:
-                                                          const TextStyle(
-                                                        fontSize: 12,
+                                                      titleStyle: subStyle
+                                                          .copyWith(
                                                         fontWeight:
                                                             FontWeight.bold,
-                                                        color: Colors.black87,
+                                                        color: Colors.white,
                                                       ),
                                                     ),
                                                   ],
@@ -3416,18 +3697,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                     locale,
                                                   ),
                                                   color: Colors.orange,
+                                                  labelStyle: subStyle,
                                                 ),
                                                 const SizedBox(height: 8),
                                                 _LegendDot(
                                                   label: translate(
                                                       'water', locale),
                                                   color: Colors.blue,
+                                                  labelStyle: subStyle,
                                                 ),
                                                 const SizedBox(height: 8),
                                                 _LegendDot(
                                                   label: translate(
                                                       'gas_label', locale),
-                                                  color: Colors.grey.shade300,
+                                                  color: const Color(0xFF47009C),
+                                                  labelStyle: subStyle,
                                                 ),
                                               ],
                                             );
@@ -3457,14 +3741,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             'carbon_footprint_distribution',
                                             locale,
                                           ),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.7,
-                                                ),
-                                              ),
+                                          style: subStyle,
                                         ),
                                       ],
                                     ),
@@ -3472,8 +3749,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            ClipRRect(
+                            ),
+                            const SizedBox(height: _kReportsSectionGap),
+                            Padding(
+                              padding: _kReportsSectionOuterPadding,
+                              child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
                               child: BackdropFilter(
                                 filter:
@@ -3481,30 +3761,98 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 child: Container(
                                   color: Colors.black.withValues(alpha: 0.28),
                                   child: Padding(
-                                    padding: const EdgeInsets.all(16),
+                                    padding: _kReportsCardInnerPadding,
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          translate(
-                                              'pdf_reporting_title', locale),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(color: Colors.white),
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                translate(
+                                                  'pdf_reporting_title',
+                                                  locale,
+                                                ),
+                                                style: headerStyle,
+                                              ),
+                                            ),
+                                            _ReportsRoundInfoIcon(
+                                              onTap: () =>
+                                                  _showPdfReportingInfoDialog(
+                                                context,
+                                                locale,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Divider(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.3),
                                         ),
                                         const SizedBox(height: 8),
                                         Text(
                                           translate(
                                               'pdf_reporting_desc', locale),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.78),
+                                          style: subStyle,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          translate(
+                                              'pdf_export_language', locale),
+                                          style: subStyle,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: SegmentedButton<String>(
+                                            multiSelectionEnabled: false,
+                                            showSelectedIcon: false,
+                                            segments: [
+                                              ButtonSegment<String>(
+                                                value: 'tr',
+                                                label: Text(
+                                                  translate(
+                                                    'pdf_lang_tr',
+                                                    locale,
+                                                  ),
+                                                ),
                                               ),
+                                              ButtonSegment<String>(
+                                                value: 'en',
+                                                label: Text(
+                                                  translate(
+                                                    'pdf_lang_en',
+                                                    locale,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                            selected: {
+                                              _pdfExportLocaleSegmentSelection(),
+                                            },
+                                            onSelectionChanged:
+                                                (Set<String> selection) {
+                                              if (selection.isEmpty) return;
+                                              final v = selection.first;
+                                              setState(() {
+                                                switch (v) {
+                                                  case 'tr':
+                                                    _pdfExportLocaleOverride =
+                                                        const Locale('tr');
+                                                    break;
+                                                  case 'en':
+                                                    _pdfExportLocaleOverride =
+                                                        const Locale('en');
+                                                    break;
+                                                }
+                                              });
+                                            },
+                                            style:
+                                                _pdfLangSegmentedStyle(context),
+                                          ),
                                         ),
                                         const SizedBox(height: 14),
                                         LayoutBuilder(
@@ -3587,19 +3935,98 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                               ),
                             ),
+                            ),
                           ],
+                        ),
                         ),
                       ),
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+                ),
           ],
         ),
       ),
     );
   }
+}
+
+/// Turuncu çerçeveli bilgi ikonu — başlığın sağında; tüm bilgi pencereleri [showThemeIndependentInfoDialog].
+const Color _kGaugeInfoIconColor = Color(0xFFFFA500);
+
+class _ReportsRoundInfoIcon extends StatelessWidget {
+  const _ReportsRoundInfoIcon({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _kGaugeInfoIconColor,
+                  width: 1.5,
+                ),
+                color: Colors.transparent,
+              ),
+              child: const Center(
+                child: Text(
+                  'i',
+                  style: TextStyle(
+                    color: _kGaugeInfoIconColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    fontStyle: FontStyle.italic,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+void _showGaugeInfoDialog(BuildContext context, Locale locale) {
+  showThemeIndependentInfoDialog(
+    context,
+    title: translate('gauge_info_title', locale),
+    body: translate('gauge_info_body', locale),
+    okLabel: translate('ok', locale),
+  );
+}
+
+void _showCategoryDistributionInfoDialog(BuildContext context, Locale locale) {
+  showThemeIndependentInfoDialog(
+    context,
+    title: translate('category_distribution_info_title', locale),
+    body: translate('category_distribution_info_body', locale),
+    okLabel: translate('ok', locale),
+  );
+}
+
+void _showPdfReportingInfoDialog(BuildContext context, Locale locale) {
+  showThemeIndependentInfoDialog(
+    context,
+    title: translate('pdf_reporting_title', locale),
+    body: translate('pdf_reporting_desc', locale),
+    okLabel: translate('ok', locale),
+  );
 }
 
 class _FootprintGauge extends StatelessWidget {
@@ -3609,6 +4036,7 @@ class _FootprintGauge extends StatelessWidget {
     this.languageProvider,
     this.useEspData = false,
     this.onToggleChanged,
+    this.centerStatusOverride,
   });
 
   final double? kgCo2e;
@@ -3616,12 +4044,16 @@ class _FootprintGauge extends StatelessWidget {
   final LanguageProvider? languageProvider;
   final bool useEspData;
   final ValueChanged<bool>? onToggleChanged;
+  /// Sensör modunda değer yokken [sensor_data_waiting] vb. gösterilir.
+  final String? centerStatusOverride;
 
   @override
   Widget build(BuildContext context) {
     final locale = languageProvider?.currentLocale ?? const Locale('tr');
     // Tüm hesaplamalar kg CO₂e; gösterim: ≥1000 kg → ton; 1–999 kg → kg; 0<…<1 kg → g
-    final double kg = (kgCo2e ?? 0).clamp(0.0, double.infinity);
+    final double kg = centerStatusOverride != null
+        ? 0.0
+        : (kgCo2e ?? 0).clamp(0.0, double.infinity);
     final bool showTonnes = kg >= 1000;
     final String valueText;
     final String unitKey;
@@ -3666,8 +4098,12 @@ class _FootprintGauge extends StatelessWidget {
         alignment: Alignment.center,
         clipBehavior: Clip.none,
         children: [
-          // Gradient progress ring - tıklamaları engellemesin
-          IgnorePointer(
+          // Dış halka: ortada beyaz daire üstte; halka bandına basınca da mod değişir
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onToggleChanged == null
+                ? null
+                : () => onToggleChanged!(!useEspData),
             child: SizedBox(
               width: size,
               height: size,
@@ -3684,7 +4120,8 @@ class _FootprintGauge extends StatelessWidget {
               ),
             ),
           ),
-          // Inner content — FittedBox: küçük ekranda daire içi taşmayı önler
+          // Beyaz daire: tüm alan (M / görsel anahtar / E dahil) tek dokunuşla mod değiştirir.
+          // InkWell yerine GestureDetector — Switch görseli IgnorePointer ile etkileşimsiz.
           Container(
             width: size - 40,
             height: size - 40,
@@ -3700,198 +4137,210 @@ class _FootprintGauge extends StatelessWidget {
               ],
             ),
             child: ClipOval(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.center,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12.0,
-                    vertical: 6.0,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GestureDetector(
-                        onTap: onToggleChanged != null
-                            ? () {
-                                onToggleChanged!(!useEspData);
-                              }
-                            : null,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                valueText,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.black
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface,
-                                    ),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                translate(unitKey, locale),
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.black
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface,
-                                    ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                translate('greenhouse_gas_emissions', locale),
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.black
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface,
-                                    ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (onToggleChanged != null) ...[
-                        const SizedBox(height: 6),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: (size - 56).clamp(110.0, 220.0),
-                            ),
-                            child: Wrap(
-                              alignment: WrapAlignment.center,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 4,
-                              runSpacing: 2,
-                              children: [
-                                InkWell(
-                                  onTap: () {
-                                    if (onToggleChanged != null && useEspData) {
-                                      onToggleChanged!(false);
-                                    }
-                                  },
-                                  borderRadius: BorderRadius.circular(4),
+              child: Material(
+                color: Colors.white,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onToggleChanged == null
+                      ? null
+                      : () => onToggleChanged!(!useEspData),
+                  child: SizedBox.expand(
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.center,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0,
+                            vertical: 6.0,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (centerStatusOverride != null)
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 6.0,
-                                      vertical: 2.0,
-                                    ),
+                                        horizontal: 4),
                                     child: Text(
-                                      translate('manual', locale),
+                                      centerStatusOverride!,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 4,
                                       style: Theme.of(context)
                                           .textTheme
-                                          .labelSmall
+                                          .bodyMedium
                                           ?.copyWith(
-                                            fontSize: 11,
-                                            color:
-                                                Theme.of(context).brightness ==
-                                                        Brightness.dark
-                                                    ? Colors.black87
-                                                    : Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurface,
+                                            fontSize:
+                                                (_kGaugeCenterAuxSize + 1),
                                             fontWeight: FontWeight.w600,
+                                            height: 1.25,
+                                            color: Theme.of(context)
+                                                        .brightness ==
+                                                    Brightness.dark
+                                                ? Colors.black87
+                                                : Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurface,
                                           ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: () {
-                                      if (onToggleChanged != null) {
-                                        onToggleChanged!(!useEspData);
-                                      }
-                                    },
-                                    borderRadius: BorderRadius.circular(20),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(2.0),
-                                      child: Transform.scale(
-                                        scale: 0.8,
-                                        child: Switch(
-                                          value: useEspData,
-                                          onChanged: onToggleChanged,
-                                          materialTapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
+                                )
+                              else ...[
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    valueText,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          fontSize: _kGaugeCenterValueSize,
+                                          fontWeight: FontWeight.w700,
+                                          color: Theme.of(context).brightness ==
+                                                  Brightness.dark
+                                              ? Colors.black
+                                              : Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
                                         ),
-                                      ),
-                                    ),
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                InkWell(
-                                  onTap: () {
-                                    if (onToggleChanged != null &&
-                                        !useEspData) {
-                                      onToggleChanged!(true);
-                                    }
-                                  },
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6.0,
-                                      vertical: 2.0,
-                                    ),
-                                    child: Text(
-                                      'ESP',
-                                      style: Theme.of(context)
+                                const SizedBox(height: 2),
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    translate(unitKey, locale),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontFamily: Theme.of(context)
                                           .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            fontSize: 11,
-                                            color:
-                                                Theme.of(context).brightness ==
-                                                        Brightness.dark
-                                                    ? Colors.black87
-                                                    : Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurface,
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                                          .bodyMedium
+                                          ?.fontFamily,
+                                      fontSize: _kGaugeCenterAuxSize,
+                                      color: Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.black
+                                          : Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
                                     ),
                                   ),
                                 ),
                               ],
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              translate('greenhouse_gas_emissions', locale),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.fontFamily,
+                                fontSize: _kGaugeCenterAuxSize,
+                                color: Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? Colors.black
+                                    : Theme.of(context).colorScheme.onSurface,
+                              ),
                             ),
                           ),
+                          if (onToggleChanged != null) ...[
+                            const SizedBox(height: 6),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: (size - 56).clamp(110.0, 220.0),
+                                ),
+                                child: Wrap(
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 4,
+                                  runSpacing: 2,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6.0,
+                                        vertical: 2.0,
+                                      ),
+                                      child: Text(
+                                        'M',
+                                        style: TextStyle(
+                                          fontFamily: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.fontFamily,
+                                          fontSize:
+                                              _kGaugeCenterAuxSize,
+                                          color: Theme.of(context)
+                                                      .brightness ==
+                                                  Brightness.dark
+                                              ? Colors.black87
+                                              : Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    IgnorePointer(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(2.0),
+                                        child: Transform.scale(
+                                          scale: 0.8,
+                                          child: Switch(
+                                            value: useEspData,
+                                            materialTapTargetSize:
+                                                MaterialTapTargetSize
+                                                    .shrinkWrap,
+                                            onChanged: (_) {},
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6.0,
+                                        vertical: 2.0,
+                                      ),
+                                      child: Text(
+                                        'E',
+                                        style: TextStyle(
+                                          fontFamily: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.fontFamily,
+                                          fontSize:
+                                              _kGaugeCenterAuxSize,
+                                          color: Theme.of(context)
+                                                      .brightness ==
+                                                  Brightness.dark
+                                              ? Colors.black87
+                                              : Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                         ),
-                      ],
-                    ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -3971,10 +4420,15 @@ class _GradientRingPainter extends CustomPainter {
 // _MetricCard kaldırıldı: kullanılmıyordu.
 
 class _LegendDot extends StatelessWidget {
-  const _LegendDot({required this.label, required this.color});
+  const _LegendDot({
+    required this.label,
+    required this.color,
+    required this.labelStyle,
+  });
 
   final String label;
   final Color color;
+  final TextStyle labelStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -3986,7 +4440,10 @@ class _LegendDot extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
-        Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        Text(
+          label,
+          style: labelStyle,
+        ),
       ],
     );
   }

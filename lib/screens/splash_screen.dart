@@ -40,12 +40,14 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateToHome() async {
-    // Minimum splash screen süresi (logo animasyonu için)
-    await Future.delayed(const Duration(seconds: 2));
+    // Animasyon bitsin + en az kısa bir süre (önceki sabit 2 sn yerine max(animasyon, ~800ms))
+    await Future.wait([
+      _controller.forward(),
+      Future<void>.delayed(const Duration(milliseconds: 800)),
+    ]);
 
     if (!mounted) return;
 
-    // Splash screen tamamlandı, ana ekrana geç
     widget.onSplashComplete();
   }
 

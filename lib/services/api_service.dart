@@ -341,7 +341,8 @@ class ApiService {
   }
 
   /// Shelly verilerini ConsumptionEntry'ye dönüştür
-  /// Mevcut hesaplama sistemine entegre etmek için
+  /// [ShellyData.energyKwh] cihazın **kümülatif** kWh sayacıdır (günlük tüketim değil).
+  /// Günlük emisyon için rapor ekranında ardışık örnek farkı kullanılır.
   ConsumptionEntry shellyDataToConsumptionEntry(ShellyData shellyData) {
     return ConsumptionEntry(
       electricityKwh: shellyData.energyKwh,
