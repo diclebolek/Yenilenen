@@ -76,7 +76,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
   bool _showGlobalTrend = false; // Kişisel mi dünya geneli mi?
   List<double> _globalDailyTrends = [0, 0, 0, 0, 0, 0, 0];
-  int _weekOffset = 0; // 0: bu hafta, 1: önceki hafta, ...
+  /// -1: gelecek hafta (yalnızca tahmini çizgi), 0: bu hafta, 1+: geçmiş haftalar
+  int _weekOffset = 0;
   // Ülke verileri - karşılaştırma için
   Map<String, List<double>> _countryTrends = {};
   // Her ülke için veri kaynağını takip et (true = gerçek veri, false = placeholder)
@@ -382,9 +383,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return 0.0;
   }
 
+  /// Legend: tahmini (API placeholder) seri için kısa kesik çizgi örneği
+  Widget _legendDashedSwatch(Color color, {double barHeight = 3}) {
+    BoxDecoration dec() => BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(1),
+        );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 5, height: barHeight, decoration: dec()),
+        const SizedBox(width: 3),
+        Container(width: 5, height: barHeight, decoration: dec()),
+        const SizedBox(width: 3),
+        Container(width: 5, height: barHeight, decoration: dec()),
+      ],
+    );
+  }
+
   /// Legend item widget'ı oluştur
-  Widget _buildLegendItem(String label, Color color, {bool? isRealData}) {
-    final isReal = isRealData ?? true; // Varsayılan olarak gerçek veri
+  Widget _buildLegendItem(
+    String label,
+    Color color, {
+    bool? isRealData,
+    bool showDataSourceIcon = true,
+  }) {
+    final isReal = isRealData ?? true;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -405,8 +429,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        // Veri kaynağı göstergesi
-        if (isRealData != null) ...[
+        if (showDataSourceIcon && isRealData != null) ...[
           const SizedBox(width: 4),
           Icon(
             isReal ? Icons.check_circle : Icons.info_outline,
@@ -780,6 +803,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// Hem ESP hem de Shelly verilerini birleştirir
   Future<void> _loadTrendData() async {
     if (!mounted) return; // Widget dispose edilmişse işlemi durdur
+    if (_weekOffset == -1) {
+      await _loadNextWeekForecastOnly();
+      return;
+    }
     setState(() => _isLoadingTrends = true);
     try {
       final now = DateTime.now().subtract(Duration(days: _weekOffset * 7));
@@ -1504,6 +1531,31 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  /// Gelecek hafta görünümü: önce bu haftanın gerçek serisini yükler, sonra ortalama ile
+  /// düz tahmini seri üretir (ölçülmemiş günler için gerçek çizgi gösterilmez).
+  Future<void> _loadNextWeekForecastOnly() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingTrends = true;
+      _weekOffset = 0;
+    });
+    await _loadTrendData();
+    if (!mounted) return;
+    final espVals = List<double>.from(_dailyEmissions);
+    final manVals = List<double>.from(_manualDailyEmissions);
+    final double espAvg =
+        espVals.isEmpty ? 0.0 : espVals.fold<double>(0, (a, b) => a + b) / 7.0;
+    final double manAvg =
+        manVals.isEmpty ? 0.0 : manVals.fold<double>(0, (a, b) => a + b) / 7.0;
+    setState(() {
+      _weekOffset = -1;
+      _dailyEmissions = List<double>.filled(7, espAvg);
+      _manualDailyEmissions = List<double>.filled(7, manAvg);
+      _lastCalculatedKgCo2e = null;
+      _manualCalculatedKgCo2e = null;
+    });
+  }
+
   Future<void> _generateCarbonPdfReport({required bool monthly}) async {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
     final now = DateTime.now();
@@ -2184,7 +2236,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             )
                                                           : Builder(
                                                               key: ValueKey(
-                                                                  'trend_chart_${_useEspData}_$_showGlobalTrend'), // Toggle değiştiğinde yeniden çiz
+                                                                  'trend_chart_${_useEspData}_$_showGlobalTrend$_weekOffset'), // Hafta / mod değişince yeniden çiz
                                                               builder:
                                                                   (context) {
                                                                 List<double>
@@ -2255,7 +2307,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                         (_useEspData
                                                                             ? null
                                                                             : _manualCalculatedKgCo2e);
-                                                                if (todayPersonalValue !=
+                                                                if (_weekOffset !=
+                                                                        -1 &&
+                                                                    todayPersonalValue !=
                                                                         null &&
                                                                     personalSeries
                                                                             .length ==
@@ -2594,7 +2648,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                       ),
                                                                                     ),
                                                                                     LineTooltipItem(
-                                                                                      '\nSizin Veriniz: $personalText',
+                                                                                      '\n${_weekOffset == -1 ? "Tahmini — " : ""}Sizin Veriniz: $personalText',
                                                                                       const TextStyle(
                                                                                         color: Colors.pinkAccent,
                                                                                         fontWeight: FontWeight.bold,
@@ -2611,7 +2665,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                   Color color;
                                                                                   final userLineIndex = hasCountryData ? _countryTrends.length : 0;
                                                                                   if (hasUserData && lineIndex == userLineIndex) {
-                                                                                    label = 'Sizin Verileriniz';
+                                                                                    label = _weekOffset == -1
+                                                                                        ? 'Tahmini (gelecek hafta)'
+                                                                                        : 'Sizin Verileriniz';
                                                                                     color = Colors.pinkAccent;
                                                                                   } else {
                                                                                     final countryNames = _countryTrends.keys.toList();
@@ -2913,6 +2969,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                 ),
                                                                                 barWidth: 4.8,
                                                                                 isStrokeCapRound: true,
+                                                                                dashArray: _weekOffset == -1
+                                                                                    ? const <int>[10, 7]
+                                                                                    : null,
                                                                                 dotData: FlDotData(
                                                                                   show: true,
                                                                                   getDotPainter: (
@@ -2930,7 +2989,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                   },
                                                                                 ),
                                                                                 belowBarData: BarAreaData(
-                                                                                  show: true,
+                                                                                  show: _weekOffset != -1,
                                                                                   gradient: LinearGradient(
                                                                                     colors: [
                                                                                       Colors.pinkAccent.withValues(alpha: 0.18),
@@ -2973,9 +3032,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           color: Colors.white70,
                                                         ),
                                                         Text(
-                                                          _weekOffset == 0
-                                                              ? 'Bu hafta'
-                                                              : '$_weekOffset. hafta önce',
+                                                          _weekOffset == -1
+                                                              ? 'Gelecek hafta (tahmini)'
+                                                              : _weekOffset == 0
+                                                                  ? 'Bu hafta'
+                                                                  : '$_weekOffset. hafta önce',
                                                           style:
                                                               Theme.of(context)
                                                                   .textTheme
@@ -2991,7 +3052,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                         ),
                                                         IconButton(
                                                           onPressed:
-                                                              _weekOffset > 0
+                                                              _weekOffset > -1
                                                                   ? () {
                                                                       setState(
                                                                           () {
@@ -3041,9 +3102,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                       : _manualCalculatedKgCo2e) !=
                                                                   null)
                                                             _buildLegendItem(
-                                                              'Sizin Verileriniz',
-                                                              const Color(
-                                                                  0xFF304411),
+                                                              _weekOffset == -1
+                                                                  ? 'Sizin Verileriniz (tahmini)'
+                                                                  : 'Sizin Verileriniz',
+                                                              Colors
+                                                                  .pinkAccent,
                                                             ),
                                                           // Ülke verileri
                                                           ..._countryTrends.keys
@@ -3057,6 +3120,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                   _countryDataSources[
                                                                           countryName] ??
                                                                       false,
+                                                              showDataSourceIcon:
+                                                                  false,
                                                             ),
                                                           ),
                                                         ],
@@ -3076,15 +3141,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                             MainAxisAlignment
                                                                 .center,
                                                         children: [
-                                                          Icon(
-                                                            Icons.check_circle,
-                                                            size: 10,
-                                                            color: Colors.green
-                                                                .withValues(
-                                                                    alpha: 0.7),
+                                                          Container(
+                                                            width: 14,
+                                                            height: 3,
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              color: Colors
+                                                                  .pinkAccent,
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          2),
+                                                            ),
                                                           ),
                                                           const SizedBox(
-                                                              width: 4),
+                                                              width: 5),
                                                           Text(
                                                             translate(
                                                               'real_data',
@@ -3095,21 +3166,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                   .white
                                                                   .withValues(
                                                                       alpha:
-                                                                          0.6),
+                                                                          0.65),
                                                               fontSize: 10,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w500,
                                                             ),
                                                           ),
                                                           const SizedBox(
-                                                              width: 12),
-                                                          Icon(
-                                                            Icons.info_outline,
-                                                            size: 10,
-                                                            color: Colors.orange
-                                                                .withValues(
-                                                                    alpha: 0.7),
+                                                              width: 14),
+                                                          _legendDashedSwatch(
+                                                            Colors.orangeAccent,
+                                                            barHeight: 3,
                                                           ),
                                                           const SizedBox(
-                                                              width: 4),
+                                                              width: 5),
                                                           Text(
                                                             translate(
                                                               'estimated_data',
@@ -3120,8 +3191,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                   .white
                                                                   .withValues(
                                                                       alpha:
-                                                                          0.6),
+                                                                          0.65),
                                                               fontSize: 10,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w500,
                                                             ),
                                                           ),
                                                         ],

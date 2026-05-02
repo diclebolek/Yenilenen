@@ -6,6 +6,7 @@ import '../providers/language_provider.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/api_service.dart';
+import '../services/global_carbon_service.dart';
 import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import 'dart:async';
@@ -116,6 +117,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   int _greenScore = 0;
   List<CarbonGoal> _goals = [];
   MonthlyPrediction? _monthlyPrediction;
+  bool _predictionLoading = false;
   bool _isLoading = true;
   Map<String, bool> _badges = {
     'environment_friendly': false,
@@ -322,6 +324,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
         );
       }).toList();
     });
+    if (_userId != null) {
+      unawaited(_refreshPrediction());
+    }
   }
 
   IconData _getIconFromString(String iconName) {
@@ -628,13 +633,60 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return 'To hit the target, reduce $resourceLabelEn usage by about $percentText% around $top.';
   }
 
+  /// Raporlar ekranı ile uyumlu: ham küresel seriyi kg/gün kişi başı ölçeğine indirger.
+  double _globalRawToPerCapitaDailyKg(double value) {
+    if (value <= 0.0) {
+      return 0.0;
+    }
+    if (value > 1000000000.0) {
+      return value / 8000000000.0;
+    }
+    if (value > 1000.0) {
+      return value / 2920.0;
+    }
+    return value;
+  }
+
+  Future<Map<DateTime, double>> _buildDailyEspCo2Totals(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final espHistory = await _firebaseService.getHistoryData(
+      deviceId: 'esp8266_001',
+      startDate: startDate,
+      endDate: endDate,
+    );
+    DateTime dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+    final Map<DateTime, ConsumptionEntry> latest = {};
+    for (final entry in espHistory) {
+      final key = dayKey(entry.createdAt);
+      final current = latest[key];
+      if (current == null || entry.createdAt.isAfter(current.createdAt)) {
+        latest[key] = entry;
+      }
+    }
+    final totals = <DateTime, double>{};
+    for (final e in latest.values) {
+      final k = dayKey(e.createdAt);
+      totals[k] = Calculation.calculateDailyEmission(e);
+    }
+    return totals;
+  }
+
   Future<void> _refreshPrediction() async {
     if (_userId == null) return;
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final isTr = locale.languageCode == 'tr';
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month, 1);
     final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
     final elapsedDays = now.day.clamp(1, daysInMonth);
+    final today =
+        DateTime(now.year, now.month, now.day);
+
+    if (mounted) {
+      setState(() => _predictionLoading = true);
+    }
 
     try {
       final reductionGoal = _goals.firstWhere(
@@ -652,18 +704,133 @@ class _GoalsScreenState extends State<GoalsScreen> {
           color: const Color(0xFF48631F),
         ),
       );
-      final targetMonthEndKg = reductionGoal.target.clamp(0.0, double.infinity);
+      final double targetMonthEndKg =
+          reductionGoal.target.clamp(0.0, double.infinity);
+
       final dailyTotals = await _buildDailyCombinedTotals(monthStart, now);
       final last7 = _lastSevenDaysSeries(dailyTotals, now);
-      final estimatedDailyAverage = _estimateDailyAverageFromSeries(last7);
-      final projectedMonthEnd = estimatedDailyAverage * daysInMonth;
-      final isOnTrack =
-          targetMonthEndKg <= 0 ? true : projectedMonthEnd <= targetMonthEndKg;
-      final remainingDays = (daysInMonth - elapsedDays).clamp(0, daysInMonth);
+      final double estimatedDailyAverage =
+          _estimateDailyAverageFromSeries(last7);
+      final double projectedMonthEnd =
+          estimatedDailyAverage * daysInMonth.toDouble();
 
-      final trendText = locale.languageCode == 'tr'
-          ? 'Son 7 gün verisi (Manuel + ESP + Shelly) ile tahminlendi.'
-          : 'Estimated from last 7 days (Manual + ESP + Shelly).';
+      final bool isOnTrack = targetMonthEndKg <= 0.0
+          ? true
+          : projectedMonthEnd <= targetMonthEndKg;
+      final int remainingDays =
+          (daysInMonth - elapsedDays).clamp(0, daysInMonth);
+
+      final double gaugeEfficiency = targetMonthEndKg <= 0.0
+          ? 1.0
+          : math.min(
+              1.0,
+              targetMonthEndKg /
+                  math.max(projectedMonthEnd, 1e-9),
+            );
+
+      double worldDailyRefKg = 4.1;
+      try {
+        final trend =
+            await GlobalCarbonService().getGlobalDailyTrend();
+        if (trend.isNotEmpty) {
+          double sum = 0.0;
+          for (final v in trend) {
+            sum += _globalRawToPerCapitaDailyKg(v.toDouble());
+          }
+          worldDailyRefKg = sum / trend.length.toDouble();
+        }
+      } catch (_) {}
+
+      final double userDaily = estimatedDailyAverage;
+      final double diffWorldDaily = userDaily - worldDailyRefKg;
+      final bool worldRoughlyEqual = diffWorldDaily.abs() < 1e-6;
+      final bool isBetterThanWorld =
+          !worldRoughlyEqual && diffWorldDaily < 0.0;
+      double worldDiffPct = 0.0;
+      if (worldDailyRefKg > 1e-9 && !worldRoughlyEqual) {
+        worldDiffPct =
+            (diffWorldDaily.abs() / worldDailyRefKg) * 100.0;
+      }
+
+      final windowStart = today.subtract(const Duration(days: 13));
+      final espDaily =
+          await _buildDailyEspCo2Totals(windowStart, now);
+
+      double sumLast7Esp = 0.0;
+      double sumPrev7Esp = 0.0;
+      for (int i = 0; i < 7; i++) {
+        final d = today.subtract(Duration(days: i));
+        final key = DateTime(d.year, d.month, d.day);
+        sumLast7Esp += (espDaily[key] ?? 0.0);
+      }
+      for (int i = 7; i < 14; i++) {
+        final d = today.subtract(Duration(days: i));
+        final key = DateTime(d.year, d.month, d.day);
+        sumPrev7Esp += (espDaily[key] ?? 0.0);
+      }
+
+      final Map<DateTime, double> combinedWindow =
+          await _buildDailyCombinedTotals(windowStart, now);
+      double sumLast7Comb = 0.0;
+      double sumPrev7Comb = 0.0;
+      for (int i = 0; i < 7; i++) {
+        final d = today.subtract(Duration(days: i));
+        final key = DateTime(d.year, d.month, d.day);
+        sumLast7Comb += (combinedWindow[key] ?? 0.0);
+      }
+      for (int i = 7; i < 14; i++) {
+        final d = today.subtract(Duration(days: i));
+        final key = DateTime(d.year, d.month, d.day);
+        sumPrev7Comb += (combinedWindow[key] ?? 0.0);
+      }
+
+      final bool useEspWhy = sumPrev7Esp > 1e-9 || sumLast7Esp > 1e-9;
+      final double deltaSrc = useEspWhy
+          ? (sumPrev7Esp > 1e-9
+              ? ((sumLast7Esp - sumPrev7Esp) / sumPrev7Esp) * 100.0
+              : 0.0)
+          : (sumPrev7Comb > 1e-9
+              ? ((sumLast7Comb - sumPrev7Comb) / sumPrev7Comb) * 100.0
+              : 0.0);
+
+      final String insightWhyTr = useEspWhy
+          ? (sumPrev7Esp > 1e-9
+              ? 'ESP8266 tabanlı günlük emisyon (son 7 gün), önceki 7 güne göre %${deltaSrc.abs().toStringAsFixed(3)} ${deltaSrc >= 0.0 ? 'arttı' : 'azaldı'}.'
+              : 'ESP8266 için henüz iki haftalık karşılaştırma için yeterli veri yok; kombine seri kullanıldı.')
+          : (sumPrev7Comb > 1e-9
+              ? 'Kombine ölçüm (Manuel + ESP + Shelly) bu hafta önceki haftaya göre %${deltaSrc.abs().toStringAsFixed(3)} ${deltaSrc >= 0.0 ? 'yükseldi' : 'düştü'}.'
+              : 'Karşılaştırma için henüz yeterli günlük veri yok.');
+
+      final String insightWhyEn = useEspWhy
+          ? (sumPrev7Esp > 1e-9
+              ? 'ESP-based daily emissions vs prior 7 days: ${deltaSrc >= 0.0 ? 'up' : 'down'} %${deltaSrc.abs().toStringAsFixed(3)}.'
+              : 'Not enough ESP history for two-week compare; combined series used.')
+          : (sumPrev7Comb > 1e-9
+              ? 'Combined footprint vs prior week: ${deltaSrc >= 0.0 ? 'up' : 'down'} %${deltaSrc.abs().toStringAsFixed(3)}.'
+              : 'Not enough daily data for comparison yet.');
+
+      final double targetDailyPace =
+          daysInMonth > 0 ? targetMonthEndKg / daysInMonth.toDouble() : 0.0;
+      final double excessDaily =
+          math.max(0.0, estimatedDailyAverage - targetDailyPace);
+      final double tipReductionKg =
+          excessDaily * remainingDays.toDouble() * 0.12;
+
+      final String insightTipTr = excessDaily > 1e-9
+          ? (tipReductionKg > 1e-9
+              ? 'Günlük ortalamayı hedefe yaklaştırmak için bekleme modundaki cihazları azaltırsan tahmini ${tipReductionKg.toStringAsFixed(3)} kg CO₂e düşebilir.'
+              : 'Günlük tempo hedefin biraz üzerinde; küçük verim iyileştirmeleri fark yaratır.')
+          : 'Tahmini düşürmek için Shelly ile ölçülen fişleri gece kapalı tutmayı veya manuel kayıtları güncel tutmayı dene.';
+
+      final String insightTipEn = excessDaily > 1e-9
+          ? (tipReductionKg > 1e-9
+              ? 'Reducing standby use could lower the forecast by about ${tipReductionKg.toStringAsFixed(3)} kg CO₂e this month.'
+              : 'Daily pace is slightly above target; small efficiency gains help.')
+          : 'Try powering down idle Shelly plugs overnight or updating manual logs to trim the forecast.';
+
+      final trendText = isTr
+          ? 'Son 7 gün (Manuel + ESP + Shelly) üzerinden tahmin.'
+          : 'Forecast from last 7 days (Manual + ESP + Shelly).';
 
       if (mounted) {
         setState(() {
@@ -676,18 +843,30 @@ class _GoalsScreenState extends State<GoalsScreen> {
             remainingDays: remainingDays,
             isOnTrack: isOnTrack,
             trackMessage: isOnTrack
-                ? (locale.languageCode == 'tr'
+                ? (isTr
                     ? 'Bu gidişle hedefe ulaşırsın.'
                     : 'At this pace, you will reach the goal.')
-                : (locale.languageCode == 'tr'
+                : (isTr
                     ? 'Bu gidişle hedefe ulaşamazsın.'
                     : 'At this pace, you may miss the goal.'),
             impactSummary: trendText,
+            gaugeEfficiency: gaugeEfficiency,
+            worldDiffPercent: worldDiffPct,
+            isBetterThanWorldAverage: isBetterThanWorld,
+            worldRoughlyEqual: worldRoughlyEqual,
+            insightWhyTr: insightWhyTr,
+            insightWhyEn: insightWhyEn,
+            insightTipTr: insightTipTr,
+            insightTipEn: insightTipEn,
           );
         });
       }
     } catch (_) {
       // Sessiz devam
+    } finally {
+      if (mounted) {
+        setState(() => _predictionLoading = false);
+      }
     }
   }
 
@@ -1074,6 +1253,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                 ?.copyWith(
                                   color: isDark ? Colors.white : Colors.black,
                                   fontWeight: FontWeight.bold,
+                                  height: 1.2,
                                 ),
                           ),
                           const SizedBox(width: 8),
@@ -1331,6 +1511,42 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         ),
                       ),
                       const SizedBox(height: 32),
+                      // Gelecek Ay Beklentisi başlığı - Konteynır dışında
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.auto_graph,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            locale.languageCode == 'tr'
+                                ? 'Gelecek Ay Beklentisi'
+                                : 'Next Month Outlook',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.2,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      if (_userId != null) ...[
+                        if (_predictionLoading && _monthlyPrediction == null)
+                          _PredictionLoadingShell(isDark: isDark)
+                        else if (_monthlyPrediction != null)
+                          _PredictionCard(
+                            prediction: _monthlyPrediction!,
+                            languageProvider: widget.languageProvider,
+                            loadingOverlay: _predictionLoading,
+                          ),
+                      ],
+                      const SizedBox(height: 32),
                       // Green Score başlığı - Konteynır dışında
                       Row(
                         children: [
@@ -1348,6 +1564,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                 ?.copyWith(
                                   color: isDark ? Colors.white : Colors.black,
                                   fontWeight: FontWeight.bold,
+                                  height: 1.2,
                                 ),
                           ),
                           const SizedBox(width: 8),
@@ -1880,13 +2097,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      if (_monthlyPrediction != null) ...[
-                        _PredictionCard(
-                          prediction: _monthlyPrediction!,
-                          languageProvider: widget.languageProvider,
-                        ),
-                        const SizedBox(height: 16),
-                      ],
                       // Hedef kartları
                       if (_goals.isEmpty)
                         Center(
@@ -2459,6 +2669,14 @@ class MonthlyPrediction {
   final bool isOnTrack;
   final String trackMessage;
   final String impactSummary;
+  final double gaugeEfficiency;
+  final double worldDiffPercent;
+  final bool isBetterThanWorldAverage;
+  final bool worldRoughlyEqual;
+  final String insightWhyTr;
+  final String insightWhyEn;
+  final String insightTipTr;
+  final String insightTipEn;
 
   const MonthlyPrediction({
     required this.projectedMonthEndKg,
@@ -2470,29 +2688,193 @@ class MonthlyPrediction {
     required this.isOnTrack,
     required this.trackMessage,
     required this.impactSummary,
+    required this.gaugeEfficiency,
+    required this.worldDiffPercent,
+    required this.isBetterThanWorldAverage,
+    required this.worldRoughlyEqual,
+    required this.insightWhyTr,
+    required this.insightWhyEn,
+    required this.insightTipTr,
+    required this.insightTipEn,
   });
+}
+
+/// Tahmin bölümü ilk yüklemede iskelet + shimmer.
+class _PredictionLoadingShell extends StatefulWidget {
+  const _PredictionLoadingShell({required this.isDark});
+
+  final bool isDark;
+
+  @override
+  State<_PredictionLoadingShell> createState() =>
+      _PredictionLoadingShellState();
+}
+
+class _PredictionLoadingShellState extends State<_PredictionLoadingShell>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = widget.isDark ? Colors.white : Colors.black;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final t = _controller.value;
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (bounds) {
+            return LinearGradient(
+              begin: Alignment(-1.2 + 2.4 * t, 0),
+              end: Alignment(0.2 + 2.4 * t, 0),
+              colors: [
+                base.withValues(alpha: 0.06),
+                base.withValues(alpha: 0.18),
+                base.withValues(alpha: 0.06),
+              ],
+            ).createShader(bounds);
+          },
+          child: child,
+        );
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: base.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: base.withValues(alpha: 0.12)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 100,
+                    height: 100,
+                    child: Center(
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 14,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: base.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          height: 36,
+                          width: 140,
+                          decoration: BoxDecoration(
+                            color: base.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: base.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: base.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _PredictionCard extends StatelessWidget {
   const _PredictionCard({
     required this.prediction,
     this.languageProvider,
+    this.loadingOverlay = false,
   });
 
   final MonthlyPrediction prediction;
   final LanguageProvider? languageProvider;
+  final bool loadingOverlay;
 
   @override
   Widget build(BuildContext context) {
     final locale = languageProvider?.currentLocale ?? const Locale('tr');
     final isTr = locale.languageCode == 'tr';
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ClipRRect(
+    final cs = Theme.of(context).colorScheme;
+    final efficiencyPct = (prediction.gaugeEfficiency * 100.0);
+    final String badgeLabel = prediction.worldRoughlyEqual
+        ? (isTr
+            ? 'Küresel günlük ortalamayla aynı hizada'
+            : 'Aligned with global daily average')
+        : prediction.isBetterThanWorldAverage
+            ? (isTr
+                ? 'Dünya Ortalamasından %${prediction.worldDiffPercent.toStringAsFixed(3)} Daha İyi'
+                : '${prediction.worldDiffPercent.toStringAsFixed(3)}% better than world avg')
+            : (isTr
+                ? 'Dünya Ortalamasından %${prediction.worldDiffPercent.toStringAsFixed(3)} Daha Yüksek'
+                : '${prediction.worldDiffPercent.toStringAsFixed(3)}% above world avg');
+
+    Widget card = ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(16),
@@ -2505,48 +2887,159 @@ class _PredictionCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                isTr ? 'Ay Sonu Tahmini' : 'Month-end Forecast',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 108,
+                    height: 108,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox.expand(
+                          child: CircularProgressIndicator(
+                            value: prediction.gaugeEfficiency.clamp(0.0, 1.0),
+                            strokeWidth: 8,
+                            backgroundColor:
+                                (isDark ? Colors.white : Colors.black)
+                                    .withValues(alpha: 0.12),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              prediction.isOnTrack
+                                  ? Colors.greenAccent.shade400
+                                  : Colors.orangeAccent.shade200,
+                            ),
+                          ),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${efficiencyPct.toStringAsFixed(3)}%',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelLarge
+                                  ?.copyWith(
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                  ),
+                            ),
+                            Text(
+                              isTr ? 'verim' : 'eff.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: (isDark ? Colors.white : Colors.black)
+                                        .withValues(alpha: 0.65),
+                                    fontSize: 10,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: prediction.worldRoughlyEqual
+                                  ? Colors.blueGrey.shade700
+                                      .withValues(alpha: 0.35)
+                                  : prediction.isBetterThanWorldAverage
+                                      ? Colors.green.shade700
+                                          .withValues(alpha: 0.35)
+                                      : Colors.deepOrange.shade800
+                                          .withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: prediction.worldRoughlyEqual
+                                    ? Colors.blueGrey.shade400
+                                        .withValues(alpha: 0.85)
+                                    : prediction.isBetterThanWorldAverage
+                                        ? Colors.greenAccent.shade400
+                                            .withValues(alpha: 0.9)
+                                        : Colors.orange.shade700
+                                            .withValues(alpha: 0.85),
+                              ),
+                            ),
+                            child: Text(
+                              badgeLabel,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: prediction.worldRoughlyEqual
+                                        ? Colors.blueGrey.shade100
+                                        : prediction.isBetterThanWorldAverage
+                                            ? Colors.lightGreenAccent.shade100
+                                            : Colors.orange.shade100,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.2,
+                                  ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: (isDark ? Colors.white : Colors.black)
+                                        .withValues(alpha: 0.65),
+                                  ),
+                        ),
+                        Text(
+                          prediction.projectedMonthEndKg.toStringAsFixed(3),
+                          style:
+                              Theme.of(context).textTheme.displaySmall?.copyWith(
+                                    color: isDark
+                                        ? Colors.white
+                                        : cs.primary,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 34,
+                                    height: 1.05,
+                                  ),
+                        ),
+                        Text(
+                          'kg CO₂e',
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    color: (isDark ? Colors.white : Colors.black)
+                                        .withValues(alpha: 0.75),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Text(
                 isTr
-                    ? 'Tahmini ay sonu: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e'
-                    : 'Estimated month-end: ${prediction.projectedMonthEndKg.toStringAsFixed(1)} kg CO₂e',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: prediction.isOnTrack
-                          ? (isDark ? Colors.white : Colors.black)
-                          : Colors.orangeAccent,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                isTr
-                    ? 'Hedef: ${prediction.targetMonthEndKg.toStringAsFixed(1)} kg CO₂e'
-                    : 'Target: ${prediction.targetMonthEndKg.toStringAsFixed(1)} kg CO₂e',
+                    ? 'Hedef: ${prediction.targetMonthEndKg.toStringAsFixed(3)} kg CO₂e · Günlük tempo: ${prediction.currentAverageKgPerDay.toStringAsFixed(3)} kg/gün · Kalan gün: ${prediction.remainingDays}'
+                    : 'Target: ${prediction.targetMonthEndKg.toStringAsFixed(3)} kg CO₂e · Pace: ${prediction.currentAverageKgPerDay.toStringAsFixed(3)} kg/day · Days left: ${prediction.remainingDays}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: (isDark ? Colors.white : Colors.black)
-                          .withValues(alpha: 0.82),
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                isTr
-                    ? 'Günlük tempo: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/gün | Kalan gün: ${prediction.remainingDays}'
-                    : 'Daily pace: ${prediction.currentAverageKgPerDay.toStringAsFixed(2)} kg/day | Remaining days: ${prediction.remainingDays}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: (isDark ? Colors.white : Colors.black)
-                          .withValues(alpha: 0.75),
+                          .withValues(alpha: 0.78),
                     ),
               ),
               const SizedBox(height: 8),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
                     prediction.isOnTrack
@@ -2577,9 +3070,106 @@ class _PredictionCard extends StatelessWidget {
                           .withValues(alpha: 0.8),
                     ),
               ),
+              const SizedBox(height: 14),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _InsightMiniCard(
+                        title: isTr ? 'Neden?' : 'Why?',
+                        body: isTr
+                            ? prediction.insightWhyTr
+                            : prediction.insightWhyEn,
+                        isDark: isDark,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _InsightMiniCard(
+                        title: isTr ? 'Tavsiye' : 'Tip',
+                        body: isTr
+                            ? prediction.insightTipTr
+                            : prediction.insightTipEn,
+                        isDark: isDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
+      ),
+    );
+
+    if (!loadingOverlay) return card;
+
+    return Stack(
+      children: [
+        card,
+        Positioned.fill(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.25),
+              alignment: Alignment.center,
+              child: const CircularProgressIndicator(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InsightMiniCard extends StatelessWidget {
+  const _InsightMiniCard({
+    required this.title,
+    required this.body,
+    required this.isDark,
+  });
+
+  final String title;
+  final String body;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.07),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+        ),
+      ),
+      alignment: Alignment.topLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            body,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: (isDark ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.88),
+                  height: 1.35,
+                ),
+          ),
+        ],
       ),
     );
   }
