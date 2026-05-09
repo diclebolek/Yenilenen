@@ -319,9 +319,9 @@ class _BillScannerCardState extends State<BillScannerCard> {
               : const Color(0xFF48631F);
           return Container(
             height: cardHeight,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               image: DecorationImage(
-                image: const AssetImage('assets/images/foto_yükleme.png'),
+                image: AssetImage('assets/images/foto_yükleme.png'),
                 fit: BoxFit.cover,
                 alignment: Alignment.center,
               ),
@@ -379,12 +379,15 @@ class _BillScannerCardState extends State<BillScannerCard> {
                                         ),
                                       ),
                                     )
-                                  : Icon(
-                                      kIsWeb
-                                          ? Icons.photo_library
-                                          : Icons.camera_alt,
-                                      color: Colors.white,
-                                    ),
+                                  : (kIsWeb
+                                      ? const Icon(
+                                          Icons.photo_library,
+                                          color: Colors.white,
+                                        )
+                                      : const Icon(
+                                          Icons.camera_alt,
+                                          color: Colors.white,
+                                        )),
                               label: Text(
                                 _isScanning
                                     ? translate(
