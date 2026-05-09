@@ -3,7 +3,11 @@ import '../services/postgres_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
+import '../themes/app_theme.dart';
 import '../widgets/app_nav.dart';
+
+/// İşletme kartı vurgusu (mavi kenarlı şeffaf buton ile uyumlu).
+const Color _kProfileBusinessBlue = Color(0xFF1565C0);
 
 /// Profil ayarları sayfası - işletme bilgilerini düzenleme
 class ProfileSettingsScreen extends StatefulWidget {
@@ -23,6 +27,17 @@ class ProfileSettingsScreen extends StatefulWidget {
 }
 
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
+  void _exitToUnderlyingRoute(BuildContext context) {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final root = Navigator.of(context, rootNavigator: true);
+    if (root.canPop()) {
+      root.pop();
+    }
+  }
+
   final _formKey = GlobalKey<FormState>();
   final _businessNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -370,8 +385,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final cs = Theme.of(context).colorScheme;
     final double width = MediaQuery.of(context).size.width;
     final bool isCompactLayout = width < 1100;
+    final double maxContentW = width >= 600
+        ? (width * 0.67).clamp(640.0, 1120.0)
+        : double.infinity;
+    final Color greenAccent = Theme.of(context).brightness == Brightness.dark
+        ? AppTheme.darkPrimaryColor
+        : AppTheme.lightPrimaryColor;
 
     // Navigation destinations
     final destinations = <NavigationDestination>[
@@ -401,6 +423,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
@@ -560,9 +583,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   ],
                 ),
                 TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
+                  onPressed: () => _exitToUnderlyingRoute(context),
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.white,
                     backgroundColor: Colors.transparent,
@@ -578,7 +599,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     translate('settings', locale),
                     style: const TextStyle(
                       color: Colors.white,
-                      fontWeight: FontWeight.normal,
+                      fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
                   ),
@@ -610,43 +631,62 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       : 0), // Bottom navbar için padding
             ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 900, // Web için maksimum genişlik
-              ),
+              constraints: BoxConstraints(maxWidth: maxContentW),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // İşletme Bilgileri Kartı
                     Card(
+                      elevation: 0,
+                      color: cs.surfaceContainerHighest.withValues(alpha: 0.65),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: cs.outlineVariant),
+                      ),
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.business, color: Colors.blue),
-                                const SizedBox(width: 8),
-                                Text(
-                                  translate('business_info', locale),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleLarge
-                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                const Icon(
+                                  Icons.business_rounded,
+                                  color: _kProfileBusinessBlue,
+                                  size: 26,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    translate('business_info', locale),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: cs.onSurface,
+                                        ),
+                                  ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 18),
 
                             // İşletme Adı
                             TextFormField(
                               controller: _businessNameController,
                               decoration: InputDecoration(
                                 labelText: translate('business_name', locale),
-                                prefixIcon: const Icon(Icons.business_outlined),
-                                border: const OutlineInputBorder(),
+                                prefixIcon: Icon(
+                                  Icons.business_outlined,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
+                                filled: true,
+                                fillColor: cs.surface.withValues(alpha: 0.92),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
@@ -670,8 +710,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               initialValue: _selectedSektorId,
                               decoration: InputDecoration(
                                 labelText: translate('sector', locale),
-                                prefixIcon: const Icon(Icons.category_outlined),
-                                border: const OutlineInputBorder(),
+                                prefixIcon: Icon(
+                                  Icons.category_outlined,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
+                                filled: true,
+                                fillColor: cs.surface.withValues(alpha: 0.92),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               items: _sektors.map((sektor) {
                                 return DropdownMenuItem<int>(
@@ -696,29 +743,38 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             // Güncelle Butonu
                             SizedBox(
                               width: double.infinity,
-                              child: ElevatedButton.icon(
+                              child: OutlinedButton.icon(
                                 onPressed:
                                     _isLoading ? null : _updateBusinessInfo,
                                 icon: _isLoading
                                     ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
+                                        width: 18,
+                                        height: 18,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
+                                          color: _kProfileBusinessBlue,
                                         ),
                                       )
-                                    : const Icon(Icons.save),
+                                    : const Icon(Icons.save_outlined),
                                 label: Text(
                                   _isLoading
                                       ? translate('updating', locale)
                                       : translate(
                                           'update_business_info', locale),
                                 ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
-                                  foregroundColor: Colors.white,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _kProfileBusinessBlue,
+                                  backgroundColor: Colors.transparent,
+                                  side: const BorderSide(
+                                    color: _kProfileBusinessBlue,
+                                    width: 1.6,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                               ),
                             ),
@@ -728,40 +784,64 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Kullanıcı Bilgileri Kartı
                     Card(
+                      elevation: 0,
+                      color: cs.surfaceContainerHighest.withValues(alpha: 0.65),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: cs.outlineVariant),
+                      ),
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.person, color: Colors.green),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Kullanıcı Bilgileri',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleLarge
-                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                Icon(
+                                  Icons.person_rounded,
+                                  color: greenAccent,
+                                  size: 26,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    translate(
+                                      'user_information_section',
+                                      locale,
+                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: cs.onSurface,
+                                        ),
+                                  ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 18),
 
                             // E-posta
                             TextFormField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
-                              decoration: const InputDecoration(
-                                labelText: 'E-posta',
-                                prefixIcon: Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(),
+                              decoration: InputDecoration(
+                                labelText: translate('email', locale),
+                                prefixIcon: Icon(
+                                  Icons.email_outlined,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
+                                filled: true,
+                                fillColor: cs.surface.withValues(alpha: 0.92),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
-                                  return 'E-posta gereklidir';
+                                  return translate('email_required', locale);
                                 }
                                 if (!RegExp(
                                   r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
@@ -780,7 +860,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               decoration: InputDecoration(
                                 labelText:
                                     translate('current_password_for_change', locale),
-                                prefixIcon: const Icon(Icons.lock_outlined),
+                                prefixIcon: Icon(
+                                  Icons.lock_outlined,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _obscurePassword
@@ -793,7 +876,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                     });
                                   },
                                 ),
-                                border: const OutlineInputBorder(),
+                                filled: true,
+                                fillColor: cs.surface.withValues(alpha: 0.92),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -804,7 +891,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               obscureText: _obscureNewPassword,
                               decoration: InputDecoration(
                                 labelText: translate('new_password', locale),
-                                prefixIcon: const Icon(Icons.lock_outlined),
+                                prefixIcon: Icon(
+                                  Icons.lock_outlined,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _obscureNewPassword
@@ -818,7 +908,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                     });
                                   },
                                 ),
-                                border: const OutlineInputBorder(),
+                                filled: true,
+                                fillColor: cs.surface.withValues(alpha: 0.92),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               validator: (value) {
                                 if (value != null &&
@@ -838,7 +932,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                               decoration: InputDecoration(
                                 labelText:
                                     translate('confirm_new_password', locale),
-                                prefixIcon: const Icon(Icons.lock_outlined),
+                                prefixIcon: Icon(
+                                  Icons.lock_outlined,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _obscureConfirmPassword
@@ -852,7 +949,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                     });
                                   },
                                 ),
-                                border: const OutlineInputBorder(),
+                                filled: true,
+                                fillColor: cs.surface.withValues(alpha: 0.92),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                               validator: (value) {
                                 if (_newPasswordController.text.isNotEmpty &&
@@ -867,27 +968,36 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             // Güncelle Butonu
                             SizedBox(
                               width: double.infinity,
-                              child: ElevatedButton.icon(
+                              child: OutlinedButton.icon(
                                 onPressed: _isLoading ? null : _updateUserInfo,
                                 icon: _isLoading
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
+                                    ? SizedBox(
+                                        width: 18,
+                                        height: 18,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
+                                          color: greenAccent,
                                         ),
                                       )
-                                    : const Icon(Icons.save),
+                                    : const Icon(Icons.save_outlined),
                                 label: Text(
                                   _isLoading
                                       ? translate('updating', locale)
                                       : translate('update_user_info', locale),
                                 ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: greenAccent,
+                                  backgroundColor: Colors.transparent,
+                                  side: BorderSide(
+                                    color: greenAccent,
+                                    width: 1.6,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                               ),
                             ),
@@ -905,18 +1015,16 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       // Mobilde bottom navbar göster - Ayarlar seçili
       bottomNavigationBar: isCompactLayout
           ? AppBottomNav(
-              selectedIndex: 3, // Settings sayfası index'i - seçili görünecek
+              selectedIndex: 3,
               onDestinationSelected: (index) {
-                // Settings (index 3) seçiliyse hiçbir şey yapma
+                // Ayarlar sekmesi: üst üste açılmış profil rotasından çık
                 if (index == 3) {
+                  _exitToUnderlyingRoute(context);
                   return;
                 }
-                // Diğer sayfalara gitmek için önce geri dön
-                Navigator.of(context).pop();
-                // Eğer callback varsa, main.dart'taki _selectedIndex'i değiştir
-                if (widget.onNavigationRequested != null) {
-                  widget.onNavigationRequested!(index);
-                }
+                // Önce ana navigator'da sekmeyi değiştir (dispose öncesi callback)
+                widget.onNavigationRequested?.call(index);
+                _exitToUnderlyingRoute(context);
               },
               destinations: destinations,
             )
