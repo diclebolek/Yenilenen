@@ -60,12 +60,15 @@ class AppTheme {
         bodyMedium: base.textTheme.bodyMedium?.copyWith(
           height: 1.35,
           letterSpacing: 0.1,
+          color: isDark ? null : const Color(0xFF121212),
+          fontWeight: isDark ? null : FontWeight.w500,
         ),
         bodySmall: base.textTheme.bodySmall?.copyWith(
           height: 1.3,
           letterSpacing: 0.08,
-          // Açık temada seed'den gelen onSurfaceVariant kart üzerinde çok soluk kalıyordu.
-          color: isDark ? null : Colors.black87,
+          // Açık temada mümkün olduğunca yüksek kontrast (kart / ikincil satırlar).
+          color: isDark ? null : const Color(0xFF121212),
+          fontWeight: isDark ? null : FontWeight.w500,
         ),
       ),
       appBarTheme: AppBarTheme(

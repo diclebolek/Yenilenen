@@ -17,9 +17,13 @@ import '../widgets/theme_independent_info_dialog.dart';
 import '../themes/app_theme.dart';
 import 'dart:async';
 
-/// Kart üzerinde ikincil gövde metni — düşük kontrastlı tema renklerinin üstüne yazılır.
+/// Kart üzerinde ikincil gövde metni (açık tema: neredeyse siyah).
 Color _goalsReadableOnCard(BuildContext context, bool isDark) =>
-    isDark ? Colors.white.withValues(alpha: 0.92) : Colors.black87;
+    isDark ? Colors.white.withValues(alpha: 0.95) : const Color(0xFF121212);
+
+/// Turuncu uyarı / öneri metinleri — açık temada soluk turuncu yerine koyu turuncu.
+const Color _kGoalsDarkOrangeText = Color(0xFFE65100);
+const Color _kGoalsDeepOrangeText = Color(0xFFBF360C);
 
 /// Yeşil skor davranış girdileri (km / kg / L çarpanları).
 enum _EnginePointKind { walk, publicTransport, recycle, water }
@@ -1659,14 +1663,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   child: Container(
                     width: 80,
                     height: 80,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Colors.amber, Colors.orange],
+                      gradient: LinearGradient(
+                        colors: [
+                          Color(0xFFFF6F00),
+                          Color(0xFFE65100),
+                        ],
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.amber.withValues(alpha: 0.5),
+                          color: Color(0x73E65100),
                           blurRadius: 20,
                           spreadRadius: 5,
                         ),
@@ -1688,7 +1695,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             Text(
               badgeTitle,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.amber.shade700,
+                    color: _kGoalsDeepOrangeText,
                     fontWeight: FontWeight.w600,
                   ),
               textAlign: TextAlign.center,
@@ -1793,7 +1800,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           child: const Icon(
                             Icons.info_outline,
                             size: 20,
-                            color: Colors.orange,
+                            color: _kGoalsDeepOrangeText,
                           ),
                         ),
                       ),
@@ -2021,7 +2028,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           child: const Icon(
                             Icons.info_outline,
                             size: 20,
-                            color: Colors.orange,
+                            color: _kGoalsDeepOrangeText,
                           ),
                         ),
                       ),
@@ -2072,7 +2079,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           child: const Icon(
                             Icons.info_outline,
                             size: 20,
-                            color: Colors.orange,
+                            color: _kGoalsDeepOrangeText,
                           ),
                         ),
                       ),
@@ -2185,12 +2192,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                               gradient:
                                                                   LinearGradient(
                                                                 colors: [
-                                                                  Colors.orange
+                                                                  Colors
+                                                                      .deepOrange
+                                                                      .shade800,
+                                                                  Colors
+                                                                      .deepOrange
                                                                       .shade600,
-                                                                  Colors.orange
-                                                                      .shade400,
-                                                                  Colors.orange
-                                                                      .shade300,
+                                                                  Colors
+                                                                      .deepOrange
+                                                                      .shade500,
                                                                 ],
                                                                 begin: Alignment
                                                                     .centerLeft,
@@ -2200,10 +2210,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                               boxShadow: [
                                                                 BoxShadow(
                                                                   color: Colors
-                                                                      .orange
+                                                                      .deepOrange
                                                                       .withValues(
                                                                           alpha:
-                                                                              0.5),
+                                                                              0.45),
                                                                   blurRadius: 8,
                                                                   spreadRadius:
                                                                       1,
@@ -2243,8 +2253,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 .textTheme
                                                 .bodySmall
                                                 ?.copyWith(
-                                                  color: Colors.orange,
-                                                  fontWeight: FontWeight.w600,
+                                                  color: _kGoalsDeepOrangeText,
+                                                  fontWeight: FontWeight.w700,
                                                 ),
                                           ),
                                         ],
@@ -2502,7 +2512,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                       value:
                                           '${_badges.values.where((v) => v).length}',
                                       label: translate('badges_earned', locale),
-                                      color: Colors.amber,
+                                      color: _kGoalsDarkOrangeText,
                                     ),
                                   ),
                                 ],
@@ -3646,7 +3656,7 @@ Widget _predictionMetaLine(
 }) {
   final TextStyle? base = Theme.of(context).textTheme.bodySmall?.copyWith(
         color: _goalsReadableOnCard(context, isDark),
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
       );
   final String targetFmt =
       _formatDecimalWithSeparators(prediction.targetMonthEndKg, locale);
@@ -3779,7 +3789,7 @@ class _PredictionCard extends StatelessWidget {
                           valueColor: AlwaysStoppedAnimation<Color>(
                             prediction.isOnTrack
                                 ? Colors.greenAccent.shade400
-                                : Colors.orangeAccent.shade200,
+                                : Colors.deepOrange.shade600,
                           ),
                         ),
                       ),
@@ -3803,8 +3813,8 @@ class _PredictionCard extends StatelessWidget {
                                 .textTheme
                                 .labelSmall
                                 ?.copyWith(
-                                  color: (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: 0.82),
+                                  color: _goalsReadableOnCard(context, isDark),
+                                  fontWeight: FontWeight.w600,
                                   fontSize: gaugeSize >= 170 ? 11 : 10,
                                 ),
                           ),
@@ -3839,8 +3849,8 @@ class _PredictionCard extends StatelessWidget {
                               : prediction.isBetterThanWorldAverage
                                   ? Colors.greenAccent.shade400
                                       .withValues(alpha: 0.9)
-                                  : Colors.orange.shade700
-                                      .withValues(alpha: 0.85),
+                                  : Colors.deepOrange.shade800
+                                      .withValues(alpha: 0.9),
                         ),
                       ),
                       child: Text(
@@ -3851,7 +3861,9 @@ class _PredictionCard extends StatelessWidget {
                                   ? Colors.blueGrey.shade100
                                   : prediction.isBetterThanWorldAverage
                                       ? Colors.lightGreenAccent.shade100
-                                      : Colors.orange.shade100,
+                                      : (isDark
+                                          ? Colors.orange.shade100
+                                          : _kGoalsDeepOrangeText),
                               fontWeight: FontWeight.w700,
                               height: 1.2,
                             ),
@@ -3942,8 +3954,8 @@ class _PredictionCard extends StatelessWidget {
                               : Icons.warning_amber,
                           size: 18,
                           color: prediction.isOnTrack
-                              ? Colors.green
-                              : Colors.orange,
+                              ? Colors.green.shade700
+                              : _kGoalsDarkOrangeText,
                         ),
                         const SizedBox(width: 6),
                         Expanded(
@@ -3958,8 +3970,8 @@ class _PredictionCard extends StatelessWidget {
                                           ? Colors.greenAccent.shade200
                                           : const Color(0xFF1B5E20))
                                       : (isDark
-                                          ? Colors.orangeAccent.shade200
-                                          : const Color(0xFFE65100)),
+                                          ? Colors.deepOrange.shade200
+                                          : _kGoalsDarkOrangeText),
                                   fontWeight: FontWeight.w700,
                                 ),
                           ),
@@ -3971,7 +3983,8 @@ class _PredictionCard extends StatelessWidget {
                       prediction.impactSummary,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: _goalsReadableOnCard(context, isDark),
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
                           ),
                     ),
                   ],
@@ -4129,10 +4142,9 @@ class _InsightMiniCard extends StatelessWidget {
             Text(
               body,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.88)
-                        : Colors.black87,
-                    height: 1.35,
+                    color: _goalsReadableOnCard(context, isDark),
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
                   ),
             ),
           ],
@@ -4345,10 +4357,10 @@ class _GoalCard extends StatelessWidget {
                       ),
                       if (infoKey != null)
                         IconButton(
-                          icon: Icon(
+                          icon: const Icon(
                             Icons.info_outline,
                             size: 22,
-                            color: Colors.orangeAccent.withValues(alpha: 0.95),
+                            color: _kGoalsDarkOrangeText,
                           ),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(
@@ -4575,7 +4587,8 @@ class _GoalCard extends StatelessWidget {
                                       const Padding(
                                         padding: EdgeInsets.only(left: 4),
                                         child: Icon(Icons.celebration,
-                                            color: Colors.amber, size: 18),
+                                            color: Color(0xFFF57C00),
+                                            size: 18),
                                       ),
                                   ],
                                 ),
@@ -4587,9 +4600,8 @@ class _GoalCard extends StatelessWidget {
                                         .textTheme
                                         .bodySmall
                                         ?.copyWith(
-                                          color: Colors.orange
-                                              .withValues(alpha: 0.95),
-                                          fontWeight: FontWeight.w600,
+                                          color: _kGoalsDarkOrangeText,
+                                          fontWeight: FontWeight.w700,
                                           height: 1.35,
                                         ),
                                   ),
@@ -4655,7 +4667,7 @@ class _GoalCard extends StatelessWidget {
                           ),
                           if (isCompleted)
                             const Icon(Icons.celebration,
-                                color: Colors.amber, size: 18),
+                                color: Color(0xFFF57C00), size: 18),
                         ],
                       ),
                       if (goal.recommendation.trim().isNotEmpty) ...[
@@ -4666,8 +4678,8 @@ class _GoalCard extends StatelessWidget {
                               .textTheme
                               .bodySmall
                               ?.copyWith(
-                                color: Colors.orange.withValues(alpha: 0.95),
-                                fontWeight: FontWeight.w600,
+                                color: _kGoalsDarkOrangeText,
+                                fontWeight: FontWeight.w700,
                               ),
                         ),
                       ],
