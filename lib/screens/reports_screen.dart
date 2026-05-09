@@ -1831,28 +1831,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final safeAverage = selectedAverage.isFinite ? selectedAverage : 0.0;
 
       final activeCategoryDistribution = _activeCategoryDistribution();
-      final categoryRows = [
-        _buildCategoryRowForPdf(
-          translate('electricity_label', locale),
-          activeCategoryDistribution['electricity'] ?? 0,
-          safeTotal,
-        ),
-        _buildCategoryRowForPdf(
-          translate('water_label', locale),
-          activeCategoryDistribution['water'] ?? 0,
-          safeTotal,
-        ),
-        _buildCategoryRowForPdf(
-          translate('gas_label', locale),
-          activeCategoryDistribution['gas'] ?? 0,
-          safeTotal,
-        ),
-        _buildCategoryRowForPdf(
-          translate('waste_label', locale),
-          activeCategoryDistribution['waste'] ?? 0,
-          safeTotal,
-        ),
-      ];
+      // E (ESP + Shelly): PDF'te yalnızca elektrik / su / doğalgaz; atık satırı yok; yüzdeler 3 kategoriye göre normalize
+      final List<List<String>> categoryRows = _useEspData
+          ? _buildPdfCategoryRowsSensorMode(
+              locale,
+              safeTotal,
+              activeCategoryDistribution,
+            )
+          : [
+              _buildCategoryRowForPdf(
+                translate('electricity_label', locale),
+                activeCategoryDistribution['electricity'] ?? 0,
+                safeTotal,
+              ),
+              _buildCategoryRowForPdf(
+                translate('water_label', locale),
+                activeCategoryDistribution['water'] ?? 0,
+                safeTotal,
+              ),
+              _buildCategoryRowForPdf(
+                translate('gas_label', locale),
+                activeCategoryDistribution['gas'] ?? 0,
+                safeTotal,
+              ),
+              _buildCategoryRowForPdf(
+                translate('waste_label', locale),
+                activeCategoryDistribution['waste'] ?? 0,
+                safeTotal,
+              ),
+            ];
 
       pw.Widget pdfBulletLine(String line) {
         return pw.Padding(
@@ -1984,6 +1991,47 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
       );
     }
+  }
+
+  /// PDF — [ReportsScreen] E (ESP + Shelly): atık satırı yok; pasta ile uyumlu yüzdeler üç kaleme bölünür.
+  List<List<String>> _buildPdfCategoryRowsSensorMode(
+    Locale locale,
+    double totalKg,
+    Map<String, double> dist,
+  ) {
+    final double e = (dist['electricity'] ?? 0).clamp(0.0, 100.0);
+    final double w = (dist['water'] ?? 0).clamp(0.0, 100.0);
+    final double g = (dist['gas'] ?? 0).clamp(0.0, 100.0);
+    final double sum = e + w + g;
+    final double pe;
+    final double pw;
+    final double pg;
+    if (sum > 1e-9) {
+      pe = (e / sum) * 100.0;
+      pw = (w / sum) * 100.0;
+      pg = (g / sum) * 100.0;
+    } else {
+      pe = 0;
+      pw = 0;
+      pg = 0;
+    }
+    return [
+      _buildCategoryRowForPdf(
+        translate('electricity_label', locale),
+        pe,
+        totalKg,
+      ),
+      _buildCategoryRowForPdf(
+        translate('water_label', locale),
+        pw,
+        totalKg,
+      ),
+      _buildCategoryRowForPdf(
+        translate('gas_label', locale),
+        pg,
+        totalKg,
+      ),
+    ];
   }
 
   List<String> _buildCategoryRowForPdf(
