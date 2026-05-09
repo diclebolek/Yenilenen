@@ -436,7 +436,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final TextStyle homeSubStyle = TextStyle(
       fontSize: 12,
       fontWeight: FontWeight.normal,
-      color: isDark ? Colors.white70 : Colors.black54,
+      color: isDark ? Colors.white70 : Colors.black87,
       height: 1.35,
     );
     final double homeHorizontalPad =
@@ -1553,8 +1553,8 @@ class _ClimateInfoCard extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.normal,
-                    color: isDark ? Colors.white70 : Colors.black54,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.white70 : Colors.black87,
                     height: 1.35,
                   ),
                 ),

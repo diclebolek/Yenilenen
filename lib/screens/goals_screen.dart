@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1710,6 +1711,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // yol açabiliyor; genişlik için MediaQuery kullan.
     final double layoutWidth = MediaQuery.sizeOf(context).width;
     final bool isWideLayout = layoutWidth >= 900;
+    final double goalsContentMaxWidth = isWideLayout
+        ? (kIsWeb
+            ? (layoutWidth * 0.67).clamp(720.0, 1480.0)
+            : 800.0)
+        : double.infinity;
     final double horizontalPagePadding = layoutWidth < 360 ? 12.0 : 16.0;
 
     if (_isLoading) {
@@ -1730,7 +1736,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxWidth: isWideLayout ? 800 : double.infinity,
+                maxWidth: goalsContentMaxWidth,
               ),
               child: ListView(
                 physics: const BouncingScrollPhysics(),
@@ -3613,7 +3619,7 @@ Widget _predictionMetaLine(
   required bool isDark,
 }) {
   final TextStyle? base = Theme.of(context).textTheme.bodySmall?.copyWith(
-        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.78),
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.9),
       );
   final String targetFmt =
       _formatDecimalWithSeparators(prediction.targetMonthEndKg, locale);
@@ -3684,7 +3690,7 @@ class _PredictionCard extends StatelessWidget {
                 ? 'Dünya Ortalamasından %$worldDiffFmt Daha Yüksek'
                 : '$worldDiffFmt% above world avg');
 
-    final Color unitColor = isDark ? Colors.white70 : Colors.black54;
+    final Color unitColor = isDark ? Colors.white70 : Colors.black87;
     final bool noPaceData = prediction.currentAverageKgPerDay <= 1e-9;
 
     Widget card = ClipRRect(
@@ -3771,7 +3777,7 @@ class _PredictionCard extends StatelessWidget {
                                 .labelSmall
                                 ?.copyWith(
                                   color: (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: 0.65),
+                                      .withValues(alpha: 0.82),
                                   fontSize: gaugeSize >= 170 ? 11 : 10,
                                 ),
                           ),
@@ -3829,7 +3835,7 @@ class _PredictionCard extends StatelessWidget {
                       isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: 0.65),
+                                .withValues(alpha: 0.82),
                           ),
                     ),
                     const SizedBox(height: 12),
@@ -3886,7 +3892,7 @@ class _PredictionCard extends StatelessWidget {
                             : 'Need recent daily emissions (manual, ESP, or Shelly) to forecast.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: (isDark ? Colors.white : Colors.black)
-                                  .withValues(alpha: 0.55),
+                                  .withValues(alpha: 0.82),
                               height: 1.25,
                             ),
                       ),
@@ -3934,7 +3940,7 @@ class _PredictionCard extends StatelessWidget {
                       prediction.impactSummary,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: 0.8),
+                                .withValues(alpha: 0.9),
                           ),
                     ),
                   ],
@@ -4092,8 +4098,9 @@ class _InsightMiniCard extends StatelessWidget {
             Text(
               body,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: (isDark ? Colors.white : Colors.black)
-                        .withValues(alpha: 0.88),
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.88)
+                        : Colors.black87,
                     height: 1.35,
                   ),
             ),
