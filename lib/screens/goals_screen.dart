@@ -17,6 +17,10 @@ import '../widgets/theme_independent_info_dialog.dart';
 import '../themes/app_theme.dart';
 import 'dart:async';
 
+/// Kart üzerinde ikincil gövde metni — düşük kontrastlı tema renklerinin üstüne yazılır.
+Color _goalsReadableOnCard(BuildContext context, bool isDark) =>
+    isDark ? Colors.white.withValues(alpha: 0.92) : Colors.black87;
+
 /// Yeşil skor davranış girdileri (km / kg / L çarpanları).
 enum _EnginePointKind { walk, publicTransport, recycle, water }
 
@@ -1464,7 +1468,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             },
                           ),
                           textAlign: TextAlign.left,
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
                         ),
                       if (kind == _EnginePointKind.walk)
                         const SizedBox(height: 8),
@@ -1478,7 +1485,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               .textTheme
                               .bodySmall
                               ?.copyWith(
-                                color: Theme.of(context).colorScheme.secondary,
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.w600,
                               ),
                         ),
                       const SizedBox(height: 15),
@@ -1506,6 +1514,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         textAlign: TextAlign.left,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               height: 1.3,
+                              color: Theme.of(context).colorScheme.onSurface,
+                              fontWeight: FontWeight.w500,
                             ),
                       ),
                     ],
@@ -2280,13 +2290,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                         .textTheme
                                                         .bodySmall
                                                         ?.copyWith(
-                                                          color: (isDark
-                                                                  ? Colors.white
-                                                                  : Colors
-                                                                      .black)
-                                                              .withValues(
-                                                            alpha: 0.55,
+                                                          color:
+                                                              _goalsReadableOnCard(
+                                                            context,
+                                                            isDark,
                                                           ),
+                                                          fontWeight:
+                                                              FontWeight.w600,
                                                         ),
                                                   ),
                                                 ],
@@ -2505,9 +2515,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                     .textTheme
                                     .bodyMedium
                                     ?.copyWith(
-                                      color:
-                                          (isDark ? Colors.white : Colors.black)
-                                              .withValues(alpha: 0.8),
+                                      color: _goalsReadableOnCard(
+                                        context,
+                                        isDark,
+                                      ),
                                       fontWeight: FontWeight.w600,
                                     ),
                               ),
@@ -2566,7 +2577,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall
-                                          ?.copyWith(height: 1.35),
+                                          ?.copyWith(
+                                            height: 1.35,
+                                            color: _goalsReadableOnCard(
+                                              context,
+                                              isDark,
+                                            ),
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                     ),
                                     const SizedBox(height: 12),
                                     ClipRRect(
@@ -2595,7 +2613,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                       textAlign: TextAlign.left,
                                       style: Theme.of(context)
                                           .textTheme
-                                          .labelMedium,
+                                          .labelMedium
+                                          ?.copyWith(
+                                            color: _goalsReadableOnCard(
+                                              context,
+                                              isDark,
+                                            ),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -2819,8 +2844,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               .textTheme
                               .bodyLarge
                               ?.copyWith(
-                                color: (isDark ? Colors.white : Colors.black)
-                                    .withValues(alpha: 0.7),
+                                color: _goalsReadableOnCard(context, isDark),
                               ),
                         ),
                       ),
@@ -2918,10 +2942,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                     .textTheme
                                     .bodySmall
                                     ?.copyWith(
-                                      color:
-                                          (isDark ? Colors.white : Colors.black)
-                                              .withValues(alpha: 0.65),
+                                      color: _goalsReadableOnCard(
+                                        context,
+                                        isDark,
+                                      ),
                                       height: 1.35,
+                                      fontWeight: FontWeight.w500,
                                     ),
                               ),
                               const SizedBox(height: 12),
@@ -3083,7 +3109,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                 onPressed: () =>
                                     Navigator.of(dialogContext).pop(),
                                 icon: const Icon(Icons.close),
-                                color: isDark ? Colors.white70 : Colors.black54,
+                                color: isDark ? Colors.white70 : Colors.black87,
                               ),
                             ],
                           ),
@@ -3154,7 +3180,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                       ? borderColor
                                                       : (isDark
                                                           ? Colors.white70
-                                                          : Colors.black54),
+                                                          : Colors.black87),
                                                 ),
                                                 const SizedBox(width: 8),
                                                 Expanded(
@@ -3619,7 +3645,8 @@ Widget _predictionMetaLine(
   required bool isDark,
 }) {
   final TextStyle? base = Theme.of(context).textTheme.bodySmall?.copyWith(
-        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.9),
+        color: _goalsReadableOnCard(context, isDark),
+        fontWeight: FontWeight.w500,
       );
   final String targetFmt =
       _formatDecimalWithSeparators(prediction.targetMonthEndKg, locale);
@@ -3834,8 +3861,8 @@ class _PredictionCard extends StatelessWidget {
                     Text(
                       isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: 0.82),
+                            color: _goalsReadableOnCard(context, isDark),
+                            fontWeight: FontWeight.w600,
                           ),
                     ),
                     const SizedBox(height: 12),
@@ -3891,9 +3918,9 @@ class _PredictionCard extends StatelessWidget {
                             ? 'Tahmin için son günlerde günlük emisyon verisi gerekir (Manuel, ESP veya Shelly).'
                             : 'Need recent daily emissions (manual, ESP, or Shelly) to forecast.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: (isDark ? Colors.white : Colors.black)
-                                  .withValues(alpha: 0.82),
+                              color: _goalsReadableOnCard(context, isDark),
                               height: 1.25,
+                              fontWeight: FontWeight.w500,
                             ),
                       ),
                     ],
@@ -3927,8 +3954,12 @@ class _PredictionCard extends StatelessWidget {
                                 .bodyMedium
                                 ?.copyWith(
                                   color: prediction.isOnTrack
-                                      ? Colors.green
-                                      : Colors.orange,
+                                      ? (isDark
+                                          ? Colors.greenAccent.shade200
+                                          : const Color(0xFF1B5E20))
+                                      : (isDark
+                                          ? Colors.orangeAccent.shade200
+                                          : const Color(0xFFE65100)),
                                   fontWeight: FontWeight.w700,
                                 ),
                           ),
@@ -3939,8 +3970,8 @@ class _PredictionCard extends StatelessWidget {
                     Text(
                       prediction.impactSummary,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: 0.9),
+                            color: _goalsReadableOnCard(context, isDark),
+                            fontWeight: FontWeight.w500,
                           ),
                     ),
                   ],
@@ -4435,10 +4466,11 @@ class _GoalCard extends StatelessWidget {
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(
-                                    color:
-                                        (isDark ? Colors.white : Colors.black)
-                                            .withValues(alpha: 0.78),
-                                    fontWeight: FontWeight.w600,
+                                    color: _goalsReadableOnCard(
+                                      context,
+                                      isDark,
+                                    ),
+                                    fontWeight: FontWeight.w700,
                                   ),
                             ),
                           )
@@ -4471,12 +4503,14 @@ class _GoalCard extends StatelessWidget {
                                       .bodySmall
                                       ?.copyWith(
                                         color: isCompleted
-                                            ? Colors.green
-                                            : (isDark
-                                                    ? Colors.white
-                                                    : Colors.black)
-                                                .withValues(alpha: 0.7),
-                                        fontWeight: FontWeight.w600,
+                                            ? (isDark
+                                                ? Colors.greenAccent.shade200
+                                                : const Color(0xFF1B5E20))
+                                            : _goalsReadableOnCard(
+                                                context,
+                                                isDark,
+                                              ),
+                                        fontWeight: FontWeight.w700,
                                       ),
                                 ),
                               ],
@@ -4487,7 +4521,8 @@ class _GoalCard extends StatelessWidget {
                                     const Icon(Icons.delete_outline, size: 20),
                                 onPressed: onDelete,
                                 tooltip: translate('delete', locale),
-                                color: isDark ? Colors.white70 : Colors.black54,
+                                color:
+                                    isDark ? Colors.white70 : Colors.black87,
                               ),
                           ],
                         ),
@@ -4521,11 +4556,16 @@ class _GoalCard extends StatelessWidget {
                                             .bodySmall
                                             ?.copyWith(
                                               color: isCompleted
-                                                  ? Colors.green
-                                                  : (isDark
-                                                          ? Colors.white
-                                                          : Colors.black)
-                                                      .withValues(alpha: 0.85),
+                                                  ? (isDark
+                                                      ? Colors.greenAccent
+                                                          .shade200
+                                                      : const Color(
+                                                          0xFF1B5E20,
+                                                        ))
+                                                  : _goalsReadableOnCard(
+                                                      context,
+                                                      isDark,
+                                                    ),
                                               fontWeight: FontWeight.w600,
                                               height: 1.35,
                                             ),
@@ -4602,9 +4642,13 @@ class _GoalCard extends StatelessWidget {
                                   .bodySmall
                                   ?.copyWith(
                                     color: isCompleted
-                                        ? Colors.green
-                                        : (isDark ? Colors.white : Colors.black)
-                                            .withValues(alpha: 0.7),
+                                        ? (isDark
+                                            ? Colors.greenAccent.shade200
+                                            : const Color(0xFF1B5E20))
+                                        : _goalsReadableOnCard(
+                                            context,
+                                            isDark,
+                                          ),
                                     fontWeight: FontWeight.w600,
                                   ),
                             ),
@@ -4809,10 +4853,9 @@ class _StatCard extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: (isDark ? Colors.white : Colors.black).withValues(
-                    alpha: 0.7,
-                  ),
+                  color: _goalsReadableOnCard(context, isDark),
                   fontSize: 11,
+                  fontWeight: FontWeight.w600,
                 ),
             textAlign: TextAlign.center,
             maxLines: 2,

@@ -255,7 +255,8 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp>
 
     // Platform ve ekran tabanlı belirleme
     final double width = MediaQuery.of(context).size.width;
-    // Telefon + tablet gibi küçük/orta layout'larda (web dahil) davranış
+    // Genişlik < 1100: alt [NavigationBar] (telefon, çoğu tablet dikey/yatay, dar web).
+    // Örn. iPad (768–1024) ve Surface tabletlerde alt çubuk görünür; ≥1100 geniş Masaüstü/Web’de üst menü.
     final bool isCompactLayout = width < 1100;
 
     final pages = <Widget>[
