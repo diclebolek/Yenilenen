@@ -1354,17 +1354,13 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    fit: FlexFit.loose,
-                    child: FilledButton.icon(
-                      onPressed: _calculateTotal,
-                      icon: const Icon(Icons.calculate, size: 20),
-                      label: const Text('TOPLAM CO₂ HESAPLA'),
-                      style: _manualFilledAccentStyle.copyWith(
-                        padding: const WidgetStatePropertyAll(
-                          EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        ),
+                  FilledButton.icon(
+                    onPressed: _calculateTotal,
+                    icon: const Icon(Icons.calculate, size: 20),
+                    label: const Text('TOPLAM CO₂ HESAPLA'),
+                    style: _manualFilledAccentStyle.copyWith(
+                      padding: const WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       ),
                     ),
                   ),

@@ -39,7 +39,7 @@ class AppBottomNav extends StatelessWidget {
           child: Theme(
             data: Theme.of(context).copyWith(
               navigationBarTheme: NavigationBarThemeData(
-                height: isVerySmallScreen ? 62 : 56,
+                height: isVerySmallScreen ? 60 : 58,
                 elevation: 0,
                 backgroundColor: Colors.transparent,
                 surfaceTintColor: Colors.transparent,
@@ -47,9 +47,7 @@ class AppBottomNav extends StatelessWidget {
                 iconTheme: WidgetStateProperty.resolveWith((states) {
                   final bool isSelected = states.contains(WidgetState.selected);
                   return IconThemeData(
-                    size: isVerySmallScreen
-                        ? (isSelected ? 24 : 22)
-                        : (isSelected ? 26 : 24), // Seçili ikon daha büyük
+                    size: isSelected ? 24 : 23,
                     color: isSelected
                         ? colorScheme.primary // Seçili: tema rengi (yeşil)
                         : unselectedColor, // Seçili değil: tema rengi (gri ton)
@@ -58,7 +56,7 @@ class AppBottomNav extends StatelessWidget {
                 labelTextStyle: WidgetStateProperty.resolveWith((states) {
                   final bool isSelected = states.contains(WidgetState.selected);
                   return TextStyle(
-                    fontSize: isVerySmallScreen ? 9 : 10,
+                    fontSize: 12,
                     color: isSelected
                         ? colorScheme.primary // Seçili: tema rengi
                         : unselectedColor, // Seçili değil: tema rengi

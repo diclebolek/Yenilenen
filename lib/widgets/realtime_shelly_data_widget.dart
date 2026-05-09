@@ -22,12 +22,29 @@ class RealtimeShellyDataWidget extends StatefulWidget {
 
 class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
   bool _hasTriedInitialLoad = false;
+  bool _isShellyConnected = false;
 
   @override
   void initState() {
     super.initState();
     // Widget ilk yüklendiğinde otomatik veri çekmeyi dene
     _tryInitialDataLoad();
+    _refreshShellyConnectionStatus();
+  }
+
+  Future<void> _refreshShellyConnectionStatus() async {
+    try {
+      final connected = await widget.apiService.checkShellyConnection();
+      if (!mounted) return;
+      setState(() {
+        _isShellyConnected = connected;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isShellyConnected = false;
+      });
+    }
   }
 
   Future<void> _tryInitialDataLoad() async {
@@ -38,9 +55,11 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
     await Future.delayed(const Duration(milliseconds: 500));
     try {
       await widget.apiService.getShellyData(saveToFirebase: true);
+      await _refreshShellyConnectionStatus();
     } catch (e) {
       // Hata olsa bile devam et (Firebase stream'den gelebilir)
       debugPrint('İlk veri çekme hatası: $e');
+      await _refreshShellyConnectionStatus();
     }
   }
 
@@ -193,6 +212,7 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
 
         // Veri var - göster
         final data = snapshot.data!;
+        final isShellyConnected = _isShellyConnected && data.isOn;
 
         return Container(
           decoration: BoxDecoration(
@@ -218,16 +238,22 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                     const Spacer(),
                     Icon(
                       Icons.circle,
-                      color: data.isOn ? Colors.green : Colors.grey,
+                      color: _isShellyConnected
+                          ? (data.isOn ? Colors.green : Colors.grey)
+                          : Colors.red,
                       size: 12,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      data.isOn ? 'Açık' : 'Kapalı',
+                      _isShellyConnected
+                          ? (data.isOn ? 'Açık' : 'Kapalı')
+                          : 'Bağlı Değil',
                       style: TextStyle(
-                        color: data.isOn
-                            ? Colors.green.shade300
-                            : Colors.grey.shade300,
+                        color: _isShellyConnected
+                            ? (data.isOn
+                                ? Colors.green.shade300
+                                : Colors.grey.shade300)
+                            : Colors.red.shade300,
                         fontSize: 12,
                       ),
                     ),
@@ -239,6 +265,7 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                           await widget.apiService.getShellyData(
                             saveToFirebase: true,
                           );
+                          await _refreshShellyConnectionStatus();
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -249,10 +276,12 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                             );
                           }
                         } catch (e) {
+                          await _refreshShellyConnectionStatus();
                           if (context.mounted) {
                             String errorMessage = 'Shelly bağlantı hatası: $e';
                             if (e.toString().contains('TimeoutException')) {
-                              errorMessage = 'Zaman aşımı! Lütfen kontrol edin:\n'
+                              errorMessage =
+                                  'Zaman aşımı! Lütfen kontrol edin:\n'
                                   '• IP adresi doğru mu?\n'
                                   '• Aynı WiFi ağında mı?\n'
                                   '• Cihaz çalışıyor mu?';
@@ -333,14 +362,15 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                           // Cihazı aç/kapat
                           final newState =
                               await widget.apiService.setShellyRelayState(
-                            turn: data.isOn ? 'off' : 'on',
+                            turn: isShellyConnected ? 'off' : 'on',
                           );
-                          
+
                           // Durum değişikliğinden sonra veriyi yenile
                           await widget.apiService.getShellyData(
                             saveToFirebase: true,
                           );
-                          
+                          await _refreshShellyConnectionStatus();
+
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -353,10 +383,12 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                             );
                           }
                         } catch (e) {
+                          await _refreshShellyConnectionStatus();
                           if (context.mounted) {
                             String errorMessage = 'Hata: $e';
                             if (e.toString().contains('TimeoutException')) {
-                              errorMessage = 'Zaman aşımı! Lütfen kontrol edin:\n'
+                              errorMessage =
+                                  'Zaman aşımı! Lütfen kontrol edin:\n'
                                   '• IP adresi doğru mu?\n'
                                   '• Aynı WiFi ağında mı?\n'
                                   '• Cihaz çalışıyor mu?';
@@ -371,10 +403,11 @@ class _RealtimeShellyDataWidgetState extends State<RealtimeShellyDataWidget> {
                           }
                         }
                       },
-                      icon: Icon(data.isOn ? Icons.power_off : Icons.power),
-                      label: Text(data.isOn ? 'Kapat' : 'Aç'),
+                      icon: Icon(
+                          isShellyConnected ? Icons.power_off : Icons.power),
+                      label: Text(isShellyConnected ? 'Kapat' : 'Aç'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: data.isOn
+                        backgroundColor: isShellyConnected
                             ? Colors.red.shade700
                             : Colors.green.shade700,
                         foregroundColor: Colors.white,

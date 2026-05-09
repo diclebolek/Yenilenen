@@ -222,10 +222,13 @@ class _HeroDonateBannerState extends State<HeroDonateBanner> {
             'donate_title',
             widget.languageProvider?.currentLocale ?? const Locale('tr'),
           ),
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: isDark ? Colors.white : Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
+          // Ana sayfa bölüm başlıkları (homeTitleStyle) ile aynı ritim
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black,
+            height: 1.2,
+          ),
         ),
         const SizedBox(height: 12),
         // GNÇ tarzında kart tasarımı

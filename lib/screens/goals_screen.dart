@@ -73,6 +73,9 @@ class _GoalAddTemplate {
   final String defaultTarget;
 }
 
+/// [ReportsScreen] E/M toggle ile aynı anahtar (SharedPreferences).
+const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
+
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key, this.languageProvider});
 
@@ -731,12 +734,61 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return totals;
   }
 
+  /// Raporlar / E modundaki gibi: ESP su+gaz + Shelly kWh farkı (geçmişten).
+  Future<double> _estimateLiveEspShellyKgCo2eToday() async {
+    double kg = 0.0;
+    try {
+      final esp = await _firebaseService.getLatestData('esp8266_001');
+      if (esp != null) {
+        kg += esp.waterCubicMeters * Calculation.factorWaterKgPerM3;
+        kg += Calculation.fuelEmissionKgCo2e(esp);
+      }
+    } catch (_) {}
+
+    try {
+      final now = DateTime.now();
+      final hist = await _apiService.getFirebaseShellyHistory(
+        deviceId: 'shelly_plug_001',
+        startDate: now.subtract(const Duration(days: 4)),
+        endDate: now,
+      );
+      if (hist.length >= 2) {
+        hist.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        final last = hist.last;
+        final prev = hist[hist.length - 2];
+        final delta = (last.energyKwh - prev.energyKwh).clamp(0.0, 1e12);
+        kg += delta * Calculation.factorElectricityKgPerKwh;
+      }
+    } catch (_) {}
+
+    return kg;
+  }
+
+  List<double> _lastNDaysSeries(
+    Map<DateTime, double> dailyTotals,
+    DateTime today,
+    int n,
+  ) {
+    final series = <double>[];
+    for (int i = n - 1; i >= 0; i--) {
+      final day = DateTime(today.year, today.month, today.day)
+          .subtract(Duration(days: i));
+      series.add((dailyTotals[day] ?? 0.0).clamp(0.0, double.infinity));
+    }
+    return series;
+  }
+
+  double _averageNonZeroDaily(List<double> series) {
+    final nz = series.where((e) => e > 1e-12).toList();
+    if (nz.isEmpty) return 0.0;
+    return nz.reduce((a, b) => a + b) / nz.length;
+  }
+
   Future<void> _refreshPrediction() async {
     if (_userId == null) return;
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
     final isTr = locale.languageCode == 'tr';
     final now = DateTime.now();
-    final monthStart = DateTime(now.year, now.month, 1);
     final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
     final elapsedDays = now.day.clamp(1, daysInMonth);
     final today = DateTime(now.year, now.month, now.day);
@@ -764,12 +816,34 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final double targetMonthEndKg =
           reductionGoal.target.clamp(0.0, double.infinity);
 
-      final dailyTotals = await _buildDailyCombinedTotals(monthStart, now);
+      final prefs = await SharedPreferences.getInstance();
+      final bool useEspSensorMode =
+          prefs.getBool(_kPrefsReportsUseEspData) ?? true;
+
+      // Ay başı yerine son 30 gün: seyrek Firebase geçmişinde de örnek yakalar
+      final rollingStart = today.subtract(const Duration(days: 29));
+      final dailyTotals = await _buildDailyCombinedTotals(rollingStart, now);
+
+      const double paceEps = 1e-9;
+
+      if (useEspSensorMode) {
+        final liveKg = await _estimateLiveEspShellyKgCo2eToday();
+        if (liveKg > paceEps) {
+          dailyTotals[today] = liveKg;
+        }
+      }
+
       final last7 = _lastSevenDaysSeries(dailyTotals, now);
+      final last30 = _lastNDaysSeries(dailyTotals, today, 30);
+
+      final double est7 = _estimateDailyAverageFromSeries(last7);
+      final double avg30Nz = _averageNonZeroDaily(last30);
+
       final double estimatedDailyAverage =
-          _estimateDailyAverageFromSeries(last7);
+          useEspSensorMode ? (avg30Nz > paceEps ? avg30Nz : est7) : est7;
       final double projectedMonthEnd =
           estimatedDailyAverage * daysInMonth.toDouble();
+      final bool hasForecastBasis = estimatedDailyAverage > paceEps;
 
       final bool isOnTrack = targetMonthEndKg <= 0.0
           ? true
@@ -777,12 +851,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final int remainingDays =
           (daysInMonth - elapsedDays).clamp(0, daysInMonth);
 
+      // Veri yokken (günlük ortalama ~0) halkayı %100 dolu gösterme; hedef yoksa nötr 1.0
       final double gaugeEfficiency = targetMonthEndKg <= 0.0
           ? 1.0
-          : math.min(
-              1.0,
-              targetMonthEndKg / math.max(projectedMonthEnd, 1e-9),
-            );
+          : (!hasForecastBasis
+              ? 0.0
+              : math.min(
+                  1.0,
+                  targetMonthEndKg / math.max(projectedMonthEnd, paceEps),
+                ));
 
       double worldDailyRefKg = 4.1;
       try {
@@ -803,6 +880,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
       double worldDiffPct = 0.0;
       if (worldDailyRefKg > 1e-9 && !worldRoughlyEqual) {
         worldDiffPct = (diffWorldDaily.abs() / worldDailyRefKg) * 100.0;
+        if (!worldDiffPct.isFinite) worldDiffPct = 0.0;
+        worldDiffPct = worldDiffPct.clamp(0.0, 999.0);
       }
 
       final windowStart = today.subtract(const Duration(days: 13));
@@ -837,13 +916,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
       }
 
       final bool useEspWhy = sumPrev7Esp > 1e-9 || sumLast7Esp > 1e-9;
-      final double deltaSrc = useEspWhy
+      final double rawDelta = useEspWhy
           ? (sumPrev7Esp > 1e-9
               ? ((sumLast7Esp - sumPrev7Esp) / sumPrev7Esp) * 100.0
               : 0.0)
           : (sumPrev7Comb > 1e-9
               ? ((sumLast7Comb - sumPrev7Comb) / sumPrev7Comb) * 100.0
               : 0.0);
+      final double deltaSrc =
+          rawDelta.isFinite ? rawDelta.clamp(-100.0, 100.0) : 0.0;
 
       final String insightWhyTr = useEspWhy
           ? (sumPrev7Esp > 1e-9
@@ -880,9 +961,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
               : 'Daily pace is slightly above target; small efficiency gains help.')
           : 'Try powering down idle Shelly plugs overnight or updating manual logs to trim the forecast.';
 
-      final trendText = isTr
-          ? 'Son 7 gün (Manuel + ESP + Shelly) üzerinden tahmin.'
-          : 'Forecast from last 7 days (Manual + ESP + Shelly).';
+      final trendText = useEspSensorMode
+          ? (isTr
+              ? 'Son 30 güne kadar veri; E modunda ESP + Shelly ile uyumlu günlük ortalama.'
+              : 'Up to 30 days of data; daily pace aligned with E mode (ESP + Shelly).')
+          : (isTr
+              ? 'Son 7 gün (Manuel + ESP + Shelly) üzerinden tahmin.'
+              : 'Forecast from last 7 days (Manual + ESP + Shelly).');
 
       if (mounted) {
         setState(() {
@@ -1268,9 +1353,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       child: Text(
                         translate(titleKey, locale),
                         textAlign: TextAlign.left,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
                       ),
                     ),
                   ],
@@ -1287,19 +1373,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           params: {'multiplier': '$mult'},
                         ),
                         textAlign: TextAlign.left,
-                        style:
-                            Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  height: 1.35,
-                                ),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              height: 1.35,
+                            ),
                       ),
                       const SizedBox(height: 15),
                       Text(
                         translate(questionKey, locale),
                         textAlign: TextAlign.left,
-                        style:
-                            Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                       const SizedBox(height: 15),
                       TextField(
@@ -1334,25 +1418,22 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       Text(
                         translate('slider_quick_set', locale),
                         textAlign: TextAlign.left,
-                        style:
-                            Theme.of(context).textTheme.labelLarge?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                       const SizedBox(height: 8),
                       Slider(
                         value: sliderVal.clamp(0.0, maxSlide),
                         max: maxSlide,
-                        divisions:
-                            maxSlide <= 50 ? maxSlide.round() : 48,
+                        divisions: maxSlide <= 50 ? maxSlide.round() : 48,
                         label: sliderVal.toStringAsFixed(1),
                         onChanged: (v) {
                           setLocal(() {
                             sliderVal = v;
-                            controller.text =
-                                kind == _EnginePointKind.recycle
-                                    ? v.toStringAsFixed(2)
-                                    : v.toStringAsFixed(1);
+                            controller.text = kind == _EnginePointKind.recycle
+                                ? v.toStringAsFixed(2)
+                                : v.toStringAsFixed(1);
                           });
                         },
                       ),
@@ -1364,13 +1445,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           params: {'points': '$totalPreview'},
                         ),
                         textAlign: TextAlign.left,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
                       ),
                       const SizedBox(height: 15),
                       if (kind == _EnginePointKind.walk)
@@ -1379,8 +1458,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             'weekly_progress_km',
                             locale,
                             params: {
-                              'current':
-                                  _weekWalkKmTotal.toStringAsFixed(1),
+                              'current': _weekWalkKmTotal.toStringAsFixed(1),
                               'target': '10',
                             },
                           ),
@@ -1399,9 +1477,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               .textTheme
                               .bodySmall
                               ?.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .secondary,
+                                color: Theme.of(context).colorScheme.secondary,
                               ),
                         ),
                       const SizedBox(height: 15),
@@ -1427,10 +1503,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                         locale,
                                       ),
                         textAlign: TextAlign.left,
-                        style:
-                            Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  height: 1.3,
-                                ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              height: 1.3,
+                            ),
                       ),
                     ],
                   ),
@@ -1658,6 +1733,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 maxWidth: isWideLayout ? 800 : double.infinity,
               ),
               child: ListView(
+                physics: const BouncingScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   horizontalPagePadding,
                   16,
@@ -3407,9 +3483,7 @@ class _PredictionLoadingShellState extends State<_PredictionLoadingShell>
                           .withValues(alpha: 0.1),
                     ],
                   ),
-            color: widget.isDark
-                ? Colors.black.withValues(alpha: 0.4)
-                : null,
+            color: widget.isDark ? Colors.black.withValues(alpha: 0.4) : null,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: Theme.of(context).colorScheme.primary,
@@ -3594,8 +3668,10 @@ class _PredictionCard extends StatelessWidget {
     final double screenW = MediaQuery.sizeOf(context).width;
     final double cardOuterPad = screenW < 360 ? 16.0 : 24.0;
     final String worldDiffFmt = _formatDecimalWithSeparators(
-        prediction.worldDiffPercent, locale,
-        fractionDigits: 3);
+      prediction.worldDiffPercent,
+      locale,
+      fractionDigits: 1,
+    );
     final String badgeLabel = prediction.worldRoughlyEqual
         ? (isTr
             ? 'Küresel günlük ortalamayla aynı hizada'
@@ -3609,6 +3685,7 @@ class _PredictionCard extends StatelessWidget {
                 : '$worldDiffFmt% above world avg');
 
     final Color unitColor = isDark ? Colors.white70 : Colors.black54;
+    final bool noPaceData = prediction.currentAverageKgPerDay <= 1e-9;
 
     Widget card = ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -3663,8 +3740,9 @@ class _PredictionCard extends StatelessWidget {
                         child: CircularProgressIndicator(
                           value: gaugeSafe,
                           strokeWidth: gaugeStroke,
-                          backgroundColor: (isDark ? Colors.white : Colors.black)
-                              .withValues(alpha: 0.12),
+                          backgroundColor:
+                              (isDark ? Colors.white : Colors.black)
+                                  .withValues(alpha: 0.12),
                           valueColor: AlwaysStoppedAnimation<Color>(
                             prediction.isOnTrack
                                 ? Colors.greenAccent.shade400
@@ -3676,14 +3754,12 @@ class _PredictionCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '${_formatDecimalWithSeparators(efficiencyPct, locale, fractionDigits: 3)}%',
+                            '${_formatDecimalWithSeparators(efficiencyPct, locale, fractionDigits: 1)}%',
                             style: Theme.of(context)
                                 .textTheme
                                 .labelLarge
                                 ?.copyWith(
-                                  color: isDark
-                                      ? Colors.white
-                                      : Colors.black87,
+                                  color: isDark ? Colors.white : Colors.black87,
                                   fontWeight: FontWeight.w800,
                                   fontSize: gaugeSize >= 170 ? 14 : 12,
                                 ),
@@ -3718,18 +3794,15 @@ class _PredictionCard extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: prediction.worldRoughlyEqual
-                            ? Colors.blueGrey.shade700
-                                .withValues(alpha: 0.35)
+                            ? Colors.blueGrey.shade700.withValues(alpha: 0.35)
                             : prediction.isBetterThanWorldAverage
-                                ? Colors.green.shade700
-                                    .withValues(alpha: 0.35)
+                                ? Colors.green.shade700.withValues(alpha: 0.35)
                                 : Colors.deepOrange.shade800
                                     .withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: prediction.worldRoughlyEqual
-                              ? Colors.blueGrey.shade400
-                                  .withValues(alpha: 0.85)
+                              ? Colors.blueGrey.shade400.withValues(alpha: 0.85)
                               : prediction.isBetterThanWorldAverage
                                   ? Colors.greenAccent.shade400
                                       .withValues(alpha: 0.9)
@@ -3753,9 +3826,7 @@ class _PredictionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      isTr
-                          ? 'Tahmini ay sonu toplamı'
-                          : 'Projected month-end',
+                      isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: (isDark ? Colors.white : Colors.black)
                                 .withValues(alpha: 0.65),
@@ -3764,31 +3835,28 @@ class _PredictionCard extends StatelessWidget {
                     const SizedBox(height: 12),
                     LayoutBuilder(
                       builder: (context, c2) {
-                        final projStr = _formatDecimalWithSeparators(
-                          prediction.projectedMonthEndKg,
-                          locale,
-                        );
+                        final projStr = noPaceData
+                            ? '—'
+                            : _formatDecimalWithSeparators(
+                                prediction.projectedMonthEndKg,
+                                locale,
+                              );
                         final double valueFont =
                             (c2.maxWidth * 0.095).clamp(20.0, 36.0);
-                        final unitFont =
-                            (valueFont * 0.42).clamp(12.0, 16.0);
-                        final valueStyle = Theme.of(context)
-                            .textTheme
-                            .displaySmall
-                            ?.copyWith(
-                              color: isDark ? Colors.white : cs.primary,
-                              fontWeight: FontWeight.w900,
-                              fontSize: valueFont,
-                              height: 1.05,
-                            );
-                        final unitStyle = Theme.of(context)
-                            .textTheme
-                            .labelLarge
-                            ?.copyWith(
-                              color: unitColor,
-                              fontWeight: FontWeight.w500,
-                              fontSize: unitFont,
-                            );
+                        final unitFont = (valueFont * 0.42).clamp(12.0, 16.0);
+                        final valueStyle =
+                            Theme.of(context).textTheme.displaySmall?.copyWith(
+                                  color: isDark ? Colors.white : cs.primary,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: valueFont,
+                                  height: 1.05,
+                                );
+                        final unitStyle =
+                            Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  color: unitColor,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: unitFont,
+                                );
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
@@ -3801,14 +3869,28 @@ class _PredictionCard extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.only(left: 6),
-                              child: Text('kg CO₂e', style: unitStyle),
-                            ),
+                            if (!noPaceData)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: Text('kg CO₂e', style: unitStyle),
+                              ),
                           ],
                         );
                       },
                     ),
+                    if (noPaceData) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        isTr
+                            ? 'Tahmin için son günlerde günlük emisyon verisi gerekir (Manuel, ESP veya Shelly).'
+                            : 'Need recent daily emissions (manual, ESP, or Shelly) to forecast.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: (isDark ? Colors.white : Colors.black)
+                                  .withValues(alpha: 0.55),
+                              height: 1.25,
+                            ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     _predictionMetaLine(
                       context,
@@ -3975,6 +4057,7 @@ class _InsightMiniCard extends StatelessWidget {
   final String title;
   final String body;
   final bool isDark;
+
   /// Yan yana [IntrinsicHeight]+[Row] için tam yükseklik; dar ekranda alt alta dizilirken false.
   final bool fillVerticalSpace;
 
@@ -3988,8 +4071,7 @@ class _InsightMiniCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.07),
         border: Border.all(
-          color:
-              Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
         ),
       ),
       child: Align(
@@ -4750,87 +4832,60 @@ class _ActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final locale = context.watch<LanguageProvider>().currentLocale;
     final Color primary = Theme.of(context).colorScheme.primary;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: primary.withValues(alpha: 0.35),
-            width: 1,
+    return Tooltip(
+      message: '$label • $rateSubtitle',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: primary.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: primary.withValues(alpha: 0.35),
+              width: 1,
+            ),
           ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: primary.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                icon,
-                size: 20,
-                color: primary,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    rateSubtitle,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: (isDark ? Colors.white : Colors.black)
-                              .withValues(alpha: 0.65),
-                          fontSize: 10,
-                          height: 1.25,
-                        ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: primary.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: primary.withValues(alpha: 0.45),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  icon,
+                  size: 24,
+                  color: primary,
                 ),
               ),
-              child: Text(
-                translate('chip_tap_to_log', locale),
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: primary,
-                      fontWeight: FontWeight.w700,
-                    ),
+              const SizedBox(width: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: primary.withValues(alpha: 0.45),
+                  ),
+                ),
+                child: Text(
+                  translate('save', locale),
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

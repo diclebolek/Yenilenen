@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../widgets/consumption_form.dart';
 import '../widgets/realtime_esp_data_widget.dart';
@@ -32,6 +33,9 @@ const EdgeInsets _kReportsSectionOuterPadding =
 
 /// Kartlar arası dikey aralık.
 const double _kReportsSectionGap = 20;
+
+/// Hedefler tahmini ile senkron (E/M toggle).
+const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
 
 /// Shelly `energyKwh` alanı **kümülatif** sayaçtır; her kayıt için bir önceki örneğe
 /// göre tüketilen kWh (delta) ile [ConsumptionEntry] üretir — günlük emisyon için.
@@ -202,7 +206,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _manualEntry; // Manuel giriş verisi (kategori dağılımı için)
   ConsumptionEntry? _espEntry; // ESP ham verisi (su+gaz için)
   ConsumptionEntry? _shellyEntry; // Shelly ham verisi (elektrik için)
-  bool _useEspData = false; // Gauge'da ESP verisi mi gösterilecek?
+  bool _useEspData =
+      true; // Varsayılan E (ESP/Shelly); Gauge ve pasta bu moda göre
   _InputMode _selectedMode = _InputMode.none;
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
@@ -230,11 +235,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     'water': 0.0,
     'waste': 0.0,
   };
+  String? _selectedLegendCategory;
   bool _isLoadingTrends = false;
   StreamSubscription<ConsumptionEntry?>? _espDataSubscription;
   StreamSubscription<ShellyData?>? _shellyDataSubscription;
   final ApiService _apiService = ApiService();
   final String _shellyDeviceId = 'shelly_plug_001';
+
   /// Shelly sayacı kümülatif; emisyon için oturum içi tüketilen kWh (delta toplamı)
   double _shellySessionKwhConsumed = 0;
   double? _shellyPrevMeterKwh;
@@ -242,6 +249,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalCarbonService _globalCarbonService = GlobalCarbonService();
   bool _showGlobalTrend = false; // Kişisel mi dünya geneli mi?
   List<double> _globalDailyTrends = [0, 0, 0, 0, 0, 0, 0];
+
   /// -1: gelecek hafta (yalnızca tahmini çizgi), 0: bu hafta, 1+: geçmiş haftalar
   int _weekOffset = 0;
   // Ülke verileri - karşılaştırma için
@@ -254,6 +262,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void initState() {
     super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final saved = p.getBool(_kPrefsReportsUseEspData);
+      if (saved != null && mounted) {
+        setState(() => _useEspData = saved);
+      }
+    });
     _loadTrendData();
     _loadGlobalTrendData();
     // Ülke verilerini yükle - öncelikli olarak
@@ -772,8 +786,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     // Shelly: yalnızca oturum içi tüketilen kWh (kümülatif sayaç × emisyon faktörü yapılmaz)
     if (_shellyEntry != null) {
-      final electricityEmission = _shellySessionKwhConsumed *
-          Calculation.factorElectricityKgPerKwh;
+      final electricityEmission =
+          _shellySessionKwhConsumed * Calculation.factorElectricityKgPerKwh;
       totalEmission += electricityEmission;
       debugPrint(
         '📊 Shelly Elektrik (delta toplamı): ${_shellySessionKwhConsumed.toStringAsFixed(4)} kWh × ${Calculation.factorElectricityKgPerKwh} = ${electricityEmission.toStringAsFixed(3)} kg CO2e',
@@ -917,8 +931,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     // Shelly'den elektrik (kümülatif değil, oturum delta toplamı)
     if (_shellyEntry != null) {
-      totalElectricity += _shellySessionKwhConsumed *
-          Calculation.factorElectricityKgPerKwh;
+      totalElectricity +=
+          _shellySessionKwhConsumed * Calculation.factorElectricityKgPerKwh;
     }
 
     // ESP'den su ve gaz
@@ -1047,14 +1061,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
       Future<void> loadEspHistory() async {
         espHistoryData = await _firebaseService
             .getHistoryData(
-          deviceId: 'esp8266_001',
-          startDate: startDate,
-          endDate: endDate,
-        )
+              deviceId: 'esp8266_001',
+              startDate: startDate,
+              endDate: endDate,
+            )
             .timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => <ConsumptionEntry>[],
-        );
+              const Duration(seconds: 10),
+              onTimeout: () => <ConsumptionEntry>[],
+            );
       }
 
       Future<void> loadShellyHistory() async {
@@ -1800,9 +1814,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           : List<double>.filled(7, 0);
       final todayValue =
           _useEspData ? _lastCalculatedKgCo2e : _manualCalculatedKgCo2e;
-      if (todayValue != null &&
-          todayValue.isFinite &&
-          sourceData.length == 7) {
+      if (todayValue != null && todayValue.isFinite && sourceData.length == 7) {
         sourceData[6] = todayValue;
       }
 
@@ -1810,37 +1822,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
         0,
         (sum, e) => sum + (e.isFinite ? e : 0),
       );
-      final weeklyAverage = sourceData.isEmpty
-          ? 0.0
-          : weeklyTotal / sourceData.length;
+      final weeklyAverage =
+          sourceData.isEmpty ? 0.0 : weeklyTotal / sourceData.length;
       final monthlyEstimate = weeklyTotal * 4.0;
       final selectedTotal = monthly ? monthlyEstimate : weeklyTotal;
-      final selectedAverage =
-          monthly ? monthlyEstimate / 30.0 : weeklyAverage;
-      final safeTotal =
-          selectedTotal.isFinite ? selectedTotal : 0.0;
-      final safeAverage =
-          selectedAverage.isFinite ? selectedAverage : 0.0;
+      final selectedAverage = monthly ? monthlyEstimate / 30.0 : weeklyAverage;
+      final safeTotal = selectedTotal.isFinite ? selectedTotal : 0.0;
+      final safeAverage = selectedAverage.isFinite ? selectedAverage : 0.0;
 
+      final activeCategoryDistribution = _activeCategoryDistribution();
       final categoryRows = [
         _buildCategoryRowForPdf(
-          translate('electricity', locale),
-          _categoryDistribution['electricity'] ?? 0,
+          translate('electricity_label', locale),
+          activeCategoryDistribution['electricity'] ?? 0,
           safeTotal,
         ),
         _buildCategoryRowForPdf(
-          translate('water', locale),
-          _categoryDistribution['water'] ?? 0,
+          translate('water_label', locale),
+          activeCategoryDistribution['water'] ?? 0,
           safeTotal,
         ),
         _buildCategoryRowForPdf(
           translate('gas_label', locale),
-          _categoryDistribution['gas'] ?? 0,
+          activeCategoryDistribution['gas'] ?? 0,
           safeTotal,
         ),
         _buildCategoryRowForPdf(
-          translate('waste', locale),
-          _categoryDistribution['waste'] ?? 0,
+          translate('waste_label', locale),
+          activeCategoryDistribution['waste'] ?? 0,
           safeTotal,
         ),
       ];
@@ -1855,8 +1864,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               pw.Expanded(
                 child: pw.Text(
                   line,
-                  style:
-                      const pw.TextStyle(fontSize: 10, lineSpacing: 1.25),
+                  style: const pw.TextStyle(fontSize: 10, lineSpacing: 1.25),
                 ),
               ),
             ],
@@ -1887,8 +1895,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
             pw.Text(
               '${translate('pdf_generated_at', locale)}: ${now.toIso8601String().substring(0, 16)}',
-              style:
-                  const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
             ),
             pw.SizedBox(height: 16),
             pw.Container(
@@ -1972,9 +1979,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isTr
-                ? 'PDF oluşturulamadı: $e'
-                : 'Could not create PDF: $e',
+            isTr ? 'PDF oluşturulamadı: $e' : 'Could not create PDF: $e',
           ),
         ),
       );
@@ -1989,9 +1994,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final shareKg = totalKg * (percent / 100);
     return [
       label,
-      '${percent.toStringAsFixed(1)}%',
-      shareKg.toStringAsFixed(2),
+      '${_formatPercent(percent)}%',
+      _formatKgForPdf(shareKg),
     ];
+  }
+
+  String _formatPercent(double percent) {
+    if (percent <= 0) return '0.0';
+    if (percent < 0.1) return percent.toStringAsFixed(3);
+    if (percent < 1) return percent.toStringAsFixed(2);
+    if (percent < 10) return percent.toStringAsFixed(1);
+    return percent.toStringAsFixed(0);
+  }
+
+  String _formatKgForPdf(double kg) {
+    if (kg <= 0) return '0.00';
+    if (kg < 0.01) return kg.toStringAsFixed(4);
+    if (kg < 0.1) return kg.toStringAsFixed(3);
+    return kg.toStringAsFixed(2);
   }
 
   int _isoWeekNumber(DateTime date) {
@@ -2002,9 +2022,134 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return ((dayOfYear - 1) ~/ 7) + 1;
   }
 
+  Map<String, double> _distributionFromEmissions({
+    required double electricity,
+    required double gas,
+    required double water,
+    required double waste,
+  }) {
+    final total = electricity + gas + water + waste;
+    if (total <= 0) {
+      return {
+        'electricity': 0.0,
+        'gas': 0.0,
+        'water': 0.0,
+        'waste': 0.0,
+      };
+    }
+
+    double electricityPercent = (electricity / total) * 100;
+    double gasPercent = (gas / total) * 100;
+    double waterPercent = (water / total) * 100;
+    double wastePercent = (waste / total) * 100;
+
+    const double minVisiblePercent = 2.0;
+    final percents = <String, double>{
+      'electricity': electricityPercent,
+      'gas': gasPercent,
+      'water': waterPercent,
+      'waste': wastePercent,
+    };
+    final positiveKeys =
+        percents.entries.where((e) => e.value > 0).map((e) => e.key).toList();
+    if (positiveKeys.isNotEmpty) {
+      final effectiveMin = (100.0 / positiveKeys.length) < minVisiblePercent
+          ? (100.0 / positiveKeys.length)
+          : minVisiblePercent;
+      final boostedKeys = positiveKeys
+          .where((k) => (percents[k] ?? 0.0) < effectiveMin)
+          .toList();
+      if (boostedKeys.isNotEmpty) {
+        final unboostedKeys =
+            positiveKeys.where((k) => !boostedKeys.contains(k)).toList();
+        final boostedTotal = effectiveMin * boostedKeys.length;
+        final remaining = (100.0 - boostedTotal).clamp(0.0, 100.0);
+        final unboostedOriginalTotal = unboostedKeys.fold<double>(
+          0.0,
+          (sum, k) => sum + (percents[k] ?? 0.0),
+        );
+
+        for (final key in boostedKeys) {
+          percents[key] = effectiveMin;
+        }
+
+        if (unboostedKeys.isNotEmpty && unboostedOriginalTotal > 0) {
+          for (final key in unboostedKeys) {
+            final original = percents[key] ?? 0.0;
+            percents[key] = (original / unboostedOriginalTotal) * remaining;
+          }
+        }
+      }
+    }
+
+    electricityPercent = percents['electricity'] ?? 0.0;
+    gasPercent = percents['gas'] ?? 0.0;
+    waterPercent = percents['water'] ?? 0.0;
+    wastePercent = percents['waste'] ?? 0.0;
+
+    return {
+      'electricity': electricityPercent,
+      'gas': gasPercent,
+      'water': waterPercent,
+      'waste': wastePercent,
+    };
+  }
+
+  Map<String, double> _manualCategoryDistribution() {
+    final entry = _manualEntry;
+    if (entry == null) {
+      return {
+        'electricity': 0.0,
+        'gas': 0.0,
+        'water': 0.0,
+        'waste': 0.0,
+      };
+    }
+    return _distributionFromEmissions(
+      electricity: entry.electricityKwh * Calculation.factorElectricityKgPerKwh,
+      gas: Calculation.fuelEmissionKgCo2e(entry),
+      water: entry.waterCubicMeters * Calculation.factorWaterKgPerM3,
+      waste: entry.wasteKg * Calculation.factorWasteKgPerKg,
+    );
+  }
+
+  Map<String, double> _sensorCategoryDistribution() {
+    final espEntry = _espEntry;
+    if (espEntry == null && _shellyEntry == null) {
+      return {
+        'electricity': 0.0,
+        'gas': 0.0,
+        'water': 0.0,
+        'waste': 0.0,
+      };
+    }
+    return _distributionFromEmissions(
+      electricity:
+          _shellySessionKwhConsumed * Calculation.factorElectricityKgPerKwh,
+      gas: espEntry == null ? 0.0 : Calculation.fuelEmissionKgCo2e(espEntry),
+      water: espEntry == null
+          ? 0.0
+          : espEntry.waterCubicMeters * Calculation.factorWaterKgPerM3,
+      waste: espEntry == null
+          ? 0.0
+          : espEntry.wasteKg * Calculation.factorWasteKgPerKg,
+    );
+  }
+
+  Map<String, double> _activeCategoryDistribution() {
+    final liveDistribution = _useEspData
+        ? _sensorCategoryDistribution()
+        : _manualCategoryDistribution();
+    final liveTotal =
+        liveDistribution.values.fold<double>(0.0, (sum, v) => sum + v);
+    if (liveTotal > 0) return liveDistribution;
+    return Map<String, double>.from(_categoryDistribution);
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final activeCategoryDistribution = _activeCategoryDistribution();
     final TextStyle headerStyle = TextStyle(
       fontSize: 18,
       fontWeight: FontWeight.bold,
@@ -2023,8 +2168,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final media = MediaQuery.of(context);
     final double bottomPadding = media.padding.bottom;
     const double bottomNavReserve = 80;
-    final double reportHorizontalPad =
-        media.size.width < 360 ? 12.0 : 16.0;
+    final double reportHorizontalPad = media.size.width < 360 ? 12.0 : 16.0;
     final EdgeInsets listViewPadding = EdgeInsets.only(
       top: 16,
       left: reportHorizontalPad,
@@ -2036,12 +2180,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     // genişlik MediaQuery ile (Hedefler ekranındaki gibi).
     final double reportViewportW = media.size.width;
     final bool isWide = reportViewportW >= 900;
-    final double gaugeSize = isWide
-        ? 240.0
-        : (reportViewportW * 0.38).clamp(160.0, 240.0);
-    final double headerHeight = isWide
-        ? 180.0
-        : (reportViewportW * 9.0 / 16.0).clamp(120.0, 180.0);
+    final double gaugeSectionMaxHeight =
+        (media.size.height * 0.62).clamp(280.0, 460.0);
+    final double gaugeSize =
+        (isWide ? 260.0 : (reportViewportW * 0.42)).clamp(170.0, 280.0);
+    final double headerHeight =
+        (gaugeSectionMaxHeight - (gaugeSize * 0.42)).clamp(130.0, 220.0);
 
     return Scaffold(
       appBar: null,
@@ -2057,9 +2201,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
               // Tüm TextTheme renklerini beyaza uygula (başlıklar dahil)
               data: Theme.of(context).copyWith(
                 textTheme: Theme.of(context).textTheme.apply(
-                  bodyColor: Colors.white,
-                  displayColor: Colors.white,
-                ),
+                      bodyColor: Colors.white,
+                      displayColor: Colors.white,
+                    ),
               ),
               child: Material(
                 color: Colors.transparent,
@@ -2072,6 +2216,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                       child: RepaintBoundary(
                         child: ListView(
+                          physics: const BouncingScrollPhysics(),
                           clipBehavior: Clip.hardEdge,
                           padding: listViewPadding,
                           children: [
@@ -2094,9 +2239,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                         ),
                                       ),
                                       _ReportsRoundInfoIcon(
-                                        onTap: () =>
-                                            _showGaugeInfoDialog(
-                                                context, locale),
+                                        onTap: () => _showGaugeInfoDialog(
+                                            context, locale),
                                       ),
                                     ],
                                   ),
@@ -2150,6 +2294,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   }
                                                 }
                                               });
+                                              SharedPreferences.getInstance()
+                                                  .then((p) => p.setBool(
+                                                        _kPrefsReportsUseEspData,
+                                                        value,
+                                                      ));
                                               if (!value &&
                                                   (_manualCalculatedKgCo2e ==
                                                           null ||
@@ -2212,17 +2361,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 const WidgetStatePropertyAll(
                                               Colors.white,
                                             ),
-                                            backgroundColor:
-                                                _selectedMode ==
-                                                        _InputMode.raspberry
-                                                    ? WidgetStatePropertyAll(
-                                                        Theme.of(context)
-                                                            .colorScheme
-                                                            .primary
-                                                            .withValues(
-                                                                alpha: 0.3),
-                                                      )
-                                                    : null,
+                                            backgroundColor: _selectedMode ==
+                                                    _InputMode.raspberry
+                                                ? WidgetStatePropertyAll(
+                                                    Theme.of(context)
+                                                        .colorScheme
+                                                        .primary
+                                                        .withValues(alpha: 0.3),
+                                                  )
+                                                : null,
                                             shape: WidgetStatePropertyAll(
                                               StadiumBorder(
                                                 side: BorderSide(
@@ -2261,58 +2408,59 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                       child: Padding(
                                         padding: _kReportsCardInnerPadding,
                                         child: ConsumptionForm(
-                                        onCalculated: (valueKgCo2e) {
-                                          setState(() {
-                                            _manualCalculatedKgCo2e =
-                                                valueKgCo2e;
-                                            // Eğer manuel veri seçiliyse, gauge'ı güncelle
-                                            if (!_useEspData) {
-                                              _lastCalculatedKgCo2e =
+                                          onCalculated: (valueKgCo2e) {
+                                            setState(() {
+                                              _manualCalculatedKgCo2e =
                                                   valueKgCo2e;
-                                              // Grafikteki bugünün değerini de güncelle (manuel veriler listesine)
-                                              if (_manualDailyEmissions
-                                                      .length ==
-                                                  7) {
-                                                _manualDailyEmissions[6] =
+                                              // Eğer manuel veri seçiliyse, gauge'ı güncelle
+                                              if (!_useEspData) {
+                                                _lastCalculatedKgCo2e =
                                                     valueKgCo2e;
-                                                debugPrint(
-                                                  '📊 Manuel hesaplama: Manuel grafikteki bugünün değeri güncellendi: ${valueKgCo2e.toStringAsFixed(2)} kg CO2e',
-                                                );
+                                                // Grafikteki bugünün değerini de güncelle (manuel veriler listesine)
+                                                if (_manualDailyEmissions
+                                                        .length ==
+                                                    7) {
+                                                  _manualDailyEmissions[6] =
+                                                      valueKgCo2e;
+                                                  debugPrint(
+                                                    '📊 Manuel hesaplama: Manuel grafikteki bugünün değeri güncellendi: ${valueKgCo2e.toStringAsFixed(2)} kg CO2e',
+                                                  );
+                                                }
                                               }
-                                            }
-                                          });
-                                        },
-                                        onEntryCalculated:
-                                            (valueKgCo2e, entry) {
-                                          // Manuel entry'yi sakla (kategori dağılımı için)
-                                          setState(() {
-                                            _manualEntry = entry;
-                                            _manualCalculatedKgCo2e =
-                                                valueKgCo2e;
-                                            // Eğer manuel veri seçiliyse, kategori dağılımını güncelle
-                                            if (!_useEspData) {
-                                              _updateCategoryDistributionFromEntry(
-                                                  entry);
-                                            }
-                                          });
-                                        },
-                                        languageProvider:
-                                            widget.languageProvider,
+                                            });
+                                          },
+                                          onEntryCalculated:
+                                              (valueKgCo2e, entry) {
+                                            // Manuel entry'yi sakla (kategori dağılımı için)
+                                            setState(() {
+                                              _manualEntry = entry;
+                                              _manualCalculatedKgCo2e =
+                                                  valueKgCo2e;
+                                              // Eğer manuel veri seçiliyse, kategori dağılımını güncelle
+                                              if (!_useEspData) {
+                                                _updateCategoryDistributionFromEntry(
+                                                    entry);
+                                              }
+                                            });
+                                          },
+                                          languageProvider:
+                                              widget.languageProvider,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                            // ESP8266 Anlık Veriler - Raspberry Pi butonuna basıldığında göster
-                            if (_selectedMode == _InputMode.raspberry) ...[
+                            // ESP8266 + Shelly: E (ESP/Shelly) seçiliyken her zaman; ayrıca ESP8266 butonuna basılırsa da
+                            if (_selectedMode == _InputMode.raspberry ||
+                                _useEspData) ...[
                               Padding(
                                 padding: _kReportsSectionOuterPadding,
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(16),
                                   child: BackdropFilter(
-                                    filter: ImageFilter.blur(
-                                        sigmaX: 8, sigmaY: 8),
+                                    filter:
+                                        ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                                     child: Container(
                                       decoration: BoxDecoration(
                                         color: Colors.black
@@ -2334,8 +2482,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(16),
                                   child: BackdropFilter(
-                                    filter: ImageFilter.blur(
-                                        sigmaX: 8, sigmaY: 8),
+                                    filter:
+                                        ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                                     child: Container(
                                       decoration: BoxDecoration(
                                         color: Colors.black
@@ -2374,1173 +2522,1155 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               child: Stack(
                                 clipBehavior: Clip.none,
                                 children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: ClipRect(
-                                    child: BackdropFilter(
-                                      filter: ImageFilter.blur(
-                                          sigmaX: 8, sigmaY: 8),
-                                      child: Container(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.12),
-                                        child: Padding(
-                                          padding: _kReportsCardInnerPadding,
-                                          child: Stack(
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .spaceBetween,
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          _showGlobalTrend
-                                                              ? translate(
-                                                                  'global_trend',
-                                                                  locale)
-                                                              : translate(
-                                                                  'daily_trends',
-                                                                  locale),
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: headerStyle,
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: ClipRect(
+                                      child: BackdropFilter(
+                                        filter: ImageFilter.blur(
+                                            sigmaX: 8, sigmaY: 8),
+                                        child: Container(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.12),
+                                          child: Padding(
+                                            padding: _kReportsCardInnerPadding,
+                                            child: Stack(
+                                              clipBehavior: Clip.none,
+                                              children: [
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .spaceBetween,
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .center,
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            _showGlobalTrend
+                                                                ? translate(
+                                                                    'global_trend',
+                                                                    locale)
+                                                                : translate(
+                                                                    'daily_trends',
+                                                                    locale),
+                                                            maxLines: 2,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: headerStyle,
+                                                          ),
                                                         ),
-                                                      ),
-                                                      Align(
-                                                        alignment: Alignment
-                                                            .centerRight,
-                                                        child: FittedBox(
-                                                          fit: BoxFit.scaleDown,
+                                                        Align(
                                                           alignment: Alignment
                                                               .centerRight,
-                                                          child: Row(
-                                                            mainAxisSize:
-                                                                MainAxisSize
-                                                                    .min,
-                                                            children: [
-                                                              IconButton(
-                                                                onPressed: () {
-                                                                  if (_showGlobalTrend) {
-                                                                    _loadGlobalTrendData();
-                                                                  } else {
-                                                                    _loadTrendData();
-                                                                  }
-                                                                },
-                                                                icon:
-                                                                    const Icon(
-                                                                  Icons.refresh,
-                                                                  size: 20,
-                                                                ),
-                                                                color: Colors
-                                                                    .white70,
-                                                                tooltip:
-                                                                    translate(
-                                                                  'refresh',
-                                                                  locale,
-                                                                ),
-                                                                visualDensity:
-                                                                    const VisualDensity(
-                                                                  horizontal:
-                                                                      -3,
-                                                                  vertical: -3,
-                                                                ),
-                                                                constraints:
-                                                                    const BoxConstraints(
-                                                                  minWidth: 30,
-                                                                  minHeight: 30,
-                                                                ),
-                                                                padding:
-                                                                    EdgeInsets
-                                                                        .zero,
-                                                              ),
-                                                              const SizedBox(
-                                                                  width: 2),
-                                                              Text(
-                                                                _showGlobalTrend
-                                                                    ? translate(
-                                                                        'global_trend',
-                                                                        locale)
-                                                                    : translate(
-                                                                        'personal_trend',
-                                                                        locale),
-                                                                maxLines: 1,
-                                                                overflow:
-                                                                    TextOverflow
-                                                                        .ellipsis,
-                                                                style:
-                                                                    subStyle,
-                                                              ),
-                                                              const SizedBox(
-                                                                  width: 2),
-                                                              Transform.scale(
-                                                                scale: 0.92,
-                                                                child: Switch(
-                                                                  value:
-                                                                      _showGlobalTrend,
-                                                                  onChanged:
-                                                                      (value) {
-                                                                    setState(
-                                                                        () {
-                                                                      _showGlobalTrend =
-                                                                          value;
-                                                                    });
+                                                          child: FittedBox(
+                                                            fit: BoxFit
+                                                                .scaleDown,
+                                                            alignment: Alignment
+                                                                .centerRight,
+                                                            child: Row(
+                                                              mainAxisSize:
+                                                                  MainAxisSize
+                                                                      .min,
+                                                              children: [
+                                                                IconButton(
+                                                                  onPressed:
+                                                                      () {
+                                                                    if (_showGlobalTrend) {
+                                                                      _loadGlobalTrendData();
+                                                                    } else {
+                                                                      _loadTrendData();
+                                                                    }
                                                                   },
-                                                                  activeThumbColor:
-                                                                      Colors
-                                                                          .green,
-                                                                  materialTapTargetSize:
-                                                                      MaterialTapTargetSize
-                                                                          .shrinkWrap,
+                                                                  icon:
+                                                                      const Icon(
+                                                                    Icons
+                                                                        .refresh,
+                                                                    size: 20,
+                                                                  ),
+                                                                  color: Colors
+                                                                      .white70,
+                                                                  tooltip:
+                                                                      translate(
+                                                                    'refresh',
+                                                                    locale,
+                                                                  ),
+                                                                  visualDensity:
+                                                                      const VisualDensity(
+                                                                    horizontal:
+                                                                        -3,
+                                                                    vertical:
+                                                                        -3,
+                                                                  ),
+                                                                  constraints:
+                                                                      const BoxConstraints(
+                                                                    minWidth:
+                                                                        30,
+                                                                    minHeight:
+                                                                        30,
+                                                                  ),
+                                                                  padding:
+                                                                      EdgeInsets
+                                                                          .zero,
                                                                 ),
-                                                              ),
-                                                            ],
+                                                                const SizedBox(
+                                                                    width: 12),
+                                                                Text(
+                                                                  _showGlobalTrend
+                                                                      ? translate(
+                                                                          'global_trend',
+                                                                          locale)
+                                                                      : translate(
+                                                                          'personal_trend',
+                                                                          locale),
+                                                                  maxLines: 1,
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
+                                                                  style:
+                                                                      subStyle,
+                                                                ),
+                                                                const SizedBox(
+                                                                    width: 10),
+                                                                Transform.scale(
+                                                                  scale: 0.92,
+                                                                  child: Switch(
+                                                                    value:
+                                                                        _showGlobalTrend,
+                                                                    onChanged:
+                                                                        (value) {
+                                                                      setState(
+                                                                          () {
+                                                                        _showGlobalTrend =
+                                                                            value;
+                                                                      });
+                                                                    },
+                                                                    activeThumbColor:
+                                                                        Colors
+                                                                            .green,
+                                                                    materialTapTargetSize:
+                                                                        MaterialTapTargetSize
+                                                                            .shrinkWrap,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
                                                           ),
                                                         ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  Divider(
-                                                    color: Colors.white
-                                                        .withValues(alpha: 0.3),
-                                                  ),
-                                                  const SizedBox(height: 8),
-                                                  // Çizgi grafiği
-                                                  _isLoadingTrends
-                                                      ? const SizedBox(
-                                                          height: 200,
-                                                          child: Center(
-                                                            child:
-                                                                CircularProgressIndicator(),
-                                                          ),
-                                                        )
-                                                      : (((_showGlobalTrend
-                                                                          ? _globalDailyTrends
-                                                                          : (_useEspData
-                                                                              ? _dailyEmissions
-                                                                              : _manualDailyEmissions))
-                                                                      .isEmpty ||
-                                                                  (_showGlobalTrend
-                                                                          ? _globalDailyTrends
-                                                                          : (_useEspData
-                                                                              ? _dailyEmissions
-                                                                              : _manualDailyEmissions))
-                                                                      .every((e) =>
-                                                                          e ==
-                                                                          0)) &&
-                                                              !(_showCountryComparison &&
-                                                                  !_showGlobalTrend &&
-                                                                  _countryTrends
-                                                                      .isNotEmpty))
-                                                          ? SizedBox(
-                                                              height: 200,
-                                                              child: Center(
-                                                                child: Text(
-                                                                  translate(
-                                                                      'no_data_available',
-                                                                      locale),
-                                                                  style: subStyle,
+                                                      ],
+                                                    ),
+                                                    Divider(
+                                                      color: Colors.white
+                                                          .withValues(
+                                                              alpha: 0.3),
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    // Çizgi grafiği
+                                                    _isLoadingTrends
+                                                        ? const SizedBox(
+                                                            height: 200,
+                                                            child: Center(
+                                                              child:
+                                                                  CircularProgressIndicator(),
+                                                            ),
+                                                          )
+                                                        : (((_showGlobalTrend
+                                                                            ? _globalDailyTrends
+                                                                            : (_useEspData
+                                                                                ? _dailyEmissions
+                                                                                : _manualDailyEmissions))
+                                                                        .isEmpty ||
+                                                                    (_showGlobalTrend
+                                                                            ? _globalDailyTrends
+                                                                            : (_useEspData
+                                                                                ? _dailyEmissions
+                                                                                : _manualDailyEmissions))
+                                                                        .every((e) =>
+                                                                            e ==
+                                                                            0)) &&
+                                                                !(_showCountryComparison &&
+                                                                    !_showGlobalTrend &&
+                                                                    _countryTrends
+                                                                        .isNotEmpty))
+                                                            ? SizedBox(
+                                                                height: 200,
+                                                                child: Center(
+                                                                  child: Text(
+                                                                    translate(
+                                                                        'no_data_available',
+                                                                        locale),
+                                                                    style:
+                                                                        subStyle,
+                                                                  ),
                                                                 ),
-                                                              ),
-                                                            )
-                                                          : Builder(
-                                                              key: ValueKey(
-                                                                  'trend_chart_${_useEspData}_$_showGlobalTrend$_weekOffset'), // Hafta / mod değişince yeniden çiz
-                                                              builder:
-                                                                  (context) {
-                                                                List<double>
-                                                                    ensureSevenDays(
-                                                                        List<double>
-                                                                            values) {
-                                                                  final safe =
-                                                                      values
+                                                              )
+                                                            : Builder(
+                                                                key: ValueKey(
+                                                                    'trend_chart_${_useEspData}_$_showGlobalTrend$_weekOffset'), // Hafta / mod değişince yeniden çiz
+                                                                builder:
+                                                                    (context) {
+                                                                  List<double>
+                                                                      ensureSevenDays(
+                                                                          List<double>
+                                                                              values) {
+                                                                    final safe =
+                                                                        values
+                                                                            .map(
+                                                                              (e) => _toDoubleSafe(e),
+                                                                            )
+                                                                            .toList();
+                                                                    if (safe.length >=
+                                                                        7) {
+                                                                      return safe.sublist(
+                                                                          safe.length -
+                                                                              7);
+                                                                    }
+                                                                    return [
+                                                                      ...List<double>.filled(
+                                                                          7 - safe.length,
+                                                                          0.0),
+                                                                      ...safe,
+                                                                    ];
+                                                                  }
+
+                                                                  double toPerCapitaDailyKg(
+                                                                      double
+                                                                          value) {
+                                                                    if (value <=
+                                                                        0) {
+                                                                      return 0.0;
+                                                                    }
+                                                                    // Heuristik dönüşüm:
+                                                                    // Çok büyük değerleri dünya toplamından kişi başı günlük ortalamaya çevir.
+                                                                    // 8 milyar kişi varsayımıyla.
+                                                                    if (value >
+                                                                        1000000000) {
+                                                                      return value /
+                                                                          8000000000;
+                                                                    }
+                                                                    // Milyon ton/yıl benzeri seri için kişi başı günlük yaklaşıma indirgeme.
+                                                                    if (value >
+                                                                        1000) {
+                                                                      return value /
+                                                                          2920.0;
+                                                                    }
+                                                                    return value;
+                                                                  }
+
+                                                                  final selectedPersonalDaily =
+                                                                      _useEspData
+                                                                          ? _dailyEmissions
+                                                                          : _manualDailyEmissions;
+                                                                  final personalSeries =
+                                                                      ensureSevenDays(
+                                                                    selectedPersonalDaily
+                                                                        .map((e) =>
+                                                                            _toDoubleSafe(e))
+                                                                        .toList(),
+                                                                  );
+                                                                  // Gauge'da gösterilen güncel değer ile grafikteki bugünün değeri senkron olsun.
+                                                                  final double?
+                                                                      todayPersonalValue =
+                                                                      _lastCalculatedKgCo2e ??
+                                                                          (_useEspData
+                                                                              ? null
+                                                                              : _manualCalculatedKgCo2e);
+                                                                  if (_weekOffset !=
+                                                                          -1 &&
+                                                                      todayPersonalValue !=
+                                                                          null &&
+                                                                      personalSeries
+                                                                              .length ==
+                                                                          7) {
+                                                                    personalSeries[
+                                                                            6] =
+                                                                        _toDoubleSafe(
+                                                                            todayPersonalValue);
+                                                                  }
+
+                                                                  final globalRawSeries =
+                                                                      ensureSevenDays(
+                                                                    _globalDailyTrends
+                                                                        .map((e) =>
+                                                                            _toDoubleSafe(e))
+                                                                        .toList(),
+                                                                  );
+                                                                  final globalPerCapitaSeries =
+                                                                      globalRawSeries
                                                                           .map(
                                                                             (e) =>
-                                                                                _toDoubleSafe(e),
+                                                                                toPerCapitaDailyKg(e),
                                                                           )
                                                                           .toList();
-                                                                  if (safe.length >=
-                                                                      7) {
-                                                                    return safe.sublist(
-                                                                        safe.length -
-                                                                            7);
-                                                                  }
-                                                                  return [
-                                                                    ...List<double>.filled(
-                                                                        7 - safe.length,
-                                                                        0.0),
-                                                                    ...safe,
-                                                                  ];
-                                                                }
 
-                                                                double toPerCapitaDailyKg(
-                                                                    double
-                                                                        value) {
-                                                                  if (value <=
-                                                                      0) {
-                                                                    return 0.0;
-                                                                  }
-                                                                  // Heuristik dönüşüm:
-                                                                  // Çok büyük değerleri dünya toplamından kişi başı günlük ortalamaya çevir.
-                                                                  // 8 milyar kişi varsayımıyla.
-                                                                  if (value >
-                                                                      1000000000) {
-                                                                    return value /
-                                                                        8000000000;
-                                                                  }
-                                                                  // Milyon ton/yıl benzeri seri için kişi başı günlük yaklaşıma indirgeme.
-                                                                  if (value >
-                                                                      1000) {
-                                                                    return value /
-                                                                        2920.0;
-                                                                  }
-                                                                  return value;
-                                                                }
+                                                                  List<double>
+                                                                      globalPlottedSeries =
+                                                                      globalPerCapitaSeries;
+                                                                  List<double>
+                                                                      personalPlottedSeries =
+                                                                      personalSeries;
 
-                                                                final selectedPersonalDaily =
-                                                                    _useEspData
-                                                                        ? _dailyEmissions
-                                                                        : _manualDailyEmissions;
-                                                                final personalSeries =
-                                                                    ensureSevenDays(
-                                                                  selectedPersonalDaily
-                                                                      .map((e) =>
-                                                                          _toDoubleSafe(
-                                                                              e))
-                                                                      .toList(),
-                                                                );
-                                                                // Gauge'da gösterilen güncel değer ile grafikteki bugünün değeri senkron olsun.
-                                                                final double?
-                                                                    todayPersonalValue =
-                                                                    _lastCalculatedKgCo2e ??
-                                                                        (_useEspData
-                                                                            ? null
-                                                                            : _manualCalculatedKgCo2e);
-                                                                if (_weekOffset !=
-                                                                        -1 &&
-                                                                    todayPersonalValue !=
-                                                                        null &&
-                                                                    personalSeries
-                                                                            .length ==
-                                                                        7) {
-                                                                  personalSeries[
-                                                                          6] =
-                                                                      _toDoubleSafe(
-                                                                          todayPersonalValue);
-                                                                }
-
-                                                                final globalRawSeries =
-                                                                    ensureSevenDays(
-                                                                  _globalDailyTrends
-                                                                      .map((e) =>
-                                                                          _toDoubleSafe(
-                                                                              e))
-                                                                      .toList(),
-                                                                );
-                                                                final globalPerCapitaSeries =
-                                                                    globalRawSeries
-                                                                        .map(
-                                                                          (e) =>
-                                                                              toPerCapitaDailyKg(e),
-                                                                        )
-                                                                        .toList();
-
-                                                                List<double>
-                                                                    globalPlottedSeries =
-                                                                    globalPerCapitaSeries;
-                                                                List<double>
-                                                                    personalPlottedSeries =
-                                                                    personalSeries;
-
-                                                                if (_showGlobalTrend) {
-                                                                  final combined =
-                                                                      [
-                                                                    ...globalPerCapitaSeries,
-                                                                    ...personalSeries,
-                                                                  ];
-                                                                  final minCombined =
-                                                                      combined.reduce((a,
-                                                                              b) =>
-                                                                          a < b
-                                                                              ? a
-                                                                              : b);
-                                                                  final maxCombined =
-                                                                      combined.reduce((a,
-                                                                              b) =>
-                                                                          a > b
-                                                                              ? a
-                                                                              : b);
-                                                                  final range =
-                                                                      (maxCombined -
-                                                                              minCombined)
-                                                                          .abs();
-                                                                  if (range >
-                                                                      0) {
-                                                                    globalPlottedSeries = globalPerCapitaSeries
-                                                                        .map((e) =>
-                                                                            ((e - minCombined) /
-                                                                                range) *
-                                                                            100.0)
-                                                                        .toList();
-                                                                    personalPlottedSeries = personalSeries
-                                                                        .map((e) =>
-                                                                            ((e - minCombined) /
-                                                                                range) *
-                                                                            100.0)
-                                                                        .toList();
-                                                                    // Çok düşük ama sıfır olmayan kişisel değerleri görünür tut.
-                                                                    personalPlottedSeries = personalPlottedSeries
-                                                                        .asMap()
-                                                                        .entries
-                                                                        .map(
-                                                                            (entry) {
-                                                                      final rawValue =
-                                                                          personalSeries[
-                                                                              entry.key];
-                                                                      final plotted =
-                                                                          entry
-                                                                              .value;
-                                                                      if (rawValue >
-                                                                              0 &&
-                                                                          plotted <
-                                                                              1.0) {
-                                                                        return 1.0;
-                                                                      }
-                                                                      return plotted;
-                                                                    }).toList();
-                                                                  } else {
-                                                                    globalPlottedSeries =
-                                                                        List<double>.filled(
-                                                                            7,
-                                                                            50.0);
-                                                                    personalPlottedSeries =
-                                                                        List<double>.filled(
-                                                                            7,
-                                                                            50.0);
-                                                                  }
-                                                                }
-
-                                                                // Ana seri: global modda dünya verisi, kişisel modda kişisel veri
-                                                                final normalizedData =
-                                                                    _showGlobalTrend
-                                                                        ? globalPlottedSeries
-                                                                        : personalSeries;
-
-                                                                // Maksimum değeri hesapla (kullanıcı + ülke verileri)
-                                                                final allValues =
-                                                                    [
-                                                                  ...normalizedData,
-                                                                  if (_showGlobalTrend)
-                                                                    ...personalPlottedSeries,
-                                                                  if (_showCountryComparison &&
-                                                                      !_showGlobalTrend)
-                                                                    ..._countryTrends
-                                                                        .values
-                                                                        .expand(
-                                                                            (e) =>
-                                                                                e),
-                                                                ];
-
-                                                                // Debug: Değerleri logla
-                                                                final userMax = normalizedData
-                                                                        .isNotEmpty
-                                                                    ? normalizedData.reduce((a,
+                                                                  if (_showGlobalTrend) {
+                                                                    final combined =
+                                                                        [
+                                                                      ...globalPerCapitaSeries,
+                                                                      ...personalSeries,
+                                                                    ];
+                                                                    final minCombined = combined.reduce((a,
+                                                                            b) =>
+                                                                        a < b
+                                                                            ? a
+                                                                            : b);
+                                                                    final maxCombined = combined.reduce((a,
                                                                             b) =>
                                                                         a > b
                                                                             ? a
-                                                                            : b)
-                                                                    : 0.0;
-                                                                final userMin = normalizedData
-                                                                        .isNotEmpty
-                                                                    ? normalizedData
-                                                                        .where((e) =>
-                                                                            e >
-                                                                            0)
-                                                                        .fold(
-                                                                            double
-                                                                                .infinity,
-                                                                            (a, b) => a < b
-                                                                                ? a
-                                                                                : b)
-                                                                    : 0.0;
-                                                                final userAvg = normalizedData
-                                                                        .isNotEmpty
-                                                                    ? normalizedData.reduce((a,
-                                                                                b) =>
-                                                                            a +
-                                                                            b) /
-                                                                        normalizedData
-                                                                            .length
-                                                                    : 0.0;
+                                                                            : b);
+                                                                    final range =
+                                                                        (maxCombined -
+                                                                                minCombined)
+                                                                            .abs();
+                                                                    if (range >
+                                                                        0) {
+                                                                      globalPlottedSeries = globalPerCapitaSeries
+                                                                          .map((e) =>
+                                                                              ((e - minCombined) / range) *
+                                                                              100.0)
+                                                                          .toList();
+                                                                      personalPlottedSeries = personalSeries
+                                                                          .map((e) =>
+                                                                              ((e - minCombined) / range) *
+                                                                              100.0)
+                                                                          .toList();
+                                                                      // Çok düşük ama sıfır olmayan kişisel değerleri görünür tut.
+                                                                      personalPlottedSeries = personalPlottedSeries
+                                                                          .asMap()
+                                                                          .entries
+                                                                          .map(
+                                                                              (entry) {
+                                                                        final rawValue =
+                                                                            personalSeries[entry.key];
+                                                                        final plotted =
+                                                                            entry.value;
+                                                                        if (rawValue >
+                                                                                0 &&
+                                                                            plotted <
+                                                                                1.0) {
+                                                                          return 1.0;
+                                                                        }
+                                                                        return plotted;
+                                                                      }).toList();
+                                                                    } else {
+                                                                      globalPlottedSeries =
+                                                                          List<double>.filled(
+                                                                              7,
+                                                                              50.0);
+                                                                      personalPlottedSeries =
+                                                                          List<double>.filled(
+                                                                              7,
+                                                                              50.0);
+                                                                    }
+                                                                  }
 
-                                                                debugPrint(
-                                                                    '📊 Kullanıcı Verileri Analizi:');
-                                                                debugPrint(
-                                                                    '   Min: ${userMin.toStringAsFixed(2)} kg CO2e');
-                                                                debugPrint(
-                                                                    '   Max: ${userMax.toStringAsFixed(2)} kg CO2e');
-                                                                debugPrint(
-                                                                    '   Ortalama: ${userAvg.toStringAsFixed(2)} kg CO2e');
-                                                                debugPrint(
-                                                                    '   Tüm değerler: ${normalizedData.map((e) => e.toStringAsFixed(2)).join(", ")}');
-
-                                                                if (_showCountryComparison &&
-                                                                    !_showGlobalTrend &&
-                                                                    _countryTrends
-                                                                        .isNotEmpty) {
-                                                                  final countryMax = _countryTrends
-                                                                      .values
-                                                                      .expand(
-                                                                          (e) =>
-                                                                              e)
-                                                                      .fold(
-                                                                          0.0,
-                                                                          (a, b) => a > b
-                                                                              ? a
-                                                                              : b);
-                                                                  debugPrint(
-                                                                      '📈 Ülke max: $countryMax kg CO2e');
-                                                                }
-
-                                                                // Grafik ölçeğini hesapla
-                                                                // Kullanıcı verilerinin max değerini kullan, ama çok yüksekse sınırla
-                                                                double maxY;
-                                                                if (allValues
-                                                                        .isEmpty ||
-                                                                    allValues.every(
-                                                                        (e) =>
-                                                                            e ==
-                                                                            0)) {
-                                                                  maxY =
+                                                                  // Ana seri: global modda dünya verisi, kişisel modda kişisel veri
+                                                                  final normalizedData =
                                                                       _showGlobalTrend
-                                                                          ? 100
-                                                                          : 10;
-                                                                } else {
-                                                                  final maxValue =
-                                                                      allValues.reduce((a,
+                                                                          ? globalPlottedSeries
+                                                                          : personalSeries;
+
+                                                                  // Maksimum değeri hesapla (kullanıcı + ülke verileri)
+                                                                  final allValues =
+                                                                      [
+                                                                    ...normalizedData,
+                                                                    if (_showGlobalTrend)
+                                                                      ...personalPlottedSeries,
+                                                                    if (_showCountryComparison &&
+                                                                        !_showGlobalTrend)
+                                                                      ..._countryTrends
+                                                                          .values
+                                                                          .expand((e) =>
+                                                                              e),
+                                                                  ];
+
+                                                                  // Debug: Değerleri logla
+                                                                  final userMax = normalizedData
+                                                                          .isNotEmpty
+                                                                      ? normalizedData.reduce((a,
                                                                               b) =>
                                                                           a > b
                                                                               ? a
-                                                                              : b);
+                                                                              : b)
+                                                                      : 0.0;
+                                                                  final userMin = normalizedData
+                                                                          .isNotEmpty
+                                                                      ? normalizedData
+                                                                          .where((e) =>
+                                                                              e >
+                                                                              0)
+                                                                          .fold(
+                                                                              double.infinity,
+                                                                              (a, b) => a < b ? a : b)
+                                                                      : 0.0;
+                                                                  final userAvg = normalizedData
+                                                                          .isNotEmpty
+                                                                      ? normalizedData.reduce((a, b) =>
+                                                                              a +
+                                                                              b) /
+                                                                          normalizedData
+                                                                              .length
+                                                                      : 0.0;
 
-                                                                  // Ülke çizgileri için offset hesapla (eğer ülke karşılaştırması açıksa)
-                                                                  // Offset'ler maxY'ye bağlı olduğu için iteratif hesaplama yapıyoruz
-                                                                  double
-                                                                      maxOffset =
-                                                                      0.0;
+                                                                  debugPrint(
+                                                                      '📊 Kullanıcı Verileri Analizi:');
+                                                                  debugPrint(
+                                                                      '   Min: ${userMin.toStringAsFixed(2)} kg CO2e');
+                                                                  debugPrint(
+                                                                      '   Max: ${userMax.toStringAsFixed(2)} kg CO2e');
+                                                                  debugPrint(
+                                                                      '   Ortalama: ${userAvg.toStringAsFixed(2)} kg CO2e');
+                                                                  debugPrint(
+                                                                      '   Tüm değerler: ${normalizedData.map((e) => e.toStringAsFixed(2)).join(", ")}');
+
                                                                   if (_showCountryComparison &&
                                                                       !_showGlobalTrend &&
                                                                       _countryTrends
                                                                           .isNotEmpty) {
-                                                                    // İteratif hesaplama: offset'ler maxY'ye bağlı, maxY offset'e bağlı
-                                                                    // İlk tahmin: maxValue'ya göre maxY tahmin et (offset olmadan)
-                                                                    double tempMaxY = maxValue >
-                                                                            100
-                                                                        ? (maxValue *
-                                                                            1.15)
-                                                                        : (maxValue *
-                                                                            1.2);
+                                                                    final countryMax = _countryTrends
+                                                                        .values
+                                                                        .expand(
+                                                                            (e) =>
+                                                                                e)
+                                                                        .fold(
+                                                                            0.0,
+                                                                            (a, b) => a > b
+                                                                                ? a
+                                                                                : b);
+                                                                    debugPrint(
+                                                                        '📈 Ülke max: $countryMax kg CO2e');
+                                                                  }
 
-                                                                    // İkinci iterasyon: Offset'i hesapla ve maxY'yi güncelle
-                                                                    for (int i =
-                                                                            0;
-                                                                        i < 3;
-                                                                        i++) {
-                                                                      // 3 iterasyon yeterli
-                                                                      final baseOffset =
+                                                                  // Grafik ölçeğini hesapla
+                                                                  // Kullanıcı verilerinin max değerini kullan, ama çok yüksekse sınırla
+                                                                  double maxY;
+                                                                  if (allValues
+                                                                          .isEmpty ||
+                                                                      allValues.every(
+                                                                          (e) =>
+                                                                              e ==
+                                                                              0)) {
+                                                                    maxY =
+                                                                        _showGlobalTrend
+                                                                            ? 100
+                                                                            : 10;
+                                                                  } else {
+                                                                    final maxValue = allValues.reduce((a,
+                                                                            b) =>
+                                                                        a > b
+                                                                            ? a
+                                                                            : b);
+
+                                                                    // Ülke çizgileri için offset hesapla (eğer ülke karşılaştırması açıksa)
+                                                                    // Offset'ler maxY'ye bağlı olduğu için iteratif hesaplama yapıyoruz
+                                                                    double
+                                                                        maxOffset =
+                                                                        0.0;
+                                                                    if (_showCountryComparison &&
+                                                                        !_showGlobalTrend &&
+                                                                        _countryTrends
+                                                                            .isNotEmpty) {
+                                                                      // İteratif hesaplama: offset'ler maxY'ye bağlı, maxY offset'e bağlı
+                                                                      // İlk tahmin: maxValue'ya göre maxY tahmin et (offset olmadan)
+                                                                      double tempMaxY = maxValue > 100
+                                                                          ? (maxValue *
+                                                                              1.15)
+                                                                          : (maxValue *
+                                                                              1.2);
+
+                                                                      // İkinci iterasyon: Offset'i hesapla ve maxY'yi güncelle
+                                                                      for (int i =
+                                                                              0;
+                                                                          i < 3;
+                                                                          i++) {
+                                                                        // 3 iterasyon yeterli
+                                                                        final baseOffset =
+                                                                            tempMaxY *
+                                                                                0.08;
+                                                                        maxOffset =
+                                                                            baseOffset *
+                                                                                5.0; // İngiltere offset'i (en yüksek)
+
+                                                                        // Offset'i hesaba katarak maxY'yi yeniden hesapla
+                                                                        tempMaxY = maxValue > 100
+                                                                            ? ((maxValue + maxOffset) *
+                                                                                1.15)
+                                                                            : ((maxValue + maxOffset) *
+                                                                                1.2);
+                                                                      }
+
+                                                                      // Son offset değerini al
+                                                                      final finalBaseOffset =
                                                                           tempMaxY *
                                                                               0.08;
                                                                       maxOffset =
-                                                                          baseOffset *
-                                                                              5.0; // İngiltere offset'i (en yüksek)
-
-                                                                      // Offset'i hesaba katarak maxY'yi yeniden hesapla
-                                                                      tempMaxY = maxValue > 100
-                                                                          ? ((maxValue + maxOffset) *
-                                                                              1.15)
-                                                                          : ((maxValue + maxOffset) *
-                                                                              1.2);
+                                                                          finalBaseOffset *
+                                                                              5.0;
                                                                     }
 
-                                                                    // Son offset değerini al
-                                                                    final finalBaseOffset =
-                                                                        tempMaxY *
-                                                                            0.08;
-                                                                    maxOffset =
-                                                                        finalBaseOffset *
-                                                                            5.0;
+                                                                    // Eğer max değer çok yüksekse (100+ kg), grafik ölçeğini optimize et
+                                                                    if (_showGlobalTrend) {
+                                                                      maxY =
+                                                                          100.0;
+                                                                    } else if (maxValue >
+                                                                        100) {
+                                                                      // Çok yüksek değerler için daha iyi ölçeklendirme
+                                                                      // Max değerin %15'i kadar padding ekle + offset için ekstra alan
+                                                                      maxY = ((maxValue + maxOffset) *
+                                                                              1.15)
+                                                                          .clamp(
+                                                                              1.0,
+                                                                              double.infinity);
+                                                                      debugPrint(
+                                                                          '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), offset: ${maxOffset.toStringAsFixed(2)}, ölçek optimize edildi: maxY=$maxY');
+                                                                    } else {
+                                                                      // Normal değerler için standart padding (%20) + offset için ekstra alan
+                                                                      maxY = ((maxValue + maxOffset) *
+                                                                              1.2)
+                                                                          .clamp(
+                                                                              1.0,
+                                                                              double.infinity);
+                                                                      debugPrint(
+                                                                          '📊 Normal değer, offset: ${maxOffset.toStringAsFixed(2)}, maxY=$maxY');
+                                                                    }
                                                                   }
 
-                                                                  // Eğer max değer çok yüksekse (100+ kg), grafik ölçeğini optimize et
-                                                                  if (_showGlobalTrend) {
-                                                                    maxY =
-                                                                        100.0;
-                                                                  } else if (maxValue >
-                                                                      100) {
-                                                                    // Çok yüksek değerler için daha iyi ölçeklendirme
-                                                                    // Max değerin %15'i kadar padding ekle + offset için ekstra alan
-                                                                    maxY = ((maxValue +
-                                                                                maxOffset) *
-                                                                            1.15)
-                                                                        .clamp(
-                                                                            1.0,
-                                                                            double.infinity);
-                                                                    debugPrint(
-                                                                        '⚠️ Yüksek değer tespit edildi (${maxValue.toStringAsFixed(2)} kg), offset: ${maxOffset.toStringAsFixed(2)}, ölçek optimize edildi: maxY=$maxY');
-                                                                  } else {
-                                                                    // Normal değerler için standart padding (%20) + offset için ekstra alan
-                                                                    maxY = ((maxValue +
-                                                                                maxOffset) *
-                                                                            1.2)
-                                                                        .clamp(
-                                                                            1.0,
-                                                                            double.infinity);
-                                                                    debugPrint(
-                                                                        '📊 Normal değer, offset: ${maxOffset.toStringAsFixed(2)}, maxY=$maxY');
-                                                                  }
-                                                                }
+                                                                  const double
+                                                                      minY =
+                                                                      0.0;
+                                                                  final yRange =
+                                                                      (maxY - minY)
+                                                                          .abs();
+                                                                  final yInterval =
+                                                                      yRange > 0
+                                                                          ? yRange /
+                                                                              5
+                                                                          : 1.0;
 
-                                                                const double
-                                                                    minY = 0.0;
-                                                                final yRange =
-                                                                    (maxY - minY)
-                                                                        .abs();
-                                                                final yInterval =
-                                                                    yRange > 0
-                                                                        ? yRange /
-                                                                            5
-                                                                        : 1.0;
+                                                                  debugPrint(
+                                                                      '📈 Grafik maxY: $maxY, minY: $minY (kullanıcı verileri: ${normalizedData.length} nokta)');
 
-                                                                debugPrint(
-                                                                    '📈 Grafik maxY: $maxY, minY: $minY (kullanıcı verileri: ${normalizedData.length} nokta)');
+                                                                  final hasUserData =
+                                                                      normalizedData.any(
+                                                                          (e) =>
+                                                                              e >
+                                                                              0);
+                                                                  final hasCountryData = _showCountryComparison &&
+                                                                      !_showGlobalTrend &&
+                                                                      _countryTrends
+                                                                          .isNotEmpty;
 
-                                                                final hasUserData =
-                                                                    normalizedData
-                                                                        .any((e) =>
-                                                                            e >
-                                                                            0);
-                                                                final hasCountryData =
-                                                                    _showCountryComparison &&
-                                                                        !_showGlobalTrend &&
-                                                                        _countryTrends
-                                                                            .isNotEmpty;
-
-                                                                return Stack(
-                                                                  clipBehavior:
-                                                                      Clip.none,
-                                                                  children: [
-                                                                    SizedBox(
-                                                                      height:
-                                                                          200,
-                                                                      child:
-                                                                          LineChart(
-                                                                        LineChartData(
-                                                                          lineTouchData:
-                                                                              LineTouchData(
-                                                                            enabled:
-                                                                                true,
-                                                                            touchTooltipData:
-                                                                                LineTouchTooltipData(
-                                                                              getTooltipItems: (List<LineBarSpot> touchedSpots) {
-                                                                                if (_showGlobalTrend) {
-                                                                                  final rawIndex = touchedSpots.first.x.toInt();
-                                                                                  final pointIndex = rawIndex.clamp(0, 6);
-                                                                                  final personalRawKg = personalSeries[pointIndex];
-                                                                                  final personalText = personalRawKg < 1 ? '${(personalRawKg * 1000).toStringAsFixed(3)} g' : '${personalRawKg.toStringAsFixed(3)} kg';
-                                                                                  final List<LineTooltipItem> items = [
-                                                                                    LineTooltipItem(
-                                                                                      'Dünya Geneli: ${globalPerCapitaSeries[pointIndex].toStringAsFixed(2)}',
-                                                                                      const TextStyle(
-                                                                                        color: Color(0xFFFFF176),
-                                                                                        fontWeight: FontWeight.bold,
-                                                                                        fontSize: 12,
-                                                                                      ),
-                                                                                    ),
-                                                                                    LineTooltipItem(
-                                                                                      '\n${_weekOffset == -1 ? "Tahmini — " : ""}Sizin Veriniz: $personalText',
-                                                                                      const TextStyle(
-                                                                                        color: Colors.pinkAccent,
-                                                                                        fontWeight: FontWeight.bold,
-                                                                                        fontSize: 12,
-                                                                                      ),
-                                                                                    ),
-                                                                                  ];
-                                                                                  return items;
-                                                                                }
-
-                                                                                return touchedSpots.map((LineBarSpot touchedSpot) {
-                                                                                  final lineIndex = touchedSpot.barIndex;
-                                                                                  String label;
-                                                                                  Color color;
-                                                                                  final userLineIndex = hasCountryData ? _countryTrends.length : 0;
-                                                                                  if (hasUserData && lineIndex == userLineIndex) {
-                                                                                    label = _weekOffset == -1
-                                                                                        ? 'Tahmini (gelecek hafta)'
-                                                                                        : 'Sizin Verileriniz';
-                                                                                    color = Colors.pinkAccent;
-                                                                                  } else {
-                                                                                    final countryNames = _countryTrends.keys.toList();
-                                                                                    final countryIndex = lineIndex;
-                                                                                    if (countryIndex < countryNames.length) {
-                                                                                      label = countryNames[countryIndex];
-                                                                                      color = _getCountryColor(countryNames[countryIndex]);
-                                                                                    } else {
-                                                                                      label = 'Veri';
-                                                                                      color = Colors.grey;
-                                                                                    }
-                                                                                  }
-                                                                                  final value = touchedSpot.y.toStringAsFixed(1);
-                                                                                  return LineTooltipItem(
-                                                                                    '$label: $value',
-                                                                                    TextStyle(
-                                                                                      color: color,
-                                                                                      fontWeight: FontWeight.bold,
-                                                                                      fontSize: 12,
-                                                                                    ),
-                                                                                  );
-                                                                                }).toList();
-                                                                              },
-                                                                              tooltipBgColor: Colors.black.withValues(alpha: 0.95),
-                                                                              tooltipRoundedRadius: 8,
-                                                                              tooltipPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                                                              tooltipMargin: 4,
-                                                                              fitInsideHorizontally: true,
-                                                                              fitInsideVertically: true,
-                                                                            ),
-                                                                            handleBuiltInTouches:
-                                                                                true,
-                                                                          ),
-                                                                          gridData:
-                                                                              FlGridData(
-                                                                            show:
-                                                                                true,
-                                                                            drawVerticalLine:
-                                                                                true,
-                                                                            horizontalInterval:
-                                                                                yInterval,
-                                                                            verticalInterval:
-                                                                                1,
-                                                                            getDrawingHorizontalLine:
-                                                                                (value) {
-                                                                              return FlLine(
-                                                                                color: Colors.white.withValues(
-                                                                                  alpha: 0.1,
-                                                                                ),
-                                                                                strokeWidth: 1,
-                                                                              );
-                                                                            },
-                                                                            getDrawingVerticalLine:
-                                                                                (value) {
-                                                                              return FlLine(
-                                                                                color: Colors.white.withValues(
-                                                                                  alpha: 0.1,
-                                                                                ),
-                                                                                strokeWidth: 1,
-                                                                              );
-                                                                            },
-                                                                          ),
-                                                                          titlesData:
-                                                                              FlTitlesData(
-                                                                            show:
-                                                                                true,
-                                                                            rightTitles:
-                                                                                const AxisTitles(
-                                                                              sideTitles: SideTitles(
-                                                                                showTitles: false,
-                                                                              ),
-                                                                            ),
-                                                                            topTitles:
-                                                                                const AxisTitles(
-                                                                              sideTitles: SideTitles(
-                                                                                showTitles: false,
-                                                                              ),
-                                                                            ),
-                                                                            bottomTitles:
-                                                                                AxisTitles(
-                                                                              sideTitles: SideTitles(
-                                                                                showTitles: true,
-                                                                                reservedSize: 34,
-                                                                                interval: 1,
-                                                                                getTitlesWidget: (
-                                                                                  double value,
-                                                                                  TitleMeta meta,
-                                                                                ) {
-                                                                                  final axisDayStyle =
-                                                                                      subStyle;
-                                                                                  Widget text;
-                                                                                  switch (value.toInt()) {
-                                                                                    case 0:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'mon',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    case 1:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'tue',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    case 2:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'wed',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    case 3:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'thu',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    case 4:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'fri',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    case 5:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'sat',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    case 6:
-                                                                                      text = Text(
-                                                                                        translate(
-                                                                                          'sun',
-                                                                                          locale,
-                                                                                        ),
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                    default:
-                                                                                      text = Text(
-                                                                                        '',
-                                                                                        style: axisDayStyle,
-                                                                                      );
-                                                                                      break;
-                                                                                  }
-                                                                                  return SideTitleWidget(
-                                                                                    axisSide: meta.axisSide,
-                                                                                    space: 8,
-                                                                                    child: text,
-                                                                                  );
-                                                                                },
-                                                                              ),
-                                                                            ),
-                                                                            leftTitles:
-                                                                                AxisTitles(
-                                                                              sideTitles: SideTitles(
-                                                                                showTitles: true,
-                                                                                interval: yInterval,
-                                                                                getTitlesWidget: (
-                                                                                  double value,
-                                                                                  TitleMeta meta,
-                                                                                ) {
-                                                                                  String label;
+                                                                  return Stack(
+                                                                    clipBehavior:
+                                                                        Clip.none,
+                                                                    children: [
+                                                                      SizedBox(
+                                                                        height:
+                                                                            200,
+                                                                        child:
+                                                                            LineChart(
+                                                                          LineChartData(
+                                                                            lineTouchData:
+                                                                                LineTouchData(
+                                                                              enabled: true,
+                                                                              touchTooltipData: LineTouchTooltipData(
+                                                                                getTooltipItems: (List<LineBarSpot> touchedSpots) {
                                                                                   if (_showGlobalTrend) {
-                                                                                    label = '${value.toInt()}%';
-                                                                                  } else {
-                                                                                    // Sadece sayı göster (birim yok)
-                                                                                    label = '${value.toInt()}';
-                                                                                  }
-                                                                                  return Padding(
-                                                                                    padding: const EdgeInsets.only(right: 8),
-                                                                                    child: Text(
-                                                                                      label,
-                                                                                      style: subStyle.copyWith(
-                                                                                        shadows: const [
-                                                                                          Shadow(
-                                                                                            color: Colors.black,
-                                                                                            blurRadius: 3,
-                                                                                            offset: Offset(1, 1),
-                                                                                          ),
-                                                                                        ],
+                                                                                    final rawIndex = touchedSpots.first.x.toInt();
+                                                                                    final pointIndex = rawIndex.clamp(0, 6);
+                                                                                    final personalRawKg = personalSeries[pointIndex];
+                                                                                    final personalText = personalRawKg < 1 ? '${(personalRawKg * 1000).toStringAsFixed(3)} g' : '${personalRawKg.toStringAsFixed(3)} kg';
+                                                                                    final List<LineTooltipItem> items = [
+                                                                                      LineTooltipItem(
+                                                                                        'Dünya Geneli: ${globalPerCapitaSeries[pointIndex].toStringAsFixed(2)}',
+                                                                                        const TextStyle(
+                                                                                          color: Color(0xFFFFF176),
+                                                                                          fontWeight: FontWeight.bold,
+                                                                                          fontSize: 12,
+                                                                                        ),
                                                                                       ),
-                                                                                      textAlign: TextAlign.right,
-                                                                                    ),
-                                                                                  );
+                                                                                      LineTooltipItem(
+                                                                                        '\n${_weekOffset == -1 ? "Tahmini — " : ""}Sizin Veriniz: $personalText',
+                                                                                        const TextStyle(
+                                                                                          color: Colors.pinkAccent,
+                                                                                          fontWeight: FontWeight.bold,
+                                                                                          fontSize: 12,
+                                                                                        ),
+                                                                                      ),
+                                                                                    ];
+                                                                                    return items;
+                                                                                  }
+
+                                                                                  return touchedSpots.map((LineBarSpot touchedSpot) {
+                                                                                    final lineIndex = touchedSpot.barIndex;
+                                                                                    String label;
+                                                                                    Color color;
+                                                                                    final userLineIndex = hasCountryData ? _countryTrends.length : 0;
+                                                                                    if (hasUserData && lineIndex == userLineIndex) {
+                                                                                      label = _weekOffset == -1 ? 'Tahmini (gelecek hafta)' : 'Sizin Verileriniz';
+                                                                                      color = Colors.pinkAccent;
+                                                                                    } else {
+                                                                                      final countryNames = _countryTrends.keys.toList();
+                                                                                      final countryIndex = lineIndex;
+                                                                                      if (countryIndex < countryNames.length) {
+                                                                                        label = countryNames[countryIndex];
+                                                                                        color = _getCountryColor(countryNames[countryIndex]);
+                                                                                      } else {
+                                                                                        label = 'Veri';
+                                                                                        color = Colors.grey;
+                                                                                      }
+                                                                                    }
+                                                                                    final value = touchedSpot.y.toStringAsFixed(1);
+                                                                                    return LineTooltipItem(
+                                                                                      '$label: $value',
+                                                                                      TextStyle(
+                                                                                        color: color,
+                                                                                        fontWeight: FontWeight.bold,
+                                                                                        fontSize: 12,
+                                                                                      ),
+                                                                                    );
+                                                                                  }).toList();
                                                                                 },
-                                                                                reservedSize: 50,
+                                                                                tooltipBgColor: Colors.black.withValues(alpha: 0.95),
+                                                                                tooltipRoundedRadius: 8,
+                                                                                tooltipPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                                                                tooltipMargin: 4,
+                                                                                fitInsideHorizontally: true,
+                                                                                fitInsideVertically: true,
                                                                               ),
+                                                                              handleBuiltInTouches: true,
                                                                             ),
-                                                                          ),
-                                                                          borderData:
-                                                                              FlBorderData(
-                                                                            show:
-                                                                                true,
-                                                                            border:
-                                                                                Border.all(
-                                                                              color: Colors.white.withValues(alpha: 0.2),
-                                                                            ),
-                                                                          ),
-                                                                          minX:
-                                                                              0,
-                                                                          maxX:
-                                                                              6,
-                                                                          minY:
-                                                                              minY,
-                                                                          maxY:
-                                                                              maxY.toDouble(),
-                                                                          lineBarsData: [
-                                                                            if (_showGlobalTrend &&
-                                                                                normalizedData.isNotEmpty)
-                                                                              LineChartBarData(
-                                                                                spots: List.generate(
-                                                                                  7,
-                                                                                  (index) => FlSpot(
-                                                                                    index.toDouble(),
-                                                                                    normalizedData.isNotEmpty && index < normalizedData.length ? _toDoubleSafe(normalizedData[index]).clamp(0.0, double.infinity) : 0.0,
+                                                                            gridData:
+                                                                                FlGridData(
+                                                                              show: true,
+                                                                              drawVerticalLine: true,
+                                                                              horizontalInterval: yInterval,
+                                                                              verticalInterval: 1,
+                                                                              getDrawingHorizontalLine: (value) {
+                                                                                return FlLine(
+                                                                                  color: Colors.white.withValues(
+                                                                                    alpha: 0.1,
                                                                                   ),
+                                                                                  strokeWidth: 1,
+                                                                                );
+                                                                              },
+                                                                              getDrawingVerticalLine: (value) {
+                                                                                return FlLine(
+                                                                                  color: Colors.white.withValues(
+                                                                                    alpha: 0.1,
+                                                                                  ),
+                                                                                  strokeWidth: 1,
+                                                                                );
+                                                                              },
+                                                                            ),
+                                                                            titlesData:
+                                                                                FlTitlesData(
+                                                                              show: true,
+                                                                              rightTitles: const AxisTitles(
+                                                                                sideTitles: SideTitles(
+                                                                                  showTitles: false,
                                                                                 ),
-                                                                                isCurved: true,
-                                                                                gradient: const LinearGradient(
-                                                                                  colors: [
-                                                                                    Color(0xFFFFF176),
-                                                                                    Color(0xFFFFE082),
-                                                                                  ],
+                                                                              ),
+                                                                              topTitles: const AxisTitles(
+                                                                                sideTitles: SideTitles(
+                                                                                  showTitles: false,
                                                                                 ),
-                                                                                barWidth: 4.0,
-                                                                                isStrokeCapRound: true,
-                                                                                dotData: FlDotData(
-                                                                                  show: true,
-                                                                                  getDotPainter: (
-                                                                                    spot,
-                                                                                    percent,
-                                                                                    barData,
-                                                                                    index,
+                                                                              ),
+                                                                              bottomTitles: AxisTitles(
+                                                                                sideTitles: SideTitles(
+                                                                                  showTitles: true,
+                                                                                  reservedSize: 34,
+                                                                                  interval: 1,
+                                                                                  getTitlesWidget: (
+                                                                                    double value,
+                                                                                    TitleMeta meta,
                                                                                   ) {
-                                                                                    return FlDotCirclePainter(
-                                                                                      radius: 5,
-                                                                                      color: const Color(0xFFFFF176),
-                                                                                      strokeWidth: 2.0,
-                                                                                      strokeColor: const Color(0xFF222222),
+                                                                                    final axisDayStyle = subStyle;
+                                                                                    Widget text;
+                                                                                    switch (value.toInt()) {
+                                                                                      case 0:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'mon',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      case 1:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'tue',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      case 2:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'wed',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      case 3:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'thu',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      case 4:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'fri',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      case 5:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'sat',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      case 6:
+                                                                                        text = Text(
+                                                                                          translate(
+                                                                                            'sun',
+                                                                                            locale,
+                                                                                          ),
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                      default:
+                                                                                        text = Text(
+                                                                                          '',
+                                                                                          style: axisDayStyle,
+                                                                                        );
+                                                                                        break;
+                                                                                    }
+                                                                                    return SideTitleWidget(
+                                                                                      axisSide: meta.axisSide,
+                                                                                      space: 8,
+                                                                                      child: text,
                                                                                     );
                                                                                   },
                                                                                 ),
-                                                                                belowBarData: BarAreaData(
-                                                                                  show: true,
-                                                                                  gradient: LinearGradient(
-                                                                                    colors: [
-                                                                                      const Color(0xFFFFF176).withValues(alpha: 0.18),
-                                                                                      const Color(0xFFFFE082).withValues(alpha: 0.06),
-                                                                                    ],
-                                                                                    begin: Alignment.topCenter,
-                                                                                    end: Alignment.bottomCenter,
-                                                                                  ),
-                                                                                ),
                                                                               ),
-                                                                            // Ülke karşılaştırma çizgileri
-                                                                            if (hasCountryData)
-                                                                              ..._buildCountryLines(normalizedData, maxY.toDouble()),
-                                                                            // Kullanıcının kendi verileri (en üst katman)
-                                                                            if (hasUserData ||
-                                                                                _showGlobalTrend)
-                                                                              LineChartBarData(
-                                                                                spots: List.generate(
-                                                                                  7,
-                                                                                  (index) => FlSpot(
-                                                                                    index.toDouble(),
-                                                                                    personalPlottedSeries.isNotEmpty && index < personalPlottedSeries.length ? _toDoubleSafe(personalPlottedSeries[index]).clamp(0.0, double.infinity) : 0.0,
-                                                                                  ),
-                                                                                ),
-                                                                                isCurved: true,
-                                                                                gradient: const LinearGradient(
-                                                                                  colors: [
-                                                                                    Colors.pinkAccent,
-                                                                                    Colors.pink,
-                                                                                  ],
-                                                                                ),
-                                                                                barWidth: 4.8,
-                                                                                isStrokeCapRound: true,
-                                                                                dashArray: _weekOffset == -1
-                                                                                    ? const <int>[10, 7]
-                                                                                    : null,
-                                                                                dotData: FlDotData(
-                                                                                  show: true,
-                                                                                  getDotPainter: (
-                                                                                    spot,
-                                                                                    percent,
-                                                                                    barData,
-                                                                                    index,
+                                                                              leftTitles: AxisTitles(
+                                                                                sideTitles: SideTitles(
+                                                                                  showTitles: true,
+                                                                                  interval: yInterval,
+                                                                                  getTitlesWidget: (
+                                                                                    double value,
+                                                                                    TitleMeta meta,
                                                                                   ) {
-                                                                                    return FlDotCirclePainter(
-                                                                                      radius: 5,
-                                                                                      color: Colors.pinkAccent,
-                                                                                      strokeWidth: 2.2,
-                                                                                      strokeColor: const Color(0xFF222222),
+                                                                                    String label;
+                                                                                    if (_showGlobalTrend) {
+                                                                                      label = '${value.toInt()}%';
+                                                                                    } else {
+                                                                                      // Sadece sayı göster (birim yok)
+                                                                                      label = '${value.toInt()}';
+                                                                                    }
+                                                                                    return Padding(
+                                                                                      padding: const EdgeInsets.only(right: 8),
+                                                                                      child: Text(
+                                                                                        label,
+                                                                                        style: subStyle.copyWith(
+                                                                                          shadows: const [
+                                                                                            Shadow(
+                                                                                              color: Colors.black,
+                                                                                              blurRadius: 3,
+                                                                                              offset: Offset(1, 1),
+                                                                                            ),
+                                                                                          ],
+                                                                                        ),
+                                                                                        textAlign: TextAlign.right,
+                                                                                      ),
                                                                                     );
                                                                                   },
-                                                                                ),
-                                                                                belowBarData: BarAreaData(
-                                                                                  show: _weekOffset != -1,
-                                                                                  gradient: LinearGradient(
-                                                                                    colors: [
-                                                                                      Colors.pinkAccent.withValues(alpha: 0.18),
-                                                                                      Colors.pink.withValues(alpha: 0.06),
-                                                                                    ],
-                                                                                    begin: Alignment.topCenter,
-                                                                                    end: Alignment.bottomCenter,
-                                                                                  ),
+                                                                                  reservedSize: 50,
                                                                                 ),
                                                                               ),
-                                                                          ],
+                                                                            ),
+                                                                            borderData:
+                                                                                FlBorderData(
+                                                                              show: true,
+                                                                              border: Border.all(
+                                                                                color: Colors.white.withValues(alpha: 0.2),
+                                                                              ),
+                                                                            ),
+                                                                            minX:
+                                                                                0,
+                                                                            maxX:
+                                                                                6,
+                                                                            minY:
+                                                                                minY,
+                                                                            maxY:
+                                                                                maxY.toDouble(),
+                                                                            lineBarsData: [
+                                                                              if (_showGlobalTrend && normalizedData.isNotEmpty)
+                                                                                LineChartBarData(
+                                                                                  spots: List.generate(
+                                                                                    7,
+                                                                                    (index) => FlSpot(
+                                                                                      index.toDouble(),
+                                                                                      normalizedData.isNotEmpty && index < normalizedData.length ? _toDoubleSafe(normalizedData[index]).clamp(0.0, double.infinity) : 0.0,
+                                                                                    ),
+                                                                                  ),
+                                                                                  isCurved: true,
+                                                                                  gradient: const LinearGradient(
+                                                                                    colors: [
+                                                                                      Color(0xFFFFF176),
+                                                                                      Color(0xFFFFE082),
+                                                                                    ],
+                                                                                  ),
+                                                                                  barWidth: 4.0,
+                                                                                  isStrokeCapRound: true,
+                                                                                  dotData: FlDotData(
+                                                                                    show: true,
+                                                                                    getDotPainter: (
+                                                                                      spot,
+                                                                                      percent,
+                                                                                      barData,
+                                                                                      index,
+                                                                                    ) {
+                                                                                      return FlDotCirclePainter(
+                                                                                        radius: 5,
+                                                                                        color: const Color(0xFFFFF176),
+                                                                                        strokeWidth: 2.0,
+                                                                                        strokeColor: const Color(0xFF222222),
+                                                                                      );
+                                                                                    },
+                                                                                  ),
+                                                                                  belowBarData: BarAreaData(
+                                                                                    show: true,
+                                                                                    gradient: LinearGradient(
+                                                                                      colors: [
+                                                                                        const Color(0xFFFFF176).withValues(alpha: 0.18),
+                                                                                        const Color(0xFFFFE082).withValues(alpha: 0.06),
+                                                                                      ],
+                                                                                      begin: Alignment.topCenter,
+                                                                                      end: Alignment.bottomCenter,
+                                                                                    ),
+                                                                                  ),
+                                                                                ),
+                                                                              // Ülke karşılaştırma çizgileri
+                                                                              if (hasCountryData)
+                                                                                ..._buildCountryLines(normalizedData, maxY.toDouble()),
+                                                                              // Kullanıcının kendi verileri (en üst katman)
+                                                                              if (hasUserData || _showGlobalTrend)
+                                                                                LineChartBarData(
+                                                                                  spots: List.generate(
+                                                                                    7,
+                                                                                    (index) => FlSpot(
+                                                                                      index.toDouble(),
+                                                                                      personalPlottedSeries.isNotEmpty && index < personalPlottedSeries.length ? _toDoubleSafe(personalPlottedSeries[index]).clamp(0.0, double.infinity) : 0.0,
+                                                                                    ),
+                                                                                  ),
+                                                                                  isCurved: true,
+                                                                                  gradient: const LinearGradient(
+                                                                                    colors: [
+                                                                                      Colors.pinkAccent,
+                                                                                      Colors.pink,
+                                                                                    ],
+                                                                                  ),
+                                                                                  barWidth: 4.8,
+                                                                                  isStrokeCapRound: true,
+                                                                                  dashArray: _weekOffset == -1 ? const <int>[10, 7] : null,
+                                                                                  dotData: FlDotData(
+                                                                                    show: true,
+                                                                                    getDotPainter: (
+                                                                                      spot,
+                                                                                      percent,
+                                                                                      barData,
+                                                                                      index,
+                                                                                    ) {
+                                                                                      return FlDotCirclePainter(
+                                                                                        radius: 5,
+                                                                                        color: Colors.pinkAccent,
+                                                                                        strokeWidth: 2.2,
+                                                                                        strokeColor: const Color(0xFF222222),
+                                                                                      );
+                                                                                    },
+                                                                                  ),
+                                                                                  belowBarData: BarAreaData(
+                                                                                    show: _weekOffset != -1,
+                                                                                    gradient: LinearGradient(
+                                                                                      colors: [
+                                                                                        Colors.pinkAccent.withValues(alpha: 0.18),
+                                                                                        Colors.pink.withValues(alpha: 0.06),
+                                                                                      ],
+                                                                                      begin: Alignment.topCenter,
+                                                                                      end: Alignment.bottomCenter,
+                                                                                    ),
+                                                                                  ),
+                                                                                ),
+                                                                            ],
+                                                                          ),
                                                                         ),
                                                                       ),
-                                                                    ),
-                                                                  ],
-                                                                );
-                                                              },
-                                                            ),
-                                                  if (!_showGlobalTrend) ...[
-                                                    const SizedBox(height: 8),
-                                                    Row(
-                                                      mainAxisAlignment:
-                                                          MainAxisAlignment
-                                                              .center,
-                                                      children: [
-                                                        IconButton(
-                                                          onPressed: () {
-                                                            setState(() {
-                                                              _weekOffset += 1;
-                                                            });
-                                                            _loadTrendData();
-                                                          },
-                                                          tooltip:
-                                                              'Önceki hafta',
-                                                          icon: const Icon(
-                                                            Icons
-                                                                .arrow_back_ios_new,
-                                                            size: 18,
-                                                          ),
-                                                          color: Colors.white70,
-                                                        ),
-                                                        Text(
-                                                          _weekOffset == -1
-                                                              ? 'Gelecek hafta (tahmini)'
-                                                              : _weekOffset == 0
-                                                                  ? 'Bu hafta'
-                                                                  : '$_weekOffset. hafta önce',
-                                                          style: subStyle,
-                                                        ),
-                                                        IconButton(
-                                                          onPressed:
-                                                              _weekOffset > -1
-                                                                  ? () {
-                                                                      setState(
-                                                                          () {
-                                                                        _weekOffset -=
-                                                                            1;
-                                                                      });
-                                                                      _loadTrendData();
-                                                                    }
-                                                                  : null,
-                                                          tooltip:
-                                                              'Sonraki hafta',
-                                                          icon: const Icon(
-                                                            Icons
-                                                                .arrow_forward_ios,
-                                                            size: 18,
-                                                          ),
-                                                          color: Colors.white70,
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ],
-                                                  // Legend (açıklama) - ülke çizgileri için
-                                                  if (_showCountryComparison &&
-                                                      !_showGlobalTrend &&
-                                                      _countryTrends.isNotEmpty)
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.only(
-                                                              top: 12,
-                                                              bottom: 8),
-                                                      child: Wrap(
-                                                        spacing: 16,
-                                                        runSpacing: 8,
-                                                        alignment: WrapAlignment
-                                                            .center,
-                                                        children: [
-                                                          // Kullanıcının kendi verisi
-                                                          if ((_showGlobalTrend
-                                                                      ? _globalDailyTrends
-                                                                      : (_useEspData
-                                                                          ? _dailyEmissions
-                                                                          : _manualDailyEmissions))
-                                                                  .any((e) =>
-                                                                      e > 0) ||
-                                                              (_useEspData
-                                                                      ? _lastCalculatedKgCo2e
-                                                                      : _manualCalculatedKgCo2e) !=
-                                                                  null)
-                                                            _buildLegendItem(
-                                                              _weekOffset == -1
-                                                                  ? 'Sizin Verileriniz (tahmini)'
-                                                                  : 'Sizin Verileriniz',
-                                                              Colors
-                                                                  .pinkAccent,
-                                                              labelStyle:
-                                                                  subStyle,
-                                                            ),
-                                                          // Ülke verileri
-                                                          ..._countryTrends.keys
-                                                              .map(
-                                                            (countryName) =>
-                                                                _buildLegendItem(
-                                                              countryName,
-                                                              _getCountryColor(
-                                                                  countryName),
-                                                              labelStyle:
-                                                                  subStyle,
-                                                              isRealData:
-                                                                  _countryDataSources[
-                                                                          countryName] ??
-                                                                      false,
-                                                              showDataSourceIcon:
-                                                                  false,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  // Veri kaynağı açıklaması
-                                                  if (_showCountryComparison &&
-                                                      !_showGlobalTrend &&
-                                                      _countryTrends.isNotEmpty)
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.only(
-                                                              top: 4,
-                                                              bottom: 8),
-                                                      child: Row(
+                                                                    ],
+                                                                  );
+                                                                },
+                                                              ),
+                                                    if (!_showGlobalTrend) ...[
+                                                      const SizedBox(height: 8),
+                                                      Row(
                                                         mainAxisAlignment:
                                                             MainAxisAlignment
                                                                 .center,
                                                         children: [
-                                                          Container(
-                                                            width: 14,
-                                                            height: 3,
-                                                            decoration:
-                                                                BoxDecoration(
-                                                              color: Colors
-                                                                  .pinkAccent,
-                                                              borderRadius:
-                                                                  BorderRadius
-                                                                      .circular(
-                                                                          2),
+                                                          IconButton(
+                                                            onPressed: () {
+                                                              setState(() {
+                                                                _weekOffset +=
+                                                                    1;
+                                                              });
+                                                              _loadTrendData();
+                                                            },
+                                                            tooltip:
+                                                                'Önceki hafta',
+                                                            icon: const Icon(
+                                                              Icons
+                                                                  .arrow_back_ios_new,
+                                                              size: 18,
                                                             ),
+                                                            color:
+                                                                Colors.white70,
                                                           ),
-                                                          const SizedBox(
-                                                              width: 5),
                                                           Text(
-                                                            translate(
-                                                              'real_data',
-                                                              locale,
-                                                            ),
+                                                            _weekOffset == -1
+                                                                ? 'Gelecek hafta (tahmini)'
+                                                                : _weekOffset ==
+                                                                        0
+                                                                    ? 'Bu hafta'
+                                                                    : '$_weekOffset. hafta önce',
                                                             style: subStyle,
                                                           ),
-                                                          const SizedBox(
-                                                              width: 14),
-                                                          _legendDashedSwatch(
-                                                            Colors.orangeAccent,
-                                                            barHeight: 3,
-                                                          ),
-                                                          const SizedBox(
-                                                              width: 5),
-                                                          Text(
-                                                            translate(
-                                                              'estimated_data',
-                                                              locale,
+                                                          IconButton(
+                                                            onPressed:
+                                                                _weekOffset > -1
+                                                                    ? () {
+                                                                        setState(
+                                                                            () {
+                                                                          _weekOffset -=
+                                                                              1;
+                                                                        });
+                                                                        _loadTrendData();
+                                                                      }
+                                                                    : null,
+                                                            tooltip:
+                                                                'Sonraki hafta',
+                                                            icon: const Icon(
+                                                              Icons
+                                                                  .arrow_forward_ios,
+                                                              size: 18,
                                                             ),
-                                                            style: subStyle,
+                                                            color:
+                                                                Colors.white70,
                                                           ),
                                                         ],
                                                       ),
-                                                    ),
-                                                  const SizedBox(height: 16),
-                                                  Text(
-                                                    _showGlobalTrend
-                                                        ? translate(
-                                                            'global_trend_description',
-                                                            locale)
-                                                        : translate(
-                                                            'last_7_days_trend',
-                                                            locale),
-                                                    textAlign: TextAlign.start,
-                                                    style: subStyle,
-                                                  ),
-                                                  // Y ekseni açıklaması
-                                                  if (!_showGlobalTrend)
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.only(
-                                                              top: 4),
-                                                      child: Align(
-                                                        alignment:
-                                                            Alignment.centerLeft,
-                                                        child: Text(
-                                                          'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: kg CO2e',
-                                                          style: subStyle,
-                                                          textAlign:
-                                                              TextAlign.start,
+                                                    ],
+                                                    // Legend (açıklama) - ülke çizgileri için
+                                                    if (_showCountryComparison &&
+                                                        !_showGlobalTrend &&
+                                                        _countryTrends
+                                                            .isNotEmpty)
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .only(
+                                                                top: 12,
+                                                                bottom: 8),
+                                                        child: Wrap(
+                                                          spacing: 16,
+                                                          runSpacing: 8,
+                                                          alignment:
+                                                              WrapAlignment
+                                                                  .center,
+                                                          children: [
+                                                            // Kullanıcının kendi verisi
+                                                            if ((_showGlobalTrend
+                                                                        ? _globalDailyTrends
+                                                                        : (_useEspData
+                                                                            ? _dailyEmissions
+                                                                            : _manualDailyEmissions))
+                                                                    .any((e) =>
+                                                                        e >
+                                                                        0) ||
+                                                                (_useEspData
+                                                                        ? _lastCalculatedKgCo2e
+                                                                        : _manualCalculatedKgCo2e) !=
+                                                                    null)
+                                                              _buildLegendItem(
+                                                                _weekOffset ==
+                                                                        -1
+                                                                    ? 'Sizin Verileriniz (tahmini)'
+                                                                    : 'Sizin Verileriniz',
+                                                                Colors
+                                                                    .pinkAccent,
+                                                                labelStyle:
+                                                                    subStyle,
+                                                              ),
+                                                            // Ülke verileri
+                                                            ..._countryTrends
+                                                                .keys
+                                                                .map(
+                                                              (countryName) =>
+                                                                  _buildLegendItem(
+                                                                countryName,
+                                                                _getCountryColor(
+                                                                    countryName),
+                                                                labelStyle:
+                                                                    subStyle,
+                                                                isRealData:
+                                                                    _countryDataSources[
+                                                                            countryName] ??
+                                                                        false,
+                                                                showDataSourceIcon:
+                                                                    false,
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
                                                       ),
-                                                    ),
-                                                  if (_showGlobalTrend)
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.only(
-                                                              top: 4),
-                                                      child: Align(
-                                                        alignment:
-                                                            Alignment.centerLeft,
-                                                        child: Text(
-                                                          'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: normalize endeks (%)',
-                                                          style: subStyle,
-                                                          textAlign:
-                                                              TextAlign.start,
+                                                    // Veri kaynağı açıklaması
+                                                    if (_showCountryComparison &&
+                                                        !_showGlobalTrend &&
+                                                        _countryTrends
+                                                            .isNotEmpty)
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .only(
+                                                                top: 4,
+                                                                bottom: 8),
+                                                        child: Row(
+                                                          mainAxisAlignment:
+                                                              MainAxisAlignment
+                                                                  .center,
+                                                          children: [
+                                                            Container(
+                                                              width: 14,
+                                                              height: 3,
+                                                              decoration:
+                                                                  BoxDecoration(
+                                                                color: Colors
+                                                                    .pinkAccent,
+                                                                borderRadius:
+                                                                    BorderRadius
+                                                                        .circular(
+                                                                            2),
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                                width: 5),
+                                                            Text(
+                                                              translate(
+                                                                'real_data',
+                                                                locale,
+                                                              ),
+                                                              style: subStyle,
+                                                            ),
+                                                            const SizedBox(
+                                                                width: 14),
+                                                            _legendDashedSwatch(
+                                                              Colors
+                                                                  .orangeAccent,
+                                                              barHeight: 3,
+                                                            ),
+                                                            const SizedBox(
+                                                                width: 5),
+                                                            Text(
+                                                              translate(
+                                                                'estimated_data',
+                                                                locale,
+                                                              ),
+                                                              style: subStyle,
+                                                            ),
+                                                          ],
                                                         ),
                                                       ),
+                                                    const SizedBox(height: 16),
+                                                    Text(
+                                                      _showGlobalTrend
+                                                          ? translate(
+                                                              'global_trend_description',
+                                                              locale)
+                                                          : translate(
+                                                              'last_7_days_trend',
+                                                              locale),
+                                                      textAlign:
+                                                          TextAlign.start,
+                                                      style: subStyle,
                                                     ),
-                                                ],
-                                              ),
-                                            ],
+                                                    // Y ekseni açıklaması
+                                                    if (!_showGlobalTrend)
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .only(top: 4),
+                                                        child: Align(
+                                                          alignment: Alignment
+                                                              .centerLeft,
+                                                          child: Text(
+                                                            'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: kg CO2e',
+                                                            style: subStyle,
+                                                            textAlign:
+                                                                TextAlign.start,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    if (_showGlobalTrend)
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .only(top: 4),
+                                                        child: Align(
+                                                          alignment: Alignment
+                                                              .centerLeft,
+                                                          child: Text(
+                                                            'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: normalize endeks (%)',
+                                                            style: subStyle,
+                                                            textAlign:
+                                                                TextAlign.start,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
                             ),
                             const SizedBox(height: _kReportsSectionGap),
                             Padding(
@@ -3583,292 +3713,399 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               ),
                                             ],
                                           ),
-                                        Divider(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.3),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        LayoutBuilder(
-                                          builder: (context, chartConstraints) {
-                                            final bool compactChart =
-                                                chartConstraints.maxWidth < 430;
-                                            final double pieSize = compactChart
-                                                ? (chartConstraints.maxWidth *
-                                                        0.55)
-                                                    .clamp(130.0, 180.0)
-                                                : 180.0;
+                                          Divider(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.3),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          LayoutBuilder(
+                                            builder:
+                                                (context, chartConstraints) {
+                                              final bool compactChart =
+                                                  chartConstraints.maxWidth <
+                                                      430;
+                                              final double pieSize =
+                                                  compactChart
+                                                      ? (chartConstraints
+                                                                  .maxWidth *
+                                                              0.55)
+                                                          .clamp(130.0, 180.0)
+                                                      : 180.0;
 
-                                            final Widget pieChart = SizedBox(
-                                              width: pieSize,
-                                              height: pieSize,
-                                              child: PieChart(
-                                                PieChartData(
-                                                  pieTouchData: PieTouchData(
-                                                    touchCallback: (
-                                                      FlTouchEvent event,
-                                                      pieTouchResponse,
-                                                    ) {
-                                                      // Dokunma etkileşimi
-                                                    },
-                                                  ),
-                                                  borderData: FlBorderData(
-                                                    show: false,
-                                                  ),
-                                                  sectionsSpace: 2,
-                                                  centerSpaceRadius: 40,
-                                                  sections: [
-                                                    // Elektrik - Turuncu
-                                                    PieChartSectionData(
-                                                      color: Colors.orange,
-                                                      value: _categoryDistribution[
+                                              final bool includeWasteSlice =
+                                                  !_useEspData;
+                                              final List<PieChartSectionData>
+                                                  pieSections = [
+                                                // Elektrik - Turuncu
+                                                PieChartSectionData(
+                                                  color: Colors.orange,
+                                                  value:
+                                                      activeCategoryDistribution[
                                                               'electricity'] ??
                                                           0.0,
-                                                      title: (_categoryDistribution[
-                                                                      'electricity'] ??
-                                                                  0.0) >
-                                                              0
-                                                          ? '${(_categoryDistribution['electricity'] ?? 0.0).toStringAsFixed(0)}%'
-                                                          : '',
-                                                      radius: 50,
-                                                      titleStyle: subStyle
-                                                          .copyWith(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: Colors.white,
-                                                      ),
-                                                    ),
-                                                    // Su - Mavi
-                                                    PieChartSectionData(
-                                                      color: Colors.blue,
-                                                      value:
-                                                          _categoryDistribution[
+                                                  title: (activeCategoryDistribution[
+                                                                  'electricity'] ??
+                                                              0.0) >
+                                                          0
+                                                      ? '${_formatPercent(activeCategoryDistribution['electricity'] ?? 0.0)}%'
+                                                      : '',
+                                                  radius: 50,
+                                                  titleStyle: subStyle.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                // Su - Mavi
+                                                PieChartSectionData(
+                                                  color: Colors.blue,
+                                                  value:
+                                                      activeCategoryDistribution[
+                                                              'water'] ??
+                                                          0.0,
+                                                  title: (activeCategoryDistribution[
                                                                   'water'] ??
-                                                              0.0,
-                                                      title: (_categoryDistribution[
-                                                                      'water'] ??
-                                                                  0.0) >
-                                                              0
-                                                          ? '${(_categoryDistribution['water'] ?? 0.0).toStringAsFixed(0)}%'
-                                                          : '',
-                                                      radius: 50,
-                                                      titleStyle: subStyle
-                                                          .copyWith(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: Colors.white,
-                                                      ),
-                                                    ),
-                                                    // Gaz — #47009C
-                                                    PieChartSectionData(
-                                                      color: const Color(
-                                                        0xFF47009C,
-                                                      ),
-                                                      value:
-                                                          _categoryDistribution[
+                                                              0.0) >
+                                                          0
+                                                      ? '${_formatPercent(activeCategoryDistribution['water'] ?? 0.0)}%'
+                                                      : '',
+                                                  radius: 50,
+                                                  titleStyle: subStyle.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                // Gaz — #47009C
+                                                PieChartSectionData(
+                                                  color:
+                                                      const Color(0xFF47009C),
+                                                  value:
+                                                      activeCategoryDistribution[
+                                                              'gas'] ??
+                                                          0.0,
+                                                  title: (activeCategoryDistribution[
                                                                   'gas'] ??
-                                                              0.0,
-                                                      title: (_categoryDistribution[
-                                                                      'gas'] ??
-                                                                  0.0) >
-                                                              0
-                                                          ? '${(_categoryDistribution['gas'] ?? 0.0).toStringAsFixed(0)}%'
-                                                          : '',
-                                                      radius: 50,
-                                                      titleStyle: subStyle
-                                                          .copyWith(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: Colors.white,
+                                                              0.0) >
+                                                          0
+                                                      ? '${_formatPercent(activeCategoryDistribution['gas'] ?? 0.0)}%'
+                                                      : '',
+                                                  radius: 50,
+                                                  titleStyle: subStyle.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ];
+                                              if (includeWasteSlice) {
+                                                pieSections.add(
+                                                  PieChartSectionData(
+                                                    color: const Color(
+                                                      0xFF6D4C41,
+                                                    ),
+                                                    value:
+                                                        activeCategoryDistribution[
+                                                                'waste'] ??
+                                                            0.0,
+                                                    title: (activeCategoryDistribution[
+                                                                    'waste'] ??
+                                                                0.0) >
+                                                            0
+                                                        ? '${_formatPercent(activeCategoryDistribution['waste'] ?? 0.0)}%'
+                                                        : '',
+                                                    radius: 50,
+                                                    titleStyle:
+                                                        subStyle.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+
+                                              final Widget pieChart = SizedBox(
+                                                width: pieSize,
+                                                height: pieSize,
+                                                child: PieChart(
+                                                  PieChartData(
+                                                    pieTouchData: PieTouchData(
+                                                      touchCallback: (
+                                                        FlTouchEvent event,
+                                                        pieTouchResponse,
+                                                      ) {
+                                                        // Dokunma etkileşimi
+                                                      },
+                                                    ),
+                                                    borderData: FlBorderData(
+                                                      show: false,
+                                                    ),
+                                                    sectionsSpace: 2,
+                                                    centerSpaceRadius: 40,
+                                                    sections: pieSections,
+                                                  ),
+                                                ),
+                                              );
+
+                                              final Widget legend = Column(
+                                                crossAxisAlignment: compactChart
+                                                    ? CrossAxisAlignment.center
+                                                    : CrossAxisAlignment.start,
+                                                children: [
+                                                  _LegendDot(
+                                                    label:
+                                                        '${translate('electricity_label', locale)}${_selectedLegendCategory == 'electricity' ? ' (${_formatPercent(activeCategoryDistribution['electricity'] ?? 0.0)}%)' : ''}',
+                                                    color: Colors.orange,
+                                                    labelStyle: subStyle,
+                                                    onTap: () {
+                                                      setState(() {
+                                                        _selectedLegendCategory =
+                                                            _selectedLegendCategory ==
+                                                                    'electricity'
+                                                                ? null
+                                                                : 'electricity';
+                                                      });
+                                                    },
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  _LegendDot(
+                                                    label:
+                                                        '${translate('water_label', locale)}${_selectedLegendCategory == 'water' ? ' (${_formatPercent(activeCategoryDistribution['water'] ?? 0.0)}%)' : ''}',
+                                                    color: Colors.blue,
+                                                    labelStyle: subStyle,
+                                                    onTap: () {
+                                                      setState(() {
+                                                        _selectedLegendCategory =
+                                                            _selectedLegendCategory ==
+                                                                    'water'
+                                                                ? null
+                                                                : 'water';
+                                                      });
+                                                    },
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  _LegendDot(
+                                                    label:
+                                                        '${translate('gas_label', locale)}${_selectedLegendCategory == 'gas' ? ' (${_formatPercent(activeCategoryDistribution['gas'] ?? 0.0)}%)' : ''}',
+                                                    color:
+                                                        const Color(0xFF47009C),
+                                                    labelStyle: subStyle,
+                                                    onTap: () {
+                                                      setState(() {
+                                                        _selectedLegendCategory =
+                                                            _selectedLegendCategory ==
+                                                                    'gas'
+                                                                ? null
+                                                                : 'gas';
+                                                      });
+                                                    },
+                                                  ),
+                                                  if (!_useEspData) ...[
+                                                    const SizedBox(height: 8),
+                                                    _LegendDot(
+                                                      label:
+                                                          '${translate('waste_label', locale)}${_selectedLegendCategory == 'waste' ? ' (${_formatPercent(activeCategoryDistribution['waste'] ?? 0.0)}%)' : ''}',
+                                                      color: const Color(
+                                                        0xFF6D4C41,
                                                       ),
+                                                      labelStyle: subStyle,
+                                                      onTap: () {
+                                                        setState(() {
+                                                          _selectedLegendCategory =
+                                                              _selectedLegendCategory ==
+                                                                      'waste'
+                                                                  ? null
+                                                                  : 'waste';
+                                                        });
+                                                      },
                                                     ),
                                                   ],
-                                                ),
-                                              ),
-                                            );
-
-                                            final Widget legend = Column(
-                                              crossAxisAlignment: compactChart
-                                                  ? CrossAxisAlignment.center
-                                                  : CrossAxisAlignment.start,
-                                              children: [
-                                                _LegendDot(
-                                                  label: translate(
-                                                    'electricity',
-                                                    locale,
-                                                  ),
-                                                  color: Colors.orange,
-                                                  labelStyle: subStyle,
-                                                ),
-                                                const SizedBox(height: 8),
-                                                _LegendDot(
-                                                  label: translate(
-                                                      'water', locale),
-                                                  color: Colors.blue,
-                                                  labelStyle: subStyle,
-                                                ),
-                                                const SizedBox(height: 8),
-                                                _LegendDot(
-                                                  label: translate(
-                                                      'gas_label', locale),
-                                                  color: const Color(0xFF47009C),
-                                                  labelStyle: subStyle,
-                                                ),
-                                              ],
-                                            );
-
-                                            if (compactChart) {
-                                              return Column(
-                                                children: [
-                                                  Center(child: pieChart),
-                                                  const SizedBox(height: 12),
-                                                  legend,
                                                 ],
                                               );
-                                            }
 
-                                            return Row(
-                                              children: [
-                                                pieChart,
-                                                const SizedBox(width: 16),
-                                                Expanded(child: legend),
-                                              ],
-                                            );
-                                          },
-                                        ),
-                                        const SizedBox(height: 16),
-                                        Text(
-                                          translate(
-                                            'carbon_footprint_distribution',
-                                            locale,
+                                              if (compactChart) {
+                                                return Column(
+                                                  children: [
+                                                    Center(child: pieChart),
+                                                    const SizedBox(height: 12),
+                                                    legend,
+                                                  ],
+                                                );
+                                              }
+
+                                              return Row(
+                                                children: [
+                                                  pieChart,
+                                                  const SizedBox(width: 16),
+                                                  Expanded(child: legend),
+                                                ],
+                                              );
+                                            },
                                           ),
-                                          style: subStyle,
-                                        ),
-                                      ],
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            translate(
+                                              'carbon_footprint_distribution',
+                                              locale,
+                                            ),
+                                            style: subStyle,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                            ),
                             const SizedBox(height: _kReportsSectionGap),
                             Padding(
                               padding: _kReportsSectionOuterPadding,
                               child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: BackdropFilter(
-                                filter:
-                                    ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                                child: Container(
-                                  color: Colors.black.withValues(alpha: 0.28),
-                                  child: Padding(
-                                    padding: _kReportsCardInnerPadding,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                translate(
-                                                  'pdf_reporting_title',
+                                borderRadius: BorderRadius.circular(16),
+                                child: BackdropFilter(
+                                  filter:
+                                      ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    child: Padding(
+                                      padding: _kReportsCardInnerPadding,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  translate(
+                                                    'pdf_reporting_title',
+                                                    locale,
+                                                  ),
+                                                  style: headerStyle,
+                                                ),
+                                              ),
+                                              _ReportsRoundInfoIcon(
+                                                onTap: () =>
+                                                    _showPdfReportingInfoDialog(
+                                                  context,
                                                   locale,
-                                                ),
-                                                style: headerStyle,
-                                              ),
-                                            ),
-                                            _ReportsRoundInfoIcon(
-                                              onTap: () =>
-                                                  _showPdfReportingInfoDialog(
-                                                context,
-                                                locale,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Divider(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.3),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          translate(
-                                              'pdf_reporting_desc', locale),
-                                          style: subStyle,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          translate(
-                                              'pdf_export_language', locale),
-                                          style: subStyle,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        SizedBox(
-                                          width: double.infinity,
-                                          child: SegmentedButton<String>(
-                                            multiSelectionEnabled: false,
-                                            showSelectedIcon: false,
-                                            segments: [
-                                              ButtonSegment<String>(
-                                                value: 'tr',
-                                                label: Text(
-                                                  translate(
-                                                    'pdf_lang_tr',
-                                                    locale,
-                                                  ),
-                                                ),
-                                              ),
-                                              ButtonSegment<String>(
-                                                value: 'en',
-                                                label: Text(
-                                                  translate(
-                                                    'pdf_lang_en',
-                                                    locale,
-                                                  ),
                                                 ),
                                               ),
                                             ],
-                                            selected: {
-                                              _pdfExportLocaleSegmentSelection(),
-                                            },
-                                            onSelectionChanged:
-                                                (Set<String> selection) {
-                                              if (selection.isEmpty) return;
-                                              final v = selection.first;
-                                              setState(() {
-                                                switch (v) {
-                                                  case 'tr':
-                                                    _pdfExportLocaleOverride =
-                                                        const Locale('tr');
-                                                    break;
-                                                  case 'en':
-                                                    _pdfExportLocaleOverride =
-                                                        const Locale('en');
-                                                    break;
-                                                }
-                                              });
-                                            },
-                                            style:
-                                                _pdfLangSegmentedStyle(context),
                                           ),
-                                        ),
-                                        const SizedBox(height: 14),
-                                        LayoutBuilder(
-                                          builder:
-                                              (context, buttonConstraints) {
-                                            final bool stackButtons =
-                                                buttonConstraints.maxWidth <
-                                                    430;
-                                            if (stackButtons) {
-                                              return Wrap(
-                                                spacing: 10,
-                                                runSpacing: 10,
+                                          Divider(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.3),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            translate(
+                                                'pdf_reporting_desc', locale),
+                                            style: subStyle,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            translate(
+                                                'pdf_export_language', locale),
+                                            style: subStyle,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          SizedBox(
+                                            width: double.infinity,
+                                            child: SegmentedButton<String>(
+                                              multiSelectionEnabled: false,
+                                              showSelectedIcon: false,
+                                              segments: [
+                                                ButtonSegment<String>(
+                                                  value: 'tr',
+                                                  label: Text(
+                                                    translate(
+                                                      'pdf_lang_tr',
+                                                      locale,
+                                                    ),
+                                                  ),
+                                                ),
+                                                ButtonSegment<String>(
+                                                  value: 'en',
+                                                  label: Text(
+                                                    translate(
+                                                      'pdf_lang_en',
+                                                      locale,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                              selected: {
+                                                _pdfExportLocaleSegmentSelection(),
+                                              },
+                                              onSelectionChanged:
+                                                  (Set<String> selection) {
+                                                if (selection.isEmpty) return;
+                                                final v = selection.first;
+                                                setState(() {
+                                                  switch (v) {
+                                                    case 'tr':
+                                                      _pdfExportLocaleOverride =
+                                                          const Locale('tr');
+                                                      break;
+                                                    case 'en':
+                                                      _pdfExportLocaleOverride =
+                                                          const Locale('en');
+                                                      break;
+                                                  }
+                                                });
+                                              },
+                                              style: _pdfLangSegmentedStyle(
+                                                  context),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 14),
+                                          LayoutBuilder(
+                                            builder:
+                                                (context, buttonConstraints) {
+                                              final bool stackButtons =
+                                                  buttonConstraints.maxWidth <
+                                                      430;
+                                              if (stackButtons) {
+                                                return Wrap(
+                                                  spacing: 10,
+                                                  runSpacing: 10,
+                                                  children: [
+                                                    SizedBox(
+                                                      width: buttonConstraints
+                                                          .maxWidth,
+                                                      child: FilledButton.icon(
+                                                        onPressed: () =>
+                                                            _generateCarbonPdfReport(
+                                                                monthly: false),
+                                                        icon: const Icon(Icons
+                                                            .picture_as_pdf),
+                                                        label: Text(translate(
+                                                            'pdf_weekly_button',
+                                                            locale)),
+                                                      ),
+                                                    ),
+                                                    SizedBox(
+                                                      width: buttonConstraints
+                                                          .maxWidth,
+                                                      child: FilledButton.icon(
+                                                        onPressed: () =>
+                                                            _generateCarbonPdfReport(
+                                                                monthly: true),
+                                                        icon: const Icon(Icons
+                                                            .picture_as_pdf_outlined),
+                                                        label: Text(translate(
+                                                            'pdf_monthly_button',
+                                                            locale)),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                );
+                                              }
+
+                                              return Row(
                                                 children: [
-                                                  SizedBox(
-                                                    width: buttonConstraints
-                                                        .maxWidth,
+                                                  Expanded(
                                                     child: FilledButton.icon(
                                                       onPressed: () =>
                                                           _generateCarbonPdfReport(
@@ -3880,9 +4117,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           locale)),
                                                     ),
                                                   ),
-                                                  SizedBox(
-                                                    width: buttonConstraints
-                                                        .maxWidth,
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
                                                     child: FilledButton.icon(
                                                       onPressed: () =>
                                                           _generateCarbonPdfReport(
@@ -3896,54 +4132,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   ),
                                                 ],
                                               );
-                                            }
-
-                                            return Row(
-                                              children: [
-                                                Expanded(
-                                                  child: FilledButton.icon(
-                                                    onPressed: () =>
-                                                        _generateCarbonPdfReport(
-                                                            monthly: false),
-                                                    icon: const Icon(
-                                                        Icons.picture_as_pdf),
-                                                    label: Text(translate(
-                                                        'pdf_weekly_button',
-                                                        locale)),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: FilledButton.icon(
-                                                    onPressed: () =>
-                                                        _generateCarbonPdfReport(
-                                                            monthly: true),
-                                                    icon: const Icon(Icons
-                                                        .picture_as_pdf_outlined),
-                                                    label: Text(translate(
-                                                        'pdf_monthly_button',
-                                                        locale)),
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        ),
-                                      ],
+                                            },
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                            ),
                           ],
-                        ),
                         ),
                       ),
                     ),
                   ),
                 ),
-                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -4044,6 +4249,7 @@ class _FootprintGauge extends StatelessWidget {
   final LanguageProvider? languageProvider;
   final bool useEspData;
   final ValueChanged<bool>? onToggleChanged;
+
   /// Sensör modunda değer yokken [sensor_data_waiting] vb. gösterilir.
   final String? centerStatusOverride;
 
@@ -4107,16 +4313,23 @@ class _FootprintGauge extends StatelessWidget {
             child: SizedBox(
               width: size,
               height: size,
-              child: CustomPaint(
-                painter: _GradientRingPainter(
-                  progress: progress,
-                  strokeWidth: 10,
-                  trackColor: Colors.grey.shade300,
-                  gradientColors: const [
-                    Color(0xFF304411), // koyu yeşil
-                    Color(0xFF48631F), // açık yeşil
-                  ],
-                ),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: progress),
+                duration: const Duration(milliseconds: 450),
+                curve: Curves.easeInOutCubic,
+                builder: (context, animatedProgress, _) {
+                  return CustomPaint(
+                    painter: _GradientRingPainter(
+                      progress: animatedProgress,
+                      strokeWidth: 10,
+                      trackColor: Colors.grey.shade300,
+                      gradientColors: const [
+                        Color(0xFF304411), // koyu yeşil
+                        Color(0xFF48631F), // açık yeşil
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -4176,13 +4389,13 @@ class _FootprintGauge extends StatelessWidget {
                                                 (_kGaugeCenterAuxSize + 1),
                                             fontWeight: FontWeight.w600,
                                             height: 1.25,
-                                            color: Theme.of(context)
-                                                        .brightness ==
-                                                    Brightness.dark
-                                                ? Colors.black87
-                                                : Theme.of(context)
-                                                    .colorScheme
-                                                    .onSurface,
+                                            color:
+                                                Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? Colors.black87
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface,
                                           ),
                                     ),
                                   ),
@@ -4231,113 +4444,114 @@ class _FootprintGauge extends StatelessWidget {
                                   ),
                                 ),
                               ],
-                          const SizedBox(height: 4),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              translate('greenhouse_gas_emissions', locale),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontFamily: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.fontFamily,
-                                fontSize: _kGaugeCenterAuxSize,
-                                color: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? Colors.black
-                                    : Theme.of(context).colorScheme.onSurface,
-                              ),
-                            ),
-                          ),
-                          if (onToggleChanged != null) ...[
-                            const SizedBox(height: 6),
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: (size - 56).clamp(110.0, 220.0),
+                              const SizedBox(height: 4),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  translate('greenhouse_gas_emissions', locale),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.fontFamily,
+                                    fontSize: _kGaugeCenterAuxSize,
+                                    color: Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.black
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                  ),
                                 ),
-                                child: Wrap(
-                                  alignment: WrapAlignment.center,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  spacing: 4,
-                                  runSpacing: 2,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6.0,
-                                        vertical: 2.0,
-                                      ),
-                                      child: Text(
-                                        'M',
-                                        style: TextStyle(
-                                          fontFamily: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.fontFamily,
-                                          fontSize:
-                                              _kGaugeCenterAuxSize,
-                                          color: Theme.of(context)
-                                                      .brightness ==
-                                                  Brightness.dark
-                                              ? Colors.black87
-                                              : Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
+                              ),
+                              if (onToggleChanged != null) ...[
+                                const SizedBox(height: 6),
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxWidth: (size - 56).clamp(110.0, 220.0),
                                     ),
-                                    IgnorePointer(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(2.0),
-                                        child: Transform.scale(
-                                          scale: 0.8,
-                                          child: Switch(
-                                            value: useEspData,
-                                            materialTapTargetSize:
-                                                MaterialTapTargetSize
-                                                    .shrinkWrap,
-                                            onChanged: (_) {},
+                                    child: Wrap(
+                                      alignment: WrapAlignment.center,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      spacing: 4,
+                                      runSpacing: 2,
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6.0,
+                                            vertical: 2.0,
+                                          ),
+                                          child: Text(
+                                            'M',
+                                            style: TextStyle(
+                                              fontFamily: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.fontFamily,
+                                              fontSize: _kGaugeCenterAuxSize,
+                                              color: Theme.of(context)
+                                                          .brightness ==
+                                                      Brightness.dark
+                                                  ? Colors.black87
+                                                  : Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6.0,
-                                        vertical: 2.0,
-                                      ),
-                                      child: Text(
-                                        'E',
-                                        style: TextStyle(
-                                          fontFamily: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.fontFamily,
-                                          fontSize:
-                                              _kGaugeCenterAuxSize,
-                                          color: Theme.of(context)
-                                                      .brightness ==
-                                                  Brightness.dark
-                                              ? Colors.black87
-                                              : Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                          fontWeight: FontWeight.w600,
+                                        IgnorePointer(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(2.0),
+                                            child: Transform.scale(
+                                              scale: 0.8,
+                                              child: Switch(
+                                                value: useEspData,
+                                                materialTapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                onChanged: (_) {},
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                      ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6.0,
+                                            vertical: 2.0,
+                                          ),
+                                          child: Text(
+                                            'E',
+                                            style: TextStyle(
+                                              fontFamily: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.fontFamily,
+                                              fontSize: _kGaugeCenterAuxSize,
+                                              color: Theme.of(context)
+                                                          .brightness ==
+                                                      Brightness.dark
+                                                  ? Colors.black87
+                                                  : Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -4424,27 +4638,37 @@ class _LegendDot extends StatelessWidget {
     required this.label,
     required this.color,
     required this.labelStyle,
+    this.onTap,
   });
 
   final String label;
   final Color color;
   final TextStyle labelStyle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: labelStyle,
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: labelStyle,
-        ),
-      ],
+      ),
     );
   }
 }

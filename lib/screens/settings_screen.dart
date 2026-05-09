@@ -11,8 +11,6 @@ class SettingsScreen extends StatefulWidget {
     required this.onToggleTheme,
     this.transparentBackground = false,
     this.languageProvider,
-    this.fontScale = 1.0,
-    this.onFontScaleChanged,
     this.onLogout,
     this.onNavigationRequested,
   });
@@ -21,8 +19,6 @@ class SettingsScreen extends StatefulWidget {
   final void Function(bool isDark) onToggleTheme;
   final bool transparentBackground;
   final LanguageProvider? languageProvider;
-  final double fontScale;
-  final void Function(double scale)? onFontScaleChanged;
   final VoidCallback? onLogout;
   final void Function(int index)? onNavigationRequested;
 
@@ -73,504 +69,424 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? Colors.transparent
         : (isLight ? Theme.of(context).colorScheme.primary : null);
 
-    // Responsive genişlik hesaplama
-    final screenWidth = MediaQuery.of(context).size.width;
-    final mobileWidth = screenWidth * 0.95; // Mobilde %95 - daha geniş
-    final maxWidth = mobileWidth; // Desktop'ta maksimum mobildeki %95 değeri
-    final containerWidth = screenWidth < 600 ? mobileWidth : maxWidth;
-
     return Scaffold(
       appBar: null,
       backgroundColor: bgColor,
       body: SafeArea(
         child: Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            width: containerWidth,
-            padding: const EdgeInsets.all(12),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Dil ayarı kartı
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.language_outlined),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              widget.languageProvider?.isEnglish == true
-                                  ? 'English'
-                                  : 'Türkçe',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              widget.languageProvider?.toggleLanguage();
-                            },
-                            icon: const Icon(Icons.swap_horiz),
-                            label: Text(
-                              widget.languageProvider?.isEnglish == true
-                                  ? 'TR'
-                                  : 'EN',
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 6,
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10, left: 16, right: 16),
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    // Dil ayarı kartı
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.language_outlined),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                widget.languageProvider?.isEnglish == true
+                                    ? 'English'
+                                    : 'Türkçe',
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                widget.languageProvider?.toggleLanguage();
+                              },
+                              icon: const Icon(Icons.swap_horiz),
+                              label: Text(
+                                widget.languageProvider?.isEnglish == true
+                                    ? 'TR'
+                                    : 'EN',
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Profil ayarları kartı
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.person_outlined),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              translate(
-                                'profile_settings',
-                                widget.languageProvider?.currentLocale ??
-                                    const Locale('tr'),
-                              ),
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              final locale =
-                                  widget.languageProvider?.currentLocale ??
-                                      const Locale('tr');
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => ProfileSettingsScreen(
-                                    onProfileUpdated: () {
-                                      // Profil güncellendiğinde yapılacak işlemler
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            translate(
-                                              'profile_updated',
-                                              locale,
-                                            ),
-                                          ),
-                                          backgroundColor: Colors.green,
-                                          duration: const Duration(seconds: 2),
-                                        ),
-                                      );
-                                    },
-                                    languageProvider: widget.languageProvider,
-                                    onNavigationRequested:
-                                        widget.onNavigationRequested,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.edit),
-                            label: Text(
-                              translate(
-                                'edit',
-                                widget.languageProvider?.currentLocale ??
-                                    const Locale('tr'),
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 6,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Tema ayarı kartı
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.brightness_6_outlined),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              translate(
-                                'dark_mode',
-                                widget.languageProvider?.currentLocale ??
-                                    const Locale('tr'),
-                              ),
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          Switch(
-                            value: _isDarkModeLocal,
-                            onChanged: (value) {
-                              setState(() {
-                                _isDarkModeLocal = value;
-                              });
-                              widget.onToggleTheme(value);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Font boyutu ayarı kartı
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.text_fields),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  translate(
-                                    'font_size',
-                                    widget.languageProvider?.currentLocale ??
-                                        const Locale('tr'),
-                                  ),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
-                                ),
-                              ),
-                              Text(
-                                '${(widget.fontScale * 100).round()}%',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              IconButton(
-                                onPressed: widget.fontScale > 0.8
-                                    ? () {
-                                        final newScale =
-                                            (widget.fontScale - 0.1).clamp(
-                                          0.8,
-                                          1.5,
-                                        );
-                                        widget.onFontScaleChanged?.call(
-                                          newScale,
-                                        );
-                                      }
-                                    : null,
-                                icon: const Icon(Icons.remove),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Theme.of(
-                                    context,
-                                  ).colorScheme.primary.withValues(alpha: 0.2),
-                                ),
-                              ),
-                              Expanded(
-                                child: Slider(
-                                  value: widget.fontScale,
-                                  min: 0.8,
-                                  max: 1.5,
-                                  divisions: 7,
-                                  onChanged: (value) {
-                                    widget.onFontScaleChanged?.call(value);
-                                  },
-                                ),
-                              ),
-                              IconButton(
-                                onPressed: widget.fontScale < 1.5
-                                    ? () {
-                                        final newScale =
-                                            (widget.fontScale + 0.1).clamp(
-                                          0.8,
-                                          1.5,
-                                        );
-                                        widget.onFontScaleChanged?.call(
-                                          newScale,
-                                        );
-                                      }
-                                    : null,
-                                icon: const Icon(Icons.add),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Theme.of(
-                                    context,
-                                  ).colorScheme.primary.withValues(alpha: 0.2),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Bildirim ayarları kartı
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.notifications_outlined),
-                              const SizedBox(width: 8),
-                              Text(
+                    const SizedBox(height: 12),
+                    // Profil ayarları kartı
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.person_outlined),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
                                 translate(
-                                  'notification_settings',
+                                  'profile_settings',
                                   widget.languageProvider?.currentLocale ??
                                       const Locale('tr'),
                                 ),
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          // Haftalık raporlar
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      translate(
-                                        'weekly_reports',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                final locale =
+                                    widget.languageProvider?.currentLocale ??
+                                        const Locale('tr');
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => ProfileSettingsScreen(
+                                      onProfileUpdated: () {
+                                        // Profil güncellendiğinde yapılacak işlemler
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              translate(
+                                                'profile_updated',
+                                                locale,
+                                              ),
+                                            ),
+                                            backgroundColor: Colors.green,
+                                            duration:
+                                                const Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                      languageProvider: widget.languageProvider,
+                                      onNavigationRequested:
+                                          widget.onNavigationRequested,
                                     ),
-                                    Text(
-                                      translate(
-                                        'weekly_reports_desc',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  ],
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.edit),
+                              label: Text(
+                                translate(
+                                  'edit',
+                                  widget.languageProvider?.currentLocale ??
+                                      const Locale('tr'),
                                 ),
                               ),
-                              Switch(
-                                value: _weeklyReports,
-                                onChanged: (value) async {
-                                  setState(() {
-                                    _weeklyReports = value;
-                                  });
-                                  await NotificationService.instance
-                                      .setWeeklyReportsEnabled(value);
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // Aylık raporlar
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      translate(
-                                        'monthly_reports',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                    Text(
-                                      translate(
-                                        'monthly_reports_desc',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  ],
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
                                 ),
                               ),
-                              Switch(
-                                value: _monthlyReports,
-                                onChanged: (value) async {
-                                  setState(() {
-                                    _monthlyReports = value;
-                                  });
-                                  await NotificationService.instance
-                                      .setMonthlyReportsEnabled(value);
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // Hedef hatırlatmaları
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      translate(
-                                        'goal_reminders',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                    Text(
-                                      translate(
-                                        'goal_reminders_desc',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch(
-                                value: _goalReminders,
-                                onChanged: (value) async {
-                                  setState(() {
-                                    _goalReminders = value;
-                                  });
-                                  await NotificationService.instance
-                                      .setGoalRemindersEnabled(value);
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // Enerji ipuçları
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      translate(
-                                        'energy_tips_notifications',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                    Text(
-                                      translate(
-                                        'energy_tips_desc',
-                                        widget.languageProvider
-                                                ?.currentLocale ??
-                                            const Locale('tr'),
-                                      ),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch(
-                                value: _energyTips,
-                                onChanged: (value) async {
-                                  setState(() {
-                                    _energyTips = value;
-                                  });
-                                  await NotificationService.instance
-                                      .setEnergyTipsEnabled(value);
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Çıkış yap butonu
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            _showLogoutDialog();
-                          },
-                          icon: const Icon(Icons.logout),
-                          label: Text(
-                            translate(
-                              'logout',
-                              widget.languageProvider?.currentLocale ??
-                                  const Locale('tr'),
+                    const SizedBox(height: 12),
+                    // Tema ayarı kartı
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.brightness_6_outlined),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                translate(
+                                  'dark_mode',
+                                  widget.languageProvider?.currentLocale ??
+                                      const Locale('tr'),
+                                ),
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                             ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                            Switch(
+                              value: _isDarkModeLocal,
+                              onChanged: (value) {
+                                setState(() {
+                                  _isDarkModeLocal = value;
+                                });
+                                widget.onToggleTheme(value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Bildirim ayarları kartı
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.notifications_outlined),
+                                const SizedBox(width: 8),
+                                Text(
+                                  translate(
+                                    'notification_settings',
+                                    widget.languageProvider?.currentLocale ??
+                                        const Locale('tr'),
+                                  ),
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            // Haftalık raporlar
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate(
+                                          'weekly_reports',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      Text(
+                                        translate(
+                                          'weekly_reports_desc',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _weeklyReports,
+                                  onChanged: (value) async {
+                                    setState(() {
+                                      _weeklyReports = value;
+                                    });
+                                    await NotificationService.instance
+                                        .setWeeklyReportsEnabled(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Aylık raporlar
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate(
+                                          'monthly_reports',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      Text(
+                                        translate(
+                                          'monthly_reports_desc',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _monthlyReports,
+                                  onChanged: (value) async {
+                                    setState(() {
+                                      _monthlyReports = value;
+                                    });
+                                    await NotificationService.instance
+                                        .setMonthlyReportsEnabled(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Hedef hatırlatmaları
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate(
+                                          'goal_reminders',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      Text(
+                                        translate(
+                                          'goal_reminders_desc',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _goalReminders,
+                                  onChanged: (value) async {
+                                    setState(() {
+                                      _goalReminders = value;
+                                    });
+                                    await NotificationService.instance
+                                        .setGoalRemindersEnabled(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Enerji ipuçları
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate(
+                                          'energy_tips_notifications',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      Text(
+                                        translate(
+                                          'energy_tips_desc',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _energyTips,
+                                  onChanged: (value) async {
+                                    setState(() {
+                                      _energyTips = value;
+                                    });
+                                    await NotificationService.instance
+                                        .setEnergyTipsEnabled(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Çıkış yap butonu
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              _showLogoutDialog();
+                            },
+                            icon: const Icon(Icons.logout, color: Colors.red),
+                            label: Text(
+                              translate(
+                                'logout',
+                                widget.languageProvider?.currentLocale ??
+                                    const Locale('tr'),
+                              ),
+                              style: const TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: Colors.red,
+                              side: const BorderSide(
+                                color: Colors.red,
+                                width: 1.5,
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

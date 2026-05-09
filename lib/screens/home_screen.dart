@@ -13,8 +13,9 @@ import '../services/global_carbon_service.dart';
 import '../services/carbon_data_service.dart';
 
 /// Ana sayfa bölüm aralığı ve kart içi boşluk (diğer ekranlarla uyumlu ritim).
-const double _kHomeSectionGap = 20;
-const double _kHomeTitleBelowGap = 12;
+/// Önceki konteynır ile sonraki başlık arası; başlık ile altındaki konteynır arası ayrı.
+const double _kHomeSectionGap = 56;
+const double _kHomeTitleBelowGap = 56;
 const EdgeInsets _kHomeCardPadding = EdgeInsets.all(16);
 
 /// Home screen showing title, tips, and weather placeholder.
@@ -69,7 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _tipsController = PageController(viewportFraction: 0.82);
+    // İlk slider ile aynı içerik genişliği: tam genişlik sayfa
+    _tipsController = PageController(viewportFraction: 1.0);
     _heroController = PageController();
 
     // Listener'ları oluştur ve sakla
@@ -449,6 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             // İçerik
             ListView(
+              physics: const BouncingScrollPhysics(),
               padding: EdgeInsets.fromLTRB(
                 homeHorizontalPad,
                 16,
@@ -461,11 +464,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Hero Slider - Sadece görseller (geniş ekranda daha yüksek)
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final bool isWide = constraints.maxWidth >= 900;
-                    // Web/geniş ekranda ekran yüksekliğinde, mobilde 200
+                    final bool isWide = constraints.maxWidth > 600;
                     final double screenHeight =
                         MediaQuery.of(context).size.height;
-                    final double heroHeight = isWide ? screenHeight * 0.8 : 200;
+                    final double mobileHeight =
+                        (screenHeight * 0.25).clamp(180.0, 320.0);
+                    final double wideHeightFromAspect =
+                        constraints.maxWidth / (16 / 9);
+                    final double heroHeight = isWide
+                        ? wideHeightFromAspect.clamp(220.0, 740.0)
+                        : mobileHeight;
                     return SizedBox(
                       height: heroHeight,
                       child: PageView.builder(
@@ -576,16 +584,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 900;
+                    final double tipsCarouselHeight =
+                        (MediaQuery.of(context).size.height * 0.26)
+                            .clamp(230.0, 330.0);
                     if (isWide) {
                       // Geniş ekran: horizontal slider, tek satırda kaydırılabilir
-                      // Web'de daha fazla kart görünmesi için viewportFraction (0.4 - daha iyi sayfa algılama)
                       _tipsControllerWeb ??=
-                          PageController(viewportFraction: 0.4)
+                          PageController(viewportFraction: 1.0)
                             ..addListener(_tipsListener);
                       return Column(
                         children: [
                           SizedBox(
-                            height: 210,
+                            height: tipsCarouselHeight,
                             child: PageView.builder(
                               controller: _tipsControllerWeb,
                               allowImplicitScrolling:
@@ -607,21 +617,20 @@ class _HomeScreenState extends State<HomeScreen> {
                               itemBuilder: (context, index) {
                                 // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
                                 final roundedPage = _currentPage.round();
-                                final distance = (_currentPage - index).abs();
                                 final isSelected = roundedPage ==
                                     index; // Yuvarlanmış değerle karşılaştır
-                                final scale = isSelected
-                                    ? 1.1
-                                    : (1 - (distance * 0.15)).clamp(0.85, 1.0);
-                                final opacity = isSelected ? 1.0 : 0.35;
-                                final height = isSelected ? 230.0 : 170.0;
+                                final scale = isSelected ? 1.0 : 0.85;
+                                final opacity = isSelected ? 1.0 : 0.5;
+                                final height = isSelected
+                                    ? tipsCarouselHeight
+                                    : (tipsCarouselHeight * 0.88);
 
                                 return AnimatedContainer(
                                   duration: const Duration(milliseconds: 250),
                                   curve: Curves.easeOutCubic,
                                   height: height,
                                   margin: EdgeInsets.symmetric(
-                                    horizontal: isSelected ? 8 : 12,
+                                    horizontal: isSelected ? 0 : 6,
                                     vertical: isSelected ? 0 : 15,
                                   ),
                                   decoration: isSelected
@@ -639,11 +648,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                       curve: Curves.easeOutCubic,
                                       scale: scale,
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
+                                        padding: EdgeInsets.zero,
+                                        child: ImageFiltered(
+                                          imageFilter: ImageFilter.blur(
+                                            sigmaX: isSelected ? 0 : 1.2,
+                                            sigmaY: isSelected ? 0 : 1.2,
+                                          ),
+                                          child: _buildTipCard(
+                                              index, isSelected, locale),
                                         ),
-                                        child: _buildTipCard(
-                                            index, isSelected, locale),
                                       ),
                                     ),
                                   ),
@@ -682,7 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     return Column(
                       children: [
                         SizedBox(
-                          height: 210, // Seçili kart için daha fazla alan
+                          height: tipsCarouselHeight,
                           child: PageView.builder(
                             controller: _tipsController,
                             allowImplicitScrolling: true,
@@ -700,16 +713,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             itemBuilder: (context, index) {
                               // Yuvarlanmış sayfa değerini kullan (daha güvenilir)
                               final roundedPage = _currentPage.round();
-                              final distance = (_currentPage - index).abs();
                               final isSelected = roundedPage ==
                                   index; // Yuvarlanmış değerle karşılaştır
-                              final scale = isSelected
-                                  ? 1.0
-                                  : (1 - (distance * 0.12)).clamp(0.88, 1.0);
-                              final opacity = isSelected ? 1.0 : 0.35;
+                              final scale = isSelected ? 1.0 : 0.85;
+                              final opacity = isSelected ? 1.0 : 0.5;
                               final height = isSelected
-                                  ? 210.0
-                                  : 150.0; // Seçili kart daha büyük
+                                  ? tipsCarouselHeight
+                                  : (tipsCarouselHeight * 0.85);
 
                               return AnimatedContainer(
                                 duration: const Duration(milliseconds: 150),
@@ -725,8 +735,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                   child: AnimatedScale(
                                     duration: const Duration(milliseconds: 150),
                                     scale: scale,
-                                    child: _buildTipCard(
-                                        index, isSelected, locale),
+                                    child: ImageFiltered(
+                                      imageFilter: ImageFilter.blur(
+                                        sigmaX: isSelected ? 0 : 1.2,
+                                        sigmaY: isSelected ? 0 : 1.2,
+                                      ),
+                                      child: _buildTipCard(
+                                          index, isSelected, locale),
+                                    ),
                                   ),
                                 ),
                               );
@@ -766,7 +782,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   translate('weather_energy_title', locale),
                   style: homeTitleStyle,
                 ),
-                const SizedBox(height: _kHomeTitleBelowGap),
+                const SizedBox(height: 10),
                 Text(
                   _currentWeather != null && _currentWeather!['city'] != null
                       ? _currentWeather!['city']

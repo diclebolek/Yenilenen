@@ -32,6 +32,40 @@ class AppTheme {
     final cardColor = isDark ? base.colorScheme.surface : lightSurface;
 
     return base.copyWith(
+      textTheme: base.textTheme.copyWith(
+        headlineLarge: base.textTheme.headlineLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          height: 1.2,
+          letterSpacing: 0.2,
+        ),
+        headlineMedium: base.textTheme.headlineMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+          height: 1.2,
+          letterSpacing: 0.2,
+        ),
+        titleLarge: base.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          height: 1.2,
+          letterSpacing: 0.2,
+        ),
+        titleMedium: base.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+          height: 1.25,
+          letterSpacing: 0.15,
+        ),
+        bodyLarge: base.textTheme.bodyLarge?.copyWith(
+          height: 1.35,
+          letterSpacing: 0.1,
+        ),
+        bodyMedium: base.textTheme.bodyMedium?.copyWith(
+          height: 1.35,
+          letterSpacing: 0.1,
+        ),
+        bodySmall: base.textTheme.bodySmall?.copyWith(
+          height: 1.3,
+          letterSpacing: 0.08,
+        ),
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: base.scaffoldBackgroundColor,
         elevation: 0,

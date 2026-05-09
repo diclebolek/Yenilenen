@@ -151,6 +151,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenW = MediaQuery.of(context).size.width;
+    final iconSize = (screenW * 0.15).clamp(64.0, 84.0);
+    final iconInnerSize = (iconSize * 0.5).clamp(28.0, 42.0);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Kayıt Ol'),
@@ -174,8 +177,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 600;
-                    final double cardWidth =
-                        isWide ? 500 : constraints.maxWidth - 48;
+                    final double cardWidth = isWide
+                        ? 520
+                        : (constraints.maxWidth - 16).clamp(300.0, 520.0);
 
                     return SizedBox(
                       width: cardWidth,
@@ -201,8 +205,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   children: [
                                     // Logo/Icon
                                     Container(
-                                      width: 80,
-                                      height: 80,
+                                      width: iconSize,
+                                      height: iconSize,
                                       decoration: BoxDecoration(
                                         color: Theme.of(
                                           context,
@@ -218,10 +222,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                         Icons.business,
                                         color: Colors.white,
-                                        size: 40,
+                                        size: iconInnerSize,
                                       ),
                                     ),
                                     const SizedBox(height: 24),

@@ -185,6 +185,7 @@ class _RealtimeEspDataWidgetState extends State<RealtimeEspDataWidget> {
                             fontSize: 12,
                           ),
                         ),
+                        const SizedBox(width: 20),
                         IconButton(
                           onPressed: () async {
                             await _pullFromEsp();

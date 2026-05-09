@@ -121,6 +121,8 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final screenW = MediaQuery.of(context).size.width;
+    final logoSize = (screenW * 0.46).clamp(170.0, 280.0);
 
     return Scaffold(
       appBar: null,
@@ -140,8 +142,9 @@ class _LoginScreenState extends State<LoginScreen>
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 600;
-                    final double cardWidth =
-                        isWide ? 400 : constraints.maxWidth - 48;
+                    final double cardWidth = isWide
+                        ? 520
+                        : (constraints.maxWidth - 16).clamp(300.0, 520.0);
 
                     return SizedBox(
                       width: cardWidth,
@@ -162,8 +165,8 @@ class _LoginScreenState extends State<LoginScreen>
                               padding: const EdgeInsets.only(
                                 left: 32,
                                 right: 32,
-                                top: 8,
-                                bottom: 12,
+                                top: 12,
+                                bottom: 16,
                               ),
                               child: Form(
                                 key: _formKey,
@@ -197,8 +200,8 @@ class _LoginScreenState extends State<LoginScreen>
                                         ),
                                         child: Image.asset(
                                           'assets/images/logoCo2.png',
-                                          width: 280,
-                                          height: 280,
+                                          width: logoSize,
+                                          height: logoSize,
                                           fit: BoxFit.cover,
                                           errorBuilder:
                                               (context, error, stackTrace) {
@@ -224,6 +227,8 @@ class _LoginScreenState extends State<LoginScreen>
                                             ?.copyWith(
                                               color: Colors.white,
                                               fontWeight: FontWeight.bold,
+                                              height: 1.15,
+                                              letterSpacing: 0.3,
                                             ),
                                         textAlign: TextAlign.center,
                                       ),
@@ -239,6 +244,8 @@ class _LoginScreenState extends State<LoginScreen>
                                             color: Colors.white.withValues(
                                               alpha: 0.8,
                                             ),
+                                            height: 1.35,
+                                            letterSpacing: 0.15,
                                           ),
                                       textAlign: TextAlign.center,
                                     ),
@@ -260,6 +267,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         prefixIcon: const Icon(
                                           Icons.email_outlined,
                                           color: Colors.white70,
+                                          size: 22,
                                         ),
                                         labelStyle: const TextStyle(
                                           color: Colors.white70,
@@ -344,6 +352,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         prefixIcon: const Icon(
                                           Icons.lock_outlined,
                                           color: Colors.white70,
+                                          size: 22,
                                         ),
                                         suffixIcon: IconButton(
                                           icon: Icon(
@@ -351,6 +360,7 @@ class _LoginScreenState extends State<LoginScreen>
                                                 ? Icons.visibility_outlined
                                                 : Icons.visibility_off_outlined,
                                             color: Colors.white70,
+                                            size: 22,
                                           ),
                                           onPressed: () {
                                             setState(() {
@@ -463,8 +473,9 @@ class _LoginScreenState extends State<LoginScreen>
                                                               ? Colors.blue
                                                               : Theme.of(
                                                                   context,
-                                                                ).colorScheme
-                                                                    .primary,
+                                                                )
+                                                                  .colorScheme
+                                                                  .primary,
                                                           width: 2,
                                                         ),
                                                       ),
@@ -493,13 +504,16 @@ class _LoginScreenState extends State<LoginScreen>
                                                         : Text(
                                                             translate('login',
                                                                 locale),
-                                                            style: const TextStyle(
-                                                              fontSize: 16,
+                                                            style:
+                                                                const TextStyle(
+                                                              fontSize: 18,
                                                               fontWeight:
                                                                   FontWeight
                                                                       .w600,
+                                                              height: 1.2,
                                                               // Metin rengi: her zaman beyaz
-                                                              color: Colors.white,
+                                                              color:
+                                                                  Colors.white,
                                                             ),
                                                           ),
                                                   ),
@@ -578,10 +592,12 @@ class _LoginScreenState extends State<LoginScreen>
                                                                     style:
                                                                         const TextStyle(
                                                                       fontSize:
-                                                                          16,
+                                                                          18,
                                                                       fontWeight:
                                                                           FontWeight
                                                                               .w600,
+                                                                      height:
+                                                                          1.2,
                                                                       color: Colors
                                                                           .white,
                                                                     ),
@@ -704,7 +720,9 @@ class _LoginScreenState extends State<LoginScreen>
                                               color: Colors.white.withValues(
                                                 alpha: 0.9,
                                               ),
-                                              fontSize: 14,
+                                              fontSize: 16,
+                                              height: 1.25,
+                                              letterSpacing: 0.1,
                                             ),
                                           ),
                                           TextButton(
@@ -758,7 +776,8 @@ class _LoginScreenState extends State<LoginScreen>
                                                   context,
                                                 ).colorScheme.primary,
                                                 fontWeight: FontWeight.bold,
-                                                fontSize: 15,
+                                                fontSize: 18,
+                                                height: 1.2,
                                                 decoration:
                                                     TextDecoration.underline,
                                               ),

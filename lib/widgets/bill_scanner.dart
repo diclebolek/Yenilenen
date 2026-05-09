@@ -308,16 +308,21 @@ class _BillScannerCardState extends State<BillScannerCard> {
         builder: (context, constraints) {
           final bool isWide =
               constraints.maxWidth >= 900; // Web/geniş ekran tespiti
-          // Web'de görseli daha büyük göstermek için yüksekliği artır
-          final double cardHeight = isWide ? 400 : 230;
+          final double w = constraints.maxWidth;
+          // Mobilde de konteynırı doldur: genişliğe göre 16:9 yükseklik + üst sınır
+          final double cardHeight = isWide
+              ? 400
+              : (w / (16 / 9)).clamp(240.0, 340.0);
+          final Color outlineGreen = Theme.of(context).brightness ==
+                  Brightness.dark
+              ? const Color(0xFF304411)
+              : const Color(0xFF48631F);
           return Container(
             height: cardHeight,
             decoration: BoxDecoration(
               image: DecorationImage(
                 image: const AssetImage('assets/images/foto_yükleme.png'),
-                fit: isWide
-                    ? BoxFit.cover
-                    : BoxFit.contain, // Web'de cover, mobilde contain
+                fit: BoxFit.cover,
                 alignment: Alignment.center,
               ),
             ),
@@ -360,7 +365,7 @@ class _BillScannerCardState extends State<BillScannerCard> {
                             ),
                             const SizedBox(height: 16),
                             // Buton daha sağa alındı
-                            ElevatedButton.icon(
+                            OutlinedButton.icon(
                               onPressed: _isScanning ? null : _scanBill,
                               icon: _isScanning
                                   ? const SizedBox(
@@ -374,10 +379,11 @@ class _BillScannerCardState extends State<BillScannerCard> {
                                         ),
                                       ),
                                     )
-                                  : const Icon(
+                                  : Icon(
                                       kIsWeb
                                           ? Icons.photo_library
                                           : Icons.camera_alt,
+                                      color: Colors.white,
                                     ),
                               label: Text(
                                 _isScanning
@@ -393,14 +399,15 @@ class _BillScannerCardState extends State<BillScannerCard> {
                                                 ?.currentLocale ??
                                             const Locale('tr'),
                                       ),
+                                style: const TextStyle(color: Colors.white),
                               ),
-                              style: ElevatedButton.styleFrom(
-                                // Buton rengi: AppBar ile aynı yeşil (tema parlaklığına göre)
-                                backgroundColor: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? const Color(0xFF304411)
-                                    : const Color(0xFF48631F),
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
                                 foregroundColor: Colors.white,
+                                side: BorderSide(
+                                  color: outlineGreen.withValues(alpha: 0.95),
+                                  width: 1.5,
+                                ),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 12,
                                   horizontal: 16,
