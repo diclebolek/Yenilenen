@@ -4429,7 +4429,6 @@ class _FootprintGauge extends StatelessWidget {
     required this.kgCo2e,
     required this.size,
     this.isMobileLayout = false,
-    this.toggleBelowRing = false,
     this.languageProvider,
     this.useEspData = false,
     this.onToggleChanged,
@@ -4439,7 +4438,6 @@ class _FootprintGauge extends StatelessWidget {
   final double? kgCo2e;
   final double size;
   final bool isMobileLayout;
-  final bool toggleBelowRing;
   final LanguageProvider? languageProvider;
   final bool useEspData;
   final ValueChanged<bool>? onToggleChanged;
@@ -4491,8 +4489,7 @@ class _FootprintGauge extends StatelessWidget {
     final double progress =
         ((kg / 1000.0) / maxTonnesReference).clamp(0.0, 1.0);
     final double ringStroke = isMobileLayout ? 11.0 : 10.0;
-    final double innerRingGap =
-        toggleBelowRing ? 4.0 : (isMobileLayout ? 8.0 : 16.0);
+    final double innerRingGap = isMobileLayout ? 8.0 : 16.0;
     final double innerSize = size - (ringStroke * 2 + innerRingGap);
     final double valueSize =
         isMobileLayout ? _kGaugeCenterValueSizeMobile : _kGaugeCenterValueSize;
@@ -4566,8 +4563,7 @@ class _FootprintGauge extends StatelessWidget {
       );
     }
 
-    final bool showToggleInside =
-        onToggleChanged != null && !toggleBelowRing;
+    final bool showToggleInside = onToggleChanged != null;
 
     Widget buildGaugeRing() {
       return SizedBox(
@@ -4629,10 +4625,10 @@ class _FootprintGauge extends StatelessWidget {
                         : () => onToggleChanged!(!useEspData),
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
-                        toggleBelowRing ? 20 : (isMobileLayout ? 12 : 10),
-                        toggleBelowRing ? 20 : (isMobileLayout ? 10 : 6),
-                        toggleBelowRing ? 20 : (isMobileLayout ? 12 : 10),
-                        toggleBelowRing ? 20 : (isMobileLayout ? 8 : 6),
+                        isMobileLayout ? 12 : 10,
+                        isMobileLayout ? 10 : 6,
+                        isMobileLayout ? 12 : 10,
+                        isMobileLayout ? 8 : 6,
                       ),
                       child: showToggleInside
                           ? Center(
@@ -4672,29 +4668,6 @@ class _FootprintGauge extends StatelessWidget {
       );
     }
 
-    if (toggleBelowRing && onToggleChanged != null) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          buildGaugeRing(),
-          const SizedBox(height: 10),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => onToggleChanged!(!useEspData),
-            child: _GaugeModeToggleRow(
-              useEspData: useEspData,
-              labelSize: _kGaugeToggleLabelSizeMobile,
-              spacing: _kGaugeToggleSpacingMobile,
-              rowHeight: _kGaugeToggleRowHeightMobile,
-              useLargePill: false,
-              switchScale: _kGaugeToggleScaleMobile,
-              labelColor: Colors.white,
-            ),
-          ),
-        ],
-      );
-    }
-
     return buildGaugeRing();
   }
 }
@@ -4707,7 +4680,6 @@ class _GaugeModeToggleRow extends StatelessWidget {
     this.rowHeight = _kGaugeToggleRowHeight,
     this.useLargePill = false,
     this.switchScale = _kGaugeToggleScaleWide,
-    this.labelColor,
   });
 
   final bool useEspData;
@@ -4716,7 +4688,6 @@ class _GaugeModeToggleRow extends StatelessWidget {
   final double rowHeight;
   final bool useLargePill;
   final double switchScale;
-  final Color? labelColor;
 
   static const double _kCompactPillWidth = 48;
   static const double _kCompactPillHeight = 24;
@@ -4724,22 +4695,21 @@ class _GaugeModeToggleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color resolvedLabelColor = labelColor ??
-        (Theme.of(context).brightness == Brightness.dark
+    final Color labelTextColor =
+        Theme.of(context).brightness == Brightness.dark
             ? Colors.black87
-            : Theme.of(context).colorScheme.onSurface);
+            : Theme.of(context).colorScheme.onSurface;
 
     Widget toggleVisual;
     if (useLargePill) {
       const pillColor = Color(0xFF48631F);
-      final double inset =
-          (_kCompactPillHeight - _kCompactThumb) / 2;
+      const inset = (_kCompactPillHeight - _kCompactThumb) / 2;
       toggleVisual = AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeInOutCubic,
         width: _kCompactPillWidth,
         height: _kCompactPillHeight,
-        padding: EdgeInsets.all(inset),
+        padding: const EdgeInsets.all(inset),
         decoration: BoxDecoration(
           color: pillColor,
           borderRadius: BorderRadius.circular(_kCompactPillHeight / 2),
@@ -4792,7 +4762,7 @@ class _GaugeModeToggleRow extends StatelessWidget {
               style: TextStyle(
                 fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
                 fontSize: labelSize,
-                color: resolvedLabelColor,
+                color: labelTextColor,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -4805,7 +4775,7 @@ class _GaugeModeToggleRow extends StatelessWidget {
               style: TextStyle(
                 fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
                 fontSize: labelSize,
-                color: resolvedLabelColor,
+                color: labelTextColor,
                 fontWeight: FontWeight.w800,
               ),
             ),

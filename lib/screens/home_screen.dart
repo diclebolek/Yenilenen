@@ -2153,7 +2153,7 @@ class _BusinessComparisonTable extends StatelessWidget {
 
   List<Map<String, dynamic>> _buildBusinessRows() {
     final unit = translate('tonnes_co2e_monthly', locale);
-    final sectorAvg = _kSalonSectorAvgTonnesPerMonth;
+    const sectorAvg = _kSalonSectorAvgTonnesPerMonth;
 
     String userEmissionLabel;
     String userStatus;

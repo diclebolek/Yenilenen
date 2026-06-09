@@ -101,4 +101,3 @@ app.*.map.json
 *.md
 !README.md
 !**/README.md
-!GUVENLIK.md
