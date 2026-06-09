@@ -19,6 +19,7 @@ import '../services/firebase_realtime_service.dart';
 import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/live_emission_service.dart';
 import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
 import '../algorithms/calculation.dart';
@@ -39,36 +40,11 @@ const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
 
 /// Shelly `energyKwh` alanı **kümülatif** sayaçtır; her kayıt için bir önceki örneğe
 /// göre tüketilen kWh (delta) ile [ConsumptionEntry] üretir — günlük emisyon için.
+/// Raporlar ekranı ile aynı: Shelly kümülatif sayaç → ardışık fark (kg CO₂e hesabı için).
 List<ConsumptionEntry> _shellyDataListToDeltaConsumptionEntries(
   List<ShellyData> raw,
-) {
-  if (raw.isEmpty) return [];
-  final sorted = List<ShellyData>.from(raw)
-    ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  final out = <ConsumptionEntry>[];
-  double? prevMeter;
-  for (final sd in sorted) {
-    var deltaKwh = 0.0;
-    if (prevMeter != null) {
-      final d = sd.energyKwh - prevMeter;
-      if (d >= 0) {
-        deltaKwh = d;
-      }
-    }
-    prevMeter = sd.energyKwh;
-    out.add(
-      ConsumptionEntry(
-        electricityKwh: deltaKwh,
-        waterCubicMeters: 0,
-        fuelLiters: 0,
-        wasteKg: 0,
-        createdAt: sd.timestamp,
-        fuelIsNaturalGasM3: true,
-      ),
-    );
-  }
-  return out;
-}
+) =>
+    ApiService().shellyDataListToDeltaConsumptionEntries(raw);
 
 /// Asset'teki “.ttf” dosyası gerçekten sfnt/OpenType başlığı taşıyor mu (HTML/404 yerine).
 /// Aksi halde [pw.Font.ttf] veya sonradan glif üretimi `FormatException` (UTF-8) fırlatabilir.
@@ -92,7 +68,16 @@ bool _byteDataLooksLikeSfntFont(ByteData data) {
 
 /// Gösterge içi punto (beyaz daire üzerinde koyu metin; rapor tipografisinden ayrı).
 const double _kGaugeCenterValueSize = 18;
+const double _kGaugeCenterValueSizeMobile = 22;
 const double _kGaugeCenterAuxSize = 12;
+const double _kGaugeCenterAuxSizeMobile = 12;
+const double _kGaugeToggleLabelSize = 16;
+const double _kGaugeToggleLabelSizeMobile = 13;
+const double _kGaugeToggleScaleWide = 1.15;
+const double _kGaugeToggleScaleMobile = 0.72;
+const double _kGaugeToggleRowHeight = 48;
+const double _kGaugeToggleRowHeightMobile = 32;
+const double _kGaugeToggleSpacingMobile = 8;
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key, this.languageProvider});
@@ -277,6 +262,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     });
     // ESP verilerini real-time dinle ve otomatik güncelle
     _listenToEspData();
+    _loadInitialEspDataFromFirebase();
     // Shelly'yi başlat
     _initializeShelly();
     // Shelly verilerini real-time dinle ve otomatik güncelle
@@ -675,12 +661,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
     super.dispose();
   }
 
+  double? _gaugeDisplayKgCo2e() {
+    if (!_useEspData) {
+      final manual = _manualCalculatedKgCo2e;
+      return (manual != null && manual > 0) ? manual : null;
+    }
+    final live = _lastCalculatedKgCo2e;
+    if (live != null && live > 0) return live;
+    if (_dailyEmissions.length == 7 && _dailyEmissions[6] > 0) {
+      return _dailyEmissions[6];
+    }
+    return null;
+  }
+
+  void _syncGaugeToLiveEmissionService() {
+    LiveEmissionService.instance.publishGaugeDailyKg(
+      _gaugeDisplayKgCo2e(),
+      useEspMode: _useEspData,
+    );
+  }
+
   /// ESP verilerini real-time dinle ve emisyonu otomatik hesapla
   void _listenToEspData() {
     _espDataSubscription?.cancel(); // Önceki subscription'ı iptal et
     _espDataSubscription =
         _firebaseService.listenToEsp8266Data('esp8266_001').listen((entry) {
       if (entry != null && mounted) {
+        LiveEmissionService.instance.setEspEntry(entry);
         // ESP ham verisini sakla (su+gaz için)
         setState(() {
           _espEntry = entry;
@@ -693,6 +700,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
     });
   }
 
+  /// Açılışta Firebase'deki son ESP kaydını çek (stream gecikmesine karşı).
+  Future<void> _loadInitialEspDataFromFirebase() async {
+    try {
+      final entry = await _firebaseService.getLatestData('esp8266_001');
+      if (entry != null && mounted) {
+        LiveEmissionService.instance.setEspEntry(entry);
+        setState(() {
+          _espEntry = entry;
+          if (_useEspData) {
+            _updateCombinedEmission();
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('İlk ESP verisi yüklenemedi: $e');
+    }
+  }
+
   /// Shelly verilerini real-time dinle ve emisyonu otomatik hesapla
   void _listenToShellyData() {
     _shellyDataSubscription?.cancel(); // Önceki subscription'ı iptal et
@@ -701,8 +726,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         .listen((shellyData) {
       if (shellyData != null && mounted) {
         _registerShellyMeterDelta(shellyData);
-        // Shelly ham verisini sakla (ör. hata ayıklama); kWh alanı kümülatiftir
         final entry = _apiService.shellyDataToConsumptionEntry(shellyData);
+        LiveEmissionService.instance.ingestShellyReading(shellyData, entry);
+        // Shelly ham verisini sakla (ör. hata ayıklama); kWh alanı kümülatiftir
         setState(() {
           _shellyEntry = entry;
           // Eğer ESP verisi seçiliyse, Shelly elektrik + ESP su+gaz toplamını göster
@@ -712,6 +738,36 @@ class _ReportsScreenState extends State<ReportsScreen> {
         });
       }
     });
+  }
+
+  void _onGaugeToggleChanged(bool value) {
+    setState(() {
+      _useEspData = value;
+      if (value) {
+        _resetShellyMeterBaseline();
+        _updateCombinedEmission();
+      } else {
+        if (_manualCalculatedKgCo2e != null && _manualEntry != null) {
+          _lastCalculatedKgCo2e = _manualCalculatedKgCo2e;
+          if (_manualDailyEmissions.length == 7) {
+            _manualDailyEmissions[6] = _manualCalculatedKgCo2e!;
+            debugPrint(
+              '📊 Toggle Manuel: Manuel grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
+            );
+          }
+          _updateCategoryDistributionFromEntry(_manualEntry!);
+        }
+      }
+    });
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool(_kPrefsReportsUseEspData, value),
+    );
+    if (!value &&
+        (_manualCalculatedKgCo2e == null || _manualEntry == null)) {
+      _loadManualDataFromFirebase();
+    }
+    _loadTrendData();
+    _syncGaugeToLiveEmissionService();
   }
 
   void _resetShellyMeterBaseline() {
@@ -769,6 +825,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }
             debugPrint(
                 '📊 Manuel hesaplama değerleri yüklendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e');
+            _syncGaugeToLiveEmissionService();
           });
         } else {
           debugPrint('📊 Manuel veri bulunamadı');
@@ -828,6 +885,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     debugPrint(
       '📊 Anlık CO2 Hesaplaması (Toggle ESP): Shelly Elektrik + ESP Su+Gaz = ${totalEmission.toStringAsFixed(2)} kg CO2e',
     );
+    _syncGaugeToLiveEmissionService();
   }
 
   /// Manuel entry'den kategori dağılımını güncelle
@@ -1756,6 +1814,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       if (mounted && _useEspData) {
         _updateCombinedEmission();
       }
+      _syncGaugeToLiveEmissionService();
     } catch (e) {
       // Hata durumunda varsayılan değerleri kullan
       if (mounted) {
@@ -2230,10 +2289,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final bool isWide = reportViewportW >= 900;
     final double gaugeSectionMaxHeight =
         (media.size.height * 0.62).clamp(280.0, 460.0);
-    final double gaugeSize =
-        (isWide ? 260.0 : (reportViewportW * 0.42)).clamp(170.0, 280.0);
+    final double gaugeSize = isWide
+        ? 260.0
+        : (reportViewportW * 0.65).clamp(220.0, 270.0);
     final double headerHeight =
-        (gaugeSectionMaxHeight - (gaugeSize * 0.42)).clamp(130.0, 220.0);
+        (gaugeSectionMaxHeight - (gaugeSize * 0.32)).clamp(90.0, 160.0);
 
     return Scaffold(
       appBar: null,
@@ -2265,7 +2325,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       child: RepaintBoundary(
                         child: ListView(
                           physics: const BouncingScrollPhysics(),
-                          clipBehavior: Clip.hardEdge,
+                          clipBehavior: isWide ? Clip.hardEdge : Clip.none,
                           padding: listViewPadding,
                           children: [
                             Padding(
@@ -2293,74 +2353,59 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      SizedBox(height: headerHeight),
-                                      Positioned(
-                                        left: 0,
-                                        right: 0,
-                                        bottom: -(gaugeSize / 3),
-                                        child: Center(
-                                          child: _FootprintGauge(
-                                            kgCo2e: _lastCalculatedKgCo2e,
-                                            size: gaugeSize,
-                                            languageProvider:
-                                                widget.languageProvider,
-                                            useEspData: _useEspData,
-                                            centerStatusOverride: _useEspData &&
-                                                    _lastCalculatedKgCo2e ==
-                                                        null
-                                                ? translate(
-                                                    'sensor_data_waiting',
-                                                    locale,
-                                                  )
-                                                : null,
-                                            onToggleChanged: (value) {
-                                              setState(() {
-                                                _useEspData = value;
-                                                if (value) {
-                                                  _resetShellyMeterBaseline();
-                                                  _updateCombinedEmission();
-                                                } else {
-                                                  if (_manualCalculatedKgCo2e !=
-                                                          null &&
-                                                      _manualEntry != null) {
-                                                    _lastCalculatedKgCo2e =
-                                                        _manualCalculatedKgCo2e;
-                                                    if (_manualDailyEmissions
-                                                            .length ==
-                                                        7) {
-                                                      _manualDailyEmissions[6] =
-                                                          _manualCalculatedKgCo2e!;
-                                                      debugPrint(
-                                                        '📊 Toggle Manuel: Manuel grafikteki bugünün değeri güncellendi: ${_manualCalculatedKgCo2e!.toStringAsFixed(2)} kg CO2e',
-                                                      );
-                                                    }
-                                                    _updateCategoryDistributionFromEntry(
-                                                        _manualEntry!);
-                                                  }
-                                                }
-                                              });
-                                              SharedPreferences.getInstance()
-                                                  .then((p) => p.setBool(
-                                                        _kPrefsReportsUseEspData,
-                                                        value,
-                                                      ));
-                                              if (!value &&
-                                                  (_manualCalculatedKgCo2e ==
-                                                          null ||
-                                                      _manualEntry == null)) {
-                                                _loadManualDataFromFirebase();
-                                              }
-                                              _loadTrendData();
-                                            },
+                                  if (isWide) ...[
+                                    Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        SizedBox(height: headerHeight),
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          bottom: -(gaugeSize / 3),
+                                          child: Center(
+                                            child: _FootprintGauge(
+                                              kgCo2e: _lastCalculatedKgCo2e,
+                                              size: gaugeSize,
+                                              isMobileLayout: false,
+                                              languageProvider:
+                                                  widget.languageProvider,
+                                              useEspData: _useEspData,
+                                              centerStatusOverride: _useEspData &&
+                                                      _lastCalculatedKgCo2e ==
+                                                          null
+                                                  ? translate(
+                                                      'sensor_data_waiting',
+                                                      locale,
+                                                    )
+                                                  : null,
+                                              onToggleChanged: _onGaugeToggleChanged,
+                                            ),
                                           ),
                                         ),
+                                      ],
+                                    ),
+                                    SizedBox(height: gaugeSize / 3 + 32),
+                                  ] else ...[
+                                    Center(
+                                      child: _FootprintGauge(
+                                        kgCo2e: _lastCalculatedKgCo2e,
+                                        size: gaugeSize,
+                                        isMobileLayout: true,
+                                        languageProvider:
+                                            widget.languageProvider,
+                                        useEspData: _useEspData,
+                                        centerStatusOverride: _useEspData &&
+                                                _lastCalculatedKgCo2e == null
+                                            ? translate(
+                                                'sensor_data_waiting',
+                                                locale,
+                                              )
+                                            : null,
+                                        onToggleChanged: _onGaugeToggleChanged,
                                       ),
-                                    ],
-                                  ),
-                                  SizedBox(height: gaugeSize / 3 + 32),
+                                    ),
+                                    const SizedBox(height: 20),
+                                  ],
                                   Row(
                                     children: [
                                       Expanded(
@@ -2475,6 +2520,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   );
                                                 }
                                               }
+                                              _syncGaugeToLiveEmissionService();
                                             });
                                           },
                                           onEntryCalculated:
@@ -4286,6 +4332,8 @@ class _FootprintGauge extends StatelessWidget {
   const _FootprintGauge({
     required this.kgCo2e,
     required this.size,
+    this.isMobileLayout = false,
+    this.toggleBelowRing = false,
     this.languageProvider,
     this.useEspData = false,
     this.onToggleChanged,
@@ -4294,6 +4342,8 @@ class _FootprintGauge extends StatelessWidget {
 
   final double? kgCo2e;
   final double size;
+  final bool isMobileLayout;
+  final bool toggleBelowRing;
   final LanguageProvider? languageProvider;
   final bool useEspData;
   final ValueChanged<bool>? onToggleChanged;
@@ -4344,267 +4394,323 @@ class _FootprintGauge extends StatelessWidget {
     const double maxTonnesReference = 50.0;
     final double progress =
         ((kg / 1000.0) / maxTonnesReference).clamp(0.0, 1.0);
+    final double ringStroke = isMobileLayout ? 11.0 : 10.0;
+    final double innerRingGap =
+        toggleBelowRing ? 4.0 : (isMobileLayout ? 8.0 : 16.0);
+    final double innerSize = size - (ringStroke * 2 + innerRingGap);
+    final double valueSize =
+        isMobileLayout ? _kGaugeCenterValueSizeMobile : _kGaugeCenterValueSize;
+    final double auxSize =
+        isMobileLayout ? _kGaugeCenterAuxSizeMobile : _kGaugeCenterAuxSize;
+    final double statusSize = isMobileLayout ? 14.0 : (_kGaugeCenterAuxSize + 1);
 
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        clipBehavior: Clip.none,
+    Widget buildCenterTexts() {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Dış halka: ortada beyaz daire üstte; halka bandına basınca da mod değişir
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onToggleChanged == null
-                ? null
-                : () => onToggleChanged!(!useEspData),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0, end: progress),
-                duration: const Duration(milliseconds: 450),
-                curve: Curves.easeInOutCubic,
-                builder: (context, animatedProgress, _) {
-                  return CustomPaint(
-                    painter: _GradientRingPainter(
-                      progress: animatedProgress,
-                      strokeWidth: 10,
-                      trackColor: Colors.grey.shade300,
-                      gradientColors: const [
-                        Color(0xFF304411), // koyu yeşil
-                        Color(0xFF48631F), // açık yeşil
-                      ],
-                    ),
-                  );
-                },
+          if (centerStatusOverride != null)
+            Text(
+              centerStatusOverride!,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontSize: statusSize,
+                    fontWeight: FontWeight.w600,
+                    height: 1.15,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.black87
+                        : Theme.of(context).colorScheme.onSurface,
+                  ),
+            )
+          else ...[
+            Text(
+              valueText,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontSize: valueSize,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.black
+                        : Theme.of(context).colorScheme.onSurface,
+                  ),
+            ),
+            SizedBox(height: isMobileLayout ? 4 : 2),
+            Text(
+              translate(unitKey, locale),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily:
+                    Theme.of(context).textTheme.bodyMedium?.fontFamily,
+                fontSize: auxSize,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black
+                    : Theme.of(context).colorScheme.onSurface,
               ),
             ),
+          ],
+          SizedBox(height: isMobileLayout ? 8 : 4),
+          Text(
+            translate('greenhouse_gas_emissions', locale),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+              fontSize: auxSize,
+              height: 1.15,
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.black
+                  : Theme.of(context).colorScheme.onSurface,
+            ),
           ),
-          // Beyaz daire: tüm alan (M / görsel anahtar / E dahil) tek dokunuşla mod değiştirir.
-          // InkWell yerine GestureDetector — Switch görseli IgnorePointer ile etkileşimsiz.
-          Container(
-            width: size - 40,
-            height: size - 40,
-            decoration: BoxDecoration(
+        ],
+      );
+    }
+
+    final bool showToggleInside =
+        onToggleChanged != null && !toggleBelowRing;
+
+    Widget buildGaugeRing() {
+      return SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggleChanged == null
+                  ? null
+                  : () => onToggleChanged!(!useEspData),
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: progress),
+                  duration: const Duration(milliseconds: 450),
+                  curve: Curves.easeInOutCubic,
+                  builder: (context, animatedProgress, _) {
+                    return CustomPaint(
+                      painter: _GradientRingPainter(
+                        progress: animatedProgress,
+                        strokeWidth: ringStroke,
+                        trackColor: Colors.grey.shade300,
+                        gradientColors: const [
+                          Color(0xFF304411),
+                          Color(0xFF48631F),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            Container(
+              width: innerSize,
+              height: innerSize,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: Material(
+                  color: Colors.white,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onToggleChanged == null
+                        ? null
+                        : () => onToggleChanged!(!useEspData),
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        toggleBelowRing ? 20 : (isMobileLayout ? 12 : 10),
+                        toggleBelowRing ? 20 : (isMobileLayout ? 10 : 6),
+                        toggleBelowRing ? 20 : (isMobileLayout ? 12 : 10),
+                        toggleBelowRing ? 20 : (isMobileLayout ? 8 : 6),
+                      ),
+                      child: showToggleInside
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  buildCenterTexts(),
+                                  SizedBox(height: isMobileLayout ? 8 : 6),
+                                  _GaugeModeToggleRow(
+                                    useEspData: useEspData,
+                                    labelSize: isMobileLayout
+                                        ? _kGaugeToggleLabelSizeMobile
+                                        : _kGaugeToggleLabelSize,
+                                    spacing: isMobileLayout
+                                        ? _kGaugeToggleSpacingMobile
+                                        : 10,
+                                    rowHeight: isMobileLayout
+                                        ? _kGaugeToggleRowHeightMobile
+                                        : _kGaugeToggleRowHeight,
+                                    useLargePill: false,
+                                    switchScale: isMobileLayout
+                                        ? _kGaugeToggleScaleMobile
+                                        : _kGaugeToggleScaleWide,
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Center(child: buildCenterTexts()),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (toggleBelowRing && onToggleChanged != null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          buildGaugeRing(),
+          const SizedBox(height: 10),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onToggleChanged!(!useEspData),
+            child: _GaugeModeToggleRow(
+              useEspData: useEspData,
+              labelSize: _kGaugeToggleLabelSizeMobile,
+              spacing: _kGaugeToggleSpacingMobile,
+              rowHeight: _kGaugeToggleRowHeightMobile,
+              useLargePill: false,
+              switchScale: _kGaugeToggleScaleMobile,
+              labelColor: Colors.white,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return buildGaugeRing();
+  }
+}
+
+class _GaugeModeToggleRow extends StatelessWidget {
+  const _GaugeModeToggleRow({
+    required this.useEspData,
+    required this.labelSize,
+    required this.spacing,
+    this.rowHeight = _kGaugeToggleRowHeight,
+    this.useLargePill = false,
+    this.switchScale = _kGaugeToggleScaleWide,
+    this.labelColor,
+  });
+
+  final bool useEspData;
+  final double labelSize;
+  final double spacing;
+  final double rowHeight;
+  final bool useLargePill;
+  final double switchScale;
+  final Color? labelColor;
+
+  static const double _kCompactPillWidth = 48;
+  static const double _kCompactPillHeight = 24;
+  static const double _kCompactThumb = 18;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color resolvedLabelColor = labelColor ??
+        (Theme.of(context).brightness == Brightness.dark
+            ? Colors.black87
+            : Theme.of(context).colorScheme.onSurface);
+
+    Widget toggleVisual;
+    if (useLargePill) {
+      const pillColor = Color(0xFF48631F);
+      final double inset =
+          (_kCompactPillHeight - _kCompactThumb) / 2;
+      toggleVisual = AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
+        width: _kCompactPillWidth,
+        height: _kCompactPillHeight,
+        padding: EdgeInsets.all(inset),
+        decoration: BoxDecoration(
+          color: pillColor,
+          borderRadius: BorderRadius.circular(_kCompactPillHeight / 2),
+        ),
+        child: AnimatedAlign(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOutCubic,
+          alignment:
+              useEspData ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            width: _kCompactThumb,
+            height: _kCompactThumb,
+            decoration: const BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 12,
-                  spreadRadius: 2,
+                  color: Color(0x33000000),
+                  blurRadius: 3,
+                  offset: Offset(0, 1),
                 ),
               ],
             ),
-            child: ClipOval(
-              child: Material(
-                color: Colors.white,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onToggleChanged == null
-                      ? null
-                      : () => onToggleChanged!(!useEspData),
-                  child: SizedBox.expand(
-                    child: Center(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.center,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12.0,
-                            vertical: 6.0,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (centerStatusOverride != null)
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 4),
-                                    child: Text(
-                                      centerStatusOverride!,
-                                      textAlign: TextAlign.center,
-                                      maxLines: 4,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.copyWith(
-                                            fontSize:
-                                                (_kGaugeCenterAuxSize + 1),
-                                            fontWeight: FontWeight.w600,
-                                            height: 1.25,
-                                            color:
-                                                Theme.of(context).brightness ==
-                                                        Brightness.dark
-                                                    ? Colors.black87
-                                                    : Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurface,
-                                          ),
-                                    ),
-                                  ),
-                                )
-                              else ...[
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    valueText,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          fontSize: _kGaugeCenterValueSize,
-                                          fontWeight: FontWeight.w700,
-                                          color: Theme.of(context).brightness ==
-                                                  Brightness.dark
-                                              ? Colors.black
-                                              : Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                        ),
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    translate(unitKey, locale),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontFamily: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.fontFamily,
-                                      fontSize: _kGaugeCenterAuxSize,
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.black
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 4),
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  translate('greenhouse_gas_emissions', locale),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontFamily: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.fontFamily,
-                                    fontSize: _kGaugeCenterAuxSize,
-                                    color: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.black
-                                        : Theme.of(context)
-                                            .colorScheme
-                                            .onSurface,
-                                  ),
-                                ),
-                              ),
-                              if (onToggleChanged != null) ...[
-                                const SizedBox(height: 6),
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      maxWidth: (size - 56).clamp(110.0, 220.0),
-                                    ),
-                                    child: Wrap(
-                                      alignment: WrapAlignment.center,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
-                                      spacing: 4,
-                                      runSpacing: 2,
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6.0,
-                                            vertical: 2.0,
-                                          ),
-                                          child: Text(
-                                            'M',
-                                            style: TextStyle(
-                                              fontFamily: Theme.of(context)
-                                                  .textTheme
-                                                  .bodyMedium
-                                                  ?.fontFamily,
-                                              fontSize: _kGaugeCenterAuxSize,
-                                              color: Theme.of(context)
-                                                          .brightness ==
-                                                      Brightness.dark
-                                                  ? Colors.black87
-                                                  : Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurface,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                        IgnorePointer(
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(2.0),
-                                            child: Transform.scale(
-                                              scale: 0.8,
-                                              child: Switch(
-                                                value: useEspData,
-                                                materialTapTargetSize:
-                                                    MaterialTapTargetSize
-                                                        .shrinkWrap,
-                                                onChanged: (_) {},
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6.0,
-                                            vertical: 2.0,
-                                          ),
-                                          child: Text(
-                                            'E',
-                                            style: TextStyle(
-                                              fontFamily: Theme.of(context)
-                                                  .textTheme
-                                                  .bodyMedium
-                                                  ?.fontFamily,
-                                              fontSize: _kGaugeCenterAuxSize,
-                                              color: Theme.of(context)
-                                                          .brightness ==
-                                                      Brightness.dark
-                                                  ? Colors.black87
-                                                  : Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurface,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+          ),
+        ),
+      );
+    } else {
+      toggleVisual = Transform.scale(
+        scale: switchScale,
+        child: IgnorePointer(
+          child: Switch(
+            value: useEspData,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: rowHeight,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(right: spacing),
+            child: Text(
+              'M',
+              style: TextStyle(
+                fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+                fontSize: labelSize,
+                color: resolvedLabelColor,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          toggleVisual,
+          Padding(
+            padding: EdgeInsets.only(left: spacing),
+            child: Text(
+              'E',
+              style: TextStyle(
+                fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+                fontSize: labelSize,
+                color: resolvedLabelColor,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),

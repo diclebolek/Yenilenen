@@ -28,7 +28,7 @@ const Color _kManualEntryOutlineOnGlass = Color(0xB3FFFFFF);
 /// Kategori çerçeve/yazı vurguları — tema’dan bağımsız sabit renkler.
 const Color _kAccentElectric = Color(0xFFFFC107);
 const Color _kAccentWater = Color(0xFF42A5F5);
-const Color _kAccentWaste = Color(0xFF8D6E63);
+const Color _kAccentWaste = Color(0xFF2E1A0E);
 const Color _kAccentFuel = Color(0xFFFF9800);
 
 /// Form to enter electricity, fuel, water, and waste data with validation.
@@ -64,9 +64,11 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
   late TabController _tabController;
 
-  /// TabBarView yükseklikleri — sekme sırası: elektrik, atık, su, yakıt.
-  static const List<double> _kTabViewHeights = [620.0, 480.0, 430.0, 500.0];
-  double _tabViewHeight = 620.0;
+  /// TabBarView yükseklikleri — sekmeler: atık, su, yakıt (elektrik dinamik).
+  static const List<double> _kTabViewHeights = [480.0, 430.0, 500.0];
+  static const double _kElectricityTabHeightCollapsed = 400.0;
+  static const double _kElectricityTabHeightExpanded = 680.0;
+  double _tabViewHeight = _kElectricityTabHeightCollapsed;
 
   // Her kategori için ayrı CO2 değerleri
   double? _electricityCo2;
@@ -196,6 +198,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     ),
   ];
   final List<_SelectedDevice> _selectedDevices = [];
+  bool _devicesSectionExpanded = false;
   // inline panel kullanılmıyor
 
   // Araç seçimi için durum (yakıt)
@@ -235,7 +238,12 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   // inline panel kullanılmıyor
 
   void _syncTabViewHeight() {
-    final h = _kTabViewHeights[_tabController.index];
+    final index = _tabController.index;
+    final double h = index == 0
+        ? (_devicesSectionExpanded
+            ? _kElectricityTabHeightExpanded
+            : _kElectricityTabHeightCollapsed)
+        : _kTabViewHeights[index - 1];
     if (_tabViewHeight != h) {
       setState(() => _tabViewHeight = h);
     }
@@ -324,6 +332,29 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         side: BorderSide(color: accent, width: 1),
       );
 
+  ButtonStyle get _outlinedWhiteOnGlass => OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        iconColor: Colors.white,
+        side: BorderSide(
+          color: Colors.white.withValues(alpha: 0.75),
+          width: 1,
+        ),
+      );
+
+  InputDecoration _glassInputDecoration({
+    required String labelText,
+    required String hintText,
+    required IconData prefixIcon,
+  }) =>
+      InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: Icon(prefixIcon, color: Colors.white.withValues(alpha: 0.85)),
+        labelStyle: const TextStyle(color: Colors.white),
+        floatingLabelStyle: const TextStyle(color: Colors.white),
+        hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
+      );
+
   ButtonStyle _segmentedAccent(Color accent) => ButtonStyle(
         visualDensity: VisualDensity.compact,
         foregroundColor: WidgetStateProperty.all<Color>(accent),
@@ -342,11 +373,242 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         }),
       );
 
+  /// Atık sekmesi: çok koyu kahve — seçili segmentte açık metin, diğerleri beyaz.
+  ButtonStyle get _segmentedWasteAccent => ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return _kManualEntryOnGlass;
+          }
+          return Colors.white;
+        }),
+        iconColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return _kManualEntryOnGlass;
+          }
+          return Colors.white;
+        }),
+        backgroundColor:
+            WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+          if (states.contains(WidgetState.selected)) {
+            return _kAccentWaste.withValues(alpha: 0.92);
+          }
+          return _kAccentWaste.withValues(alpha: 0.14);
+        }),
+        side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+          final double a =
+              states.contains(WidgetState.selected) ? 0.95 : 0.45;
+          return BorderSide(color: _kAccentWaste.withValues(alpha: a));
+        }),
+      );
+
   ButtonStyle get _manualFilledAccentStyle => FilledButton.styleFrom(
         foregroundColor: _kManualEntryOnGlass,
         iconColor: _kManualEntryOnGlass,
         backgroundColor: const Color(0xFF3D5238),
       );
+
+  /// Dar ekranlarda satır taşmasını önlemek için hesaplama butonu + sonuç düzeni.
+  Widget _buildCategoryCalculateRow({
+    required ButtonStyle buttonStyle,
+    required VoidCallback onPressed,
+    required String buttonLabel,
+    required double? co2Result,
+    required Color resultColor,
+  }) {
+    final resultBadge = co2Result == null
+        ? null
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: resultColor.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '${co2Result.toStringAsFixed(2)} kg CO₂e',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: resultColor,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          );
+    final calculateButton = OutlinedButton.icon(
+      style: buttonStyle,
+      onPressed: onPressed,
+      icon: const Icon(Icons.calculate),
+      label: Text(buttonLabel),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool stackVertically = constraints.maxWidth < 420;
+        if (stackVertically) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              calculateButton,
+              if (resultBadge != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: resultBadge,
+                ),
+              ],
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: calculateButton),
+            if (resultBadge != null) ...[
+              const SizedBox(width: 12),
+              Flexible(child: resultBadge),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  /// Tüm sekmelerde gösterilen kategori bazlı CO₂ özeti.
+  Widget _buildCategoryCo2Summary() {
+    if (_electricityCo2 == null &&
+        _fuelCo2 == null &&
+        _waterCo2 == null &&
+        _wasteCo2 == null) {
+      return const SizedBox.shrink();
+    }
+
+    final totalCo2 = ((_electricityCo2 ?? 0) +
+        (_fuelCo2 ?? 0) +
+        (_waterCo2 ?? 0) +
+        (_wasteCo2 ?? 0));
+    final bool isVeryHigh = totalCo2 > 100000;
+    final bool hasExtremeValue = (_fuelCo2 ?? 0) > 1000000 ||
+        (_waterCo2 ?? 0) > 1000000 ||
+        (_wasteCo2 ?? 0) > 1000000 ||
+        (_electricityCo2 ?? 0) > 1000000;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (isVeryHigh || hasExtremeValue)
+              ? Colors.red.withValues(alpha: 0.5)
+              : Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+          width: (isVeryHigh || hasExtremeValue) ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Kategori Bazlı CO₂ Özeti:',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: _kManualEntryOnGlass,
+                      ),
+                ),
+              ),
+              if (isVeryHigh || hasExtremeValue) ...[
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.red,
+                  size: 20,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Değerler çok yüksek! Lütfen kontrol edin.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.red,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_electricityCo2 != null)
+            _CategorySummaryRow(
+              label: 'Elektrik',
+              co2: _electricityCo2!,
+              color: Colors.orange,
+              isHigh: _electricityCo2! > 1000000,
+            ),
+          if (_fuelCo2 != null)
+            _CategorySummaryRow(
+              label: 'Yakıt',
+              co2: _fuelCo2!,
+              color: Colors.red,
+              isHigh: _fuelCo2! > 1000000,
+            ),
+          if (_waterCo2 != null)
+            _CategorySummaryRow(
+              label: 'Su',
+              co2: _waterCo2!,
+              color: Colors.blue,
+              isHigh: _waterCo2! > 1000000,
+            ),
+          if (_wasteCo2 != null)
+            _CategorySummaryRow(
+              label: 'Atık',
+              co2: _wasteCo2!,
+              color: _kAccentWaste,
+              isHigh: _wasteCo2! > 1000000,
+            ),
+          const SizedBox(height: 8),
+          Divider(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'TOPLAM:',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: _kManualEntryOnGlass,
+                    ),
+              ),
+              Row(
+                children: [
+                  if (isVeryHigh || hasExtremeValue)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Icon(
+                        Icons.error_outline,
+                        color: Colors.red,
+                        size: 20,
+                      ),
+                    ),
+                  Text(
+                    '${totalCo2.toStringAsFixed(2)} kg CO₂e',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: (isVeryHigh || hasExtremeValue)
+                              ? Colors.red
+                              : _kManualEntryOnGlass,
+                        ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   void _onWaterUnitChanged(Set<_WaterInputUnit> selected) {
     if (selected.isEmpty) return;
@@ -1343,18 +1605,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Text(
-                      translate('manual_data_entry', locale),
-                      style: Theme.of(context).textTheme.titleLarge,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  FilledButton.icon(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final bool stackHeader = constraints.maxWidth < 520;
+                  final totalButton = FilledButton.icon(
                     onPressed: _calculateTotal,
                     icon: const Icon(Icons.calculate, size: 20),
                     label: const Text('TOPLAM CO₂ HESAPLA'),
@@ -1363,8 +1617,31 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                         EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       ),
                     ),
-                  ),
-                ],
+                  );
+                  final title = Text(
+                    translate('manual_data_entry', locale),
+                    style: Theme.of(context).textTheme.titleLarge,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  );
+                  if (stackHeader) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        title,
+                        const SizedBox(height: 12),
+                        totalButton,
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(child: title),
+                      totalButton,
+                    ],
+                  );
+                },
               ),
               Divider(
                 color: Colors.white.withValues(alpha: 0.3),
@@ -1381,6 +1658,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 ),
                 child: TabBar(
                   controller: _tabController,
+                  isScrollable: MediaQuery.sizeOf(context).width < 480,
+                  tabAlignment: TabAlignment.start,
                   indicator: UnderlineTabIndicator(
                     borderSide: BorderSide(
                       width: 3.0,
@@ -1545,123 +1824,97 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         const SizedBox(height: 12),
 
         // Elektrik için hesaplama butonu ve sonuç
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                style: _outlinedAccent(_kAccentElectric),
-                onPressed: () => _calculateCategory('electricity'),
-                icon: const Icon(Icons.calculate),
-                label: const Text('Elektrik CO₂ Hesapla'),
-              ),
-            ),
-            if (_electricityCo2 != null) ...[
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_electricityCo2!.toStringAsFixed(2)} kg CO₂e',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange,
-                  ),
-                ),
-              ),
-            ],
-          ],
+        _buildCategoryCalculateRow(
+          buttonStyle: _outlinedAccent(_kAccentElectric),
+          onPressed: () => _calculateCategory('electricity'),
+          buttonLabel: 'Elektrik CO₂ Hesapla',
+          co2Result: _electricityCo2,
+          resultColor: Colors.orange,
         ),
         const SizedBox(height: 12),
 
-        // Ampul hesaplaması bölümü kaldırıldı; ampul cihaz kartları listesine eklendi
-        // Cihaz seçimi (butonsuz, inline panel - tasarıma uygun saydam zemin)
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Theme.of(
-                context,
-              ).colorScheme.outline.withValues(alpha: 0.3),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.devices_other,
-                    size: 18,
-                    color: Colors.white,
+        // Cihaz seçimi — başlığa tıklanınca kayarak açılır
+        _buildDevicesAccordion(context, locale),
+        const SizedBox(height: 12),
+        _buildCategoryCo2Summary(),
+      ],
+    );
+  }
+
+  Widget _buildDevicesAccordion(BuildContext context, Locale locale) {
+    final panelDecoration = BoxDecoration(
+      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(
+        color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+      ),
+    );
+
+    void onDevicesChanged() {
+      _calculateCategory('electricity');
+      _calculateTotal(skipValidation: true);
+    }
+
+    Widget deviceTileGrid() {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final double maxW = constraints.maxWidth;
+          final int columns = maxW >= 520 ? 2 : 1;
+          final double tileW =
+              columns == 2 ? (maxW - 10) / 2 : maxW;
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.start,
+            children: _devicePresets
+                .map(
+                  (p) => SizedBox(
+                    width: tileW,
+                    child: _DeviceTile(
+                      preset: p,
+                      onAddQuantity: (qty) {
+                        setState(() {
+                          _selectedDevices.add(
+                            _SelectedDevice(
+                              name: p.name,
+                              powerW: p.powerW,
+                              hoursPerDay: p.hoursPerDay,
+                              quantity: qty,
+                            ),
+                          );
+                        });
+                        onDevicesChanged();
+                      },
+                      onEdit: () async {
+                        final customized = await _customizeNewDevice(p);
+                        if (customized != null) {
+                          setState(() => _selectedDevices.add(customized));
+                          onDevicesChanged();
+                        }
+                      },
+                    ),
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Cihazlar',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final bool isWide = constraints.maxWidth >= 900;
-                  return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    alignment:
-                        isWide ? WrapAlignment.start : WrapAlignment.center,
-                    children: _devicePresets
-                        .map(
-                          (p) => _DeviceTile(
-                            preset: p,
-                            onAddQuantity: (qty) {
-                              setState(() {
-                                _selectedDevices.add(
-                                  _SelectedDevice(
-                                    name: p.name,
-                                    powerW: p.powerW,
-                                    hoursPerDay: p.hoursPerDay,
-                                    quantity: qty,
-                                  ),
-                                );
-                              });
-                              // Cihaz eklendiğinde elektrik hesaplamasını güncelle
-                              _calculateCategory('electricity');
-                              // Toplam hesaplama ve kayıt yap (validation olmadan)
-                              _calculateTotal(skipValidation: true);
-                            },
-                            onEdit: () async {
-                              final customized = await _customizeNewDevice(p);
-                              if (customized != null) {
-                                setState(
-                                  () => _selectedDevices.add(customized),
-                                );
-                                // Cihaz eklendiğinde elektrik hesaplamasını güncelle
-                                _calculateCategory('electricity');
-                                // Toplam hesaplama ve kayıt yap (validation olmadan)
-                                _calculateTotal(skipValidation: true);
-                              }
-                            },
-                          ),
-                        )
-                        .toList(),
-                  );
-                },
-              ),
-            ],
+                )
+                .toList(),
+          );
+        },
+      );
+    }
+
+    Widget selectedChips() {
+      if (_selectedDevices.isEmpty) return const SizedBox.shrink();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 10),
+          Text(
+            'Seçilen Cihazlar',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: _kManualEntryOnGlass.withValues(alpha: 0.92),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
-        ),
-        const SizedBox(height: 8),
-        if (_selectedDevices.isNotEmpty)
+          const SizedBox(height: 6),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -1674,10 +1927,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                         deleteIcon: const Icon(Icons.close, size: 16),
                         onDeleted: () {
                           setState(() => _selectedDevices.remove(d));
-                          // Cihaz silindiğinde elektrik hesaplamasını güncelle
-                          _calculateCategory('electricity');
-                          // Toplam hesaplama ve kayıt yap (validation olmadan)
-                          _calculateTotal(skipValidation: true);
+                          onDevicesChanged();
                         },
                       ),
                     ),
@@ -1685,9 +1935,95 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                   .toList(),
             ),
           ),
-        const SizedBox(height: 12),
-        // inline cihaz paneli kaldırıldı, diyalog kullanılacak
-      ],
+        ],
+      );
+    }
+
+    return Container(
+      decoration: panelDecoration,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => setState(() {
+                _devicesSectionExpanded = !_devicesSectionExpanded;
+                if (_tabController.index == 0) {
+                  _tabViewHeight = _devicesSectionExpanded
+                      ? _kElectricityTabHeightExpanded
+                      : _kElectricityTabHeightCollapsed;
+                }
+              }),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.devices_other,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Cihazlar',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                    if (_selectedDevices.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Text(
+                          '${_selectedDevices.length}',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Colors.lightGreenAccent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                    AnimatedRotation(
+                      turns: _devicesSectionExpanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeInOutCubic,
+                      child: const Icon(
+                        Icons.expand_more,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
+            clipBehavior: Clip.hardEdge,
+            child: _devicesSectionExpanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        deviceTileGrid(),
+                        selectedChips(),
+                      ],
+                    ),
+                  )
+                : const SizedBox(width: double.infinity, height: 0),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1747,45 +2083,25 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         const SizedBox(height: 12),
 
         // Yakıt için hesaplama butonu ve sonuç
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                style: _outlinedAccent(_kAccentFuel),
-                onPressed: () => _calculateCategory('fuel'),
-                icon: const Icon(Icons.calculate),
-                label: const Text('Yakıt CO₂ Hesapla'),
-              ),
-            ),
-            if (_fuelCo2 != null) ...[
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_fuelCo2!.toStringAsFixed(2)} kg CO₂e',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.red,
-                  ),
-                ),
-              ),
-            ],
-          ],
+        _buildCategoryCalculateRow(
+          buttonStyle: _outlinedAccent(_kAccentFuel),
+          onPressed: () => _calculateCategory('fuel'),
+          buttonLabel: 'Yakıt CO₂ Hesapla',
+          co2Result: _fuelCo2,
+          resultColor: Colors.red,
         ),
         const SizedBox(height: 12),
         // Araç ekleme butonu ve seçilen araçlar
         Row(
           children: [
-            OutlinedButton.icon(
-              style: _outlinedAccent(_kAccentFuel),
-              onPressed: _openVehicleDialog,
-              icon: const Icon(Icons.add_road),
-              label: const Text('Araç ekle'),
+            Flexible(
+              fit: FlexFit.loose,
+              child: OutlinedButton.icon(
+                style: _outlinedAccent(_kAccentFuel),
+                onPressed: _openVehicleDialog,
+                icon: const Icon(Icons.add_road),
+                label: const Text('Araç ekle'),
+              ),
             ),
             const SizedBox(width: 8),
             if (_selectedVehicles.isNotEmpty)
@@ -1841,6 +2157,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _buildCategoryCo2Summary(),
       ],
     );
   }
@@ -1894,35 +2212,12 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         const SizedBox(height: 12),
 
         // Su için hesaplama butonu ve sonuç
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                style: _outlinedAccent(_kAccentWater),
-                onPressed: () => _calculateCategory('water'),
-                icon: const Icon(Icons.calculate),
-                label: const Text('Su CO₂ Hesapla'),
-              ),
-            ),
-            if (_waterCo2 != null) ...[
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_waterCo2!.toStringAsFixed(2)} kg CO₂e',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-              ),
-            ],
-          ],
+        _buildCategoryCalculateRow(
+          buttonStyle: _outlinedAccent(_kAccentWater),
+          onPressed: () => _calculateCategory('water'),
+          buttonLabel: 'Su CO₂ Hesapla',
+          co2Result: _waterCo2,
+          resultColor: Colors.blue,
         ),
         const SizedBox(height: 12),
         Container(
@@ -1953,6 +2248,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _buildCategoryCo2Summary(),
       ],
     );
   }
@@ -1988,7 +2285,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           ],
           selected: {_wasteInputUnit},
           onSelectionChanged: _onWasteUnitChanged,
-          style: _segmentedAccent(_kAccentWaste),
+          style: _segmentedWasteAccent,
         ),
         const SizedBox(height: 8),
         Text(
@@ -2001,7 +2298,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         TextFormField(
           controller: _wasteCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
+          style: const TextStyle(color: Colors.white),
+          decoration: _glassInputDecoration(
             labelText: _wasteInputUnit == _WasteInputUnit.kg
                 ? translate('waste_label_kg', locale)
                 : _wasteInputUnit == _WasteInputUnit.tonnes
@@ -2012,7 +2310,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 : _wasteInputUnit == _WasteInputUnit.tonnes
                     ? translate('waste_hint_tonnes', locale)
                     : translate('waste_hint_g', locale),
-            prefixIcon: const Icon(Icons.delete_outline),
+            prefixIcon: Icons.delete_outline,
           ),
           validator: _validateOptionalNumeric,
           onChanged: (value) {
@@ -2022,35 +2320,12 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         const SizedBox(height: 12),
 
         // Atık için hesaplama butonu ve sonuç
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                style: _outlinedAccent(_kAccentWaste),
-                onPressed: () => _calculateCategory('waste'),
-                icon: const Icon(Icons.calculate),
-                label: const Text('Atık CO₂ Hesapla'),
-              ),
-            ),
-            if (_wasteCo2 != null) ...[
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_wasteCo2!.toStringAsFixed(2)} kg CO₂e',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey,
-                  ),
-                ),
-              ),
-            ],
-          ],
+        _buildCategoryCalculateRow(
+          buttonStyle: _outlinedWhiteOnGlass,
+          onPressed: () => _calculateCategory('waste'),
+          buttonLabel: 'Atık CO₂ Hesapla',
+          co2Result: _wasteCo2,
+          resultColor: Colors.white,
         ),
         const SizedBox(height: 12),
         Container(
@@ -2080,152 +2355,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           ),
         ),
         const SizedBox(height: 12),
-
-        // Kategori bazlı özet gösterimi
-        if (_electricityCo2 != null ||
-            _fuelCo2 != null ||
-            _waterCo2 != null ||
-            _wasteCo2 != null)
-          Builder(
-            builder: (context) {
-              final totalCo2 = ((_electricityCo2 ?? 0) +
-                  (_fuelCo2 ?? 0) +
-                  (_waterCo2 ?? 0) +
-                  (_wasteCo2 ?? 0));
-              // Çok yüksek değer kontrolü: 100,000 kg CO₂e'den fazla ise uyarı göster
-              final bool isVeryHigh = totalCo2 > 100000;
-              final bool hasExtremeValue = (_fuelCo2 ?? 0) > 1000000 ||
-                  (_waterCo2 ?? 0) > 1000000 ||
-                  (_wasteCo2 ?? 0) > 1000000 ||
-                  (_electricityCo2 ?? 0) > 1000000;
-
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surface
-                      .withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: (isVeryHigh || hasExtremeValue)
-                        ? Colors.red.withValues(alpha: 0.5)
-                        : Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.3),
-                    width: (isVeryHigh || hasExtremeValue) ? 2 : 1,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Kategori Bazlı CO₂ Özeti:',
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                        ),
-                        if (isVeryHigh || hasExtremeValue) ...[
-                          const SizedBox(width: 8),
-                          const Icon(
-                            Icons.warning_amber_rounded,
-                            color: Colors.red,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              'Değerler çok yüksek! Lütfen kontrol edin.',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (_electricityCo2 != null)
-                      _CategorySummaryRow(
-                          label: 'Elektrik',
-                          co2: _electricityCo2!,
-                          color: Colors.orange,
-                          isHigh: _electricityCo2! > 1000000),
-                    if (_fuelCo2 != null)
-                      _CategorySummaryRow(
-                          label: 'Yakıt',
-                          co2: _fuelCo2!,
-                          color: Colors.red,
-                          isHigh: _fuelCo2! > 1000000),
-                    if (_waterCo2 != null)
-                      _CategorySummaryRow(
-                          label: 'Su',
-                          co2: _waterCo2!,
-                          color: Colors.blue,
-                          isHigh: _waterCo2! > 1000000),
-                    if (_wasteCo2 != null)
-                      _CategorySummaryRow(
-                          label: 'Atık',
-                          co2: _wasteCo2!,
-                          color: Colors.grey,
-                          isHigh: _wasteCo2! > 1000000),
-                    const SizedBox(height: 8),
-                    Divider(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.3)),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'TOPLAM:',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                        ),
-                        Row(
-                          children: [
-                            if (isVeryHigh || hasExtremeValue)
-                              const Padding(
-                                padding: EdgeInsets.only(right: 8),
-                                child: Icon(
-                                  Icons.error_outline,
-                                  color: Colors.red,
-                                  size: 20,
-                                ),
-                              ),
-                            Text(
-                              '${totalCo2.toStringAsFixed(2)} kg CO₂e',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: (isVeryHigh || hasExtremeValue)
-                                        ? Colors.red
-                                        : Theme.of(context).colorScheme.primary,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+        _buildCategoryCo2Summary(),
       ],
     );
   }
@@ -2445,99 +2575,102 @@ class _DeviceTileState extends State<_DeviceTile> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 140, // Kart genişliğini azalt
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF304411).withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: const Color(0xFF304411).withValues(alpha: 0.28),
-          ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF304411).withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF304411).withValues(alpha: 0.28),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Icon(widget.preset.icon, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.preset.name,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                IconButton(
-                  onPressed: widget.onEdit,
-                  icon: Icon(
-                    Icons.edit,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: 18,
-                  ),
-                  tooltip: 'Düzenle',
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${widget.preset.powerW.toStringAsFixed(0)} W • ${widget.preset.hoursPerDay.toStringAsFixed(1)} s/g',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.lightGreenAccent,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 10),
-            Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _QtyButton(icon: Icons.remove, onPressed: _decrease),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text(
-                        '$_quantity',
-                        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(widget.preset.icon, color: Colors.white, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.preset.name,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                    ),
-                    _QtyButton(icon: Icons.add, onPressed: _increase),
-                  ],
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => widget.onAddQuantity(_quantity),
-                    style: TextButton.styleFrom(
-                      foregroundColor:
-                          Theme.of(context).brightness == Brightness.dark
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(0, 28),
-                    ),
+              ),
+              IconButton(
+                onPressed: widget.onEdit,
+                icon: Icon(
+                  Icons.edit,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                tooltip: 'Düzenle',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${widget.preset.powerW.toStringAsFixed(0)} W • ${widget.preset.hoursPerDay.toStringAsFixed(1)} s/g',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.lightGreenAccent,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 12),
+          Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _QtyButton(icon: Icons.remove, onPressed: _decrease),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
-                      '+ Ekle',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).brightness == Brightness.dark
+                      '$_quantity',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  _QtyButton(icon: Icons.add, onPressed: _increase),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => widget.onAddQuantity(_quantity),
+                  style: TextButton.styleFrom(
+                    foregroundColor:
+                        Theme.of(context).brightness == Brightness.dark
                             ? Theme.of(context).colorScheme.primary
                             : Colors.white,
-                      ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    minimumSize: const Size(0, 36),
+                  ),
+                  child: Text(
+                    '+ Ekle',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.white,
                     ),
                   ),
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -2691,23 +2824,31 @@ class _CategorySummaryRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(label),
-            ],
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               if (isHigh)
                 const Padding(
@@ -2724,6 +2865,8 @@ class _CategorySummaryRow extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                   color: isHigh ? Colors.red : color,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),

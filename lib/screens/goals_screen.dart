@@ -11,7 +11,9 @@ import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
+import '../services/live_emission_service.dart';
 import '../models/consumption_entry.dart';
+import '../models/shelly_data.dart';
 import '../algorithms/calculation.dart';
 import '../widgets/theme_independent_info_dialog.dart';
 import '../themes/app_theme.dart';
@@ -84,6 +86,12 @@ class _GoalAddTemplate {
 
 /// [ReportsScreen] E/M toggle ile aynı anahtar (SharedPreferences).
 const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
+
+/// Günlük emisyon üst sınırı (Shelly/ESP sıçramalarını ay sonu tahminine taşımamak için).
+const double _kMaxPlausibleDailyKgCo2e = 80.0;
+
+/// Eski Firebase hedefleri bazen aylık 15 kg olarak kayıtlı; gerçekçi aylık taban.
+const double _kMinMonthlyCo2TargetKg = 450.0;
 
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key, this.languageProvider});
@@ -165,11 +173,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
       FirebaseRealtimeService.instance;
   final FirebaseAuthService _authService = FirebaseAuthService.instance;
   final ApiService _apiService = ApiService();
+  final LiveEmissionService _liveEmission = LiveEmissionService.instance;
 
   int _greenScore = 0;
   List<CarbonGoal> _goals = [];
   MonthlyPrediction? _monthlyPrediction;
-  bool _predictionLoading = false;
+  bool _predictionLoading = true;
   bool _isLoading = true;
 
   /// Gelecek ay tahminiyle aynı kaynak: son 7 günün tahmini günlük kg CO₂e.
@@ -198,12 +207,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
   @override
   void initState() {
     super.initState();
+    _liveEmission.addListener(_onLiveGaugeUpdated);
     _loadData();
+  }
+
+  void _onLiveGaugeUpdated() {
+    if (_liveEmission.gaugeDailyKgCo2e != null) {
+      unawaited(_refreshPrediction());
+    }
   }
 
   Future<void> _loadData() async {
     if (_userId == null) {
       await _refreshWeeklyWalkState();
+      await _refreshPrediction();
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -278,7 +295,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       // Rozet kontrolü yap
       _checkAndUnlockBadges();
-      await _refreshPrediction();
       await _refreshWeeklyWalkState();
     } catch (e) {
       // Hata durumunda varsayılan hedefleri göster
@@ -287,6 +303,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+      unawaited(_refreshPrediction());
     }
   }
 
@@ -307,7 +324,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       },
       {
         'title': translate('co2_emission_reduction', locale),
-        'target': 15.0,
+        'target': 450.0,
         'current': 0.0,
         'monthlyChangePercent': 0.0,
         'recommendation': '',
@@ -351,7 +368,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         CarbonGoal(
           id: 'default2',
           title: translate('co2_emission_reduction', locale),
-          target: 15.0,
+          target: 450.0,
           current: 0.0,
           monthlyChangePercent: 0.0,
           recommendation: '',
@@ -726,21 +743,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       startDate: startDate,
       endDate: endDate,
     );
-    DateTime dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
-    final Map<DateTime, ConsumptionEntry> latest = {};
-    for (final entry in espHistory) {
-      final key = dayKey(entry.createdAt);
-      final current = latest[key];
-      if (current == null || entry.createdAt.isAfter(current.createdAt)) {
-        latest[key] = entry;
-      }
-    }
-    final totals = <DateTime, double>{};
-    for (final e in latest.values) {
-      final k = dayKey(e.createdAt);
-      totals[k] = Calculation.calculateDailyEmission(e);
-    }
-    return totals;
+    return _espReadingsToDailyKgCo2e(espHistory);
   }
 
   /// Raporlar / E modundaki gibi: ESP su+gaz + Shelly kWh farkı (geçmişten).
@@ -765,12 +768,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
         hist.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         final last = hist.last;
         final prev = hist[hist.length - 2];
-        final delta = (last.energyKwh - prev.energyKwh).clamp(0.0, 1e12);
-        kg += delta * Calculation.factorElectricityKgPerKwh;
+        final gap = last.timestamp.difference(prev.timestamp);
+        if (gap <= const Duration(hours: 36)) {
+          final delta = (last.energyKwh - prev.energyKwh).clamp(0.0, 80.0);
+          kg += delta * Calculation.factorElectricityKgPerKwh;
+        }
       }
     } catch (_) {}
 
-    return kg;
+    return kg.clamp(0.0, _kMaxPlausibleDailyKgCo2e);
   }
 
   List<double> _lastNDaysSeries(
@@ -787,14 +793,62 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return series;
   }
 
-  double _averageNonZeroDaily(List<double> series) {
-    final nz = series.where((e) => e > 1e-12).toList();
-    if (nz.isEmpty) return 0.0;
-    return nz.reduce((a, b) => a + b) / nz.length;
+  MonthlyPrediction _buildFallbackMonthlyPrediction({
+    required bool isTr,
+    required DateTime now,
+    required double dailyKg,
+    required double targetMonthEndKg,
+  }) {
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final elapsedDays = now.day.clamp(1, daysInMonth);
+    final remainingDays = (daysInMonth - elapsedDays).clamp(0, daysInMonth);
+    const paceEps = 1e-9;
+    final hasForecastBasis = dailyKg > paceEps;
+    final projectedMonthEnd = dailyKg * daysInMonth.toDouble();
+    final isOnTrack = !hasForecastBasis || projectedMonthEnd <= targetMonthEndKg;
+    final gaugeEfficiency = !hasForecastBasis
+        ? 0.0
+        : math.min(1.0, targetMonthEndKg / math.max(projectedMonthEnd, paceEps));
+
+    return MonthlyPrediction(
+      projectedMonthEndKg: projectedMonthEnd,
+      targetMonthEndKg: targetMonthEndKg,
+      currentAverageKgPerDay: dailyKg,
+      daysElapsed: elapsedDays,
+      daysInMonth: daysInMonth,
+      remainingDays: remainingDays,
+      isOnTrack: isOnTrack,
+      trackMessage: !hasForecastBasis
+          ? (isTr
+              ? 'Tahmin için sensör veya manuel veri bekleniyor.'
+              : 'Waiting for sensor or manual data for forecast.')
+          : isOnTrack
+              ? (isTr
+                  ? 'Bu gidişle hedefe ulaşırsın.'
+                  : 'At this pace, you will reach the goal.')
+              : (isTr
+                  ? 'Bu gidişle hedefe ulaşamazsın.'
+                  : 'At this pace, you may miss the goal.'),
+      impactSummary: isTr
+          ? 'Raporlar göstergesi veya son sensör verisi ile güncellendi.'
+          : 'Updated from reports gauge or latest sensor data.',
+      gaugeEfficiency: gaugeEfficiency,
+      worldDiffPercent: 0.0,
+      isBetterThanWorldAverage: false,
+      worldRoughlyEqual: true,
+      insightWhyTr: isTr
+          ? 'Canlı gauge değeri veya yedek tahmin kullanıldı.'
+          : 'Live gauge value or fallback forecast used.',
+      insightWhyEn: 'Live gauge value or fallback forecast used.',
+      insightTipTr: isTr
+          ? 'Raporlar ekranındaki E modunu açık tutun veya manuel kayıt ekleyin.'
+          : 'Keep E mode on in Reports or add manual entries.',
+      insightTipEn:
+          'Keep E mode on in Reports or add manual entries.',
+    );
   }
 
   Future<void> _refreshPrediction() async {
-    if (_userId == null) return;
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
     final isTr = locale.languageCode == 'tr';
     final now = DateTime.now();
@@ -807,23 +861,23 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
 
     try {
-      final reductionGoal = _goals.firstWhere(
-        (g) => g.type == 'co2_reduction',
-        orElse: () => CarbonGoal(
-          id: 'fallback_co2',
-          title: '',
-          target: 15,
-          current: 0,
-          monthlyChangePercent: 0,
-          recommendation: '',
-          unit: 'kg',
-          type: 'co2_reduction',
-          icon: Icons.eco,
-          color: const Color(0xFF48631F),
-        ),
+      final reductionGoal = _goals.where((g) => g.type == 'co2_reduction').isEmpty
+          ? CarbonGoal(
+              id: 'fallback_co2',
+              title: '',
+              target: 450,
+              current: 0,
+              monthlyChangePercent: 0,
+              recommendation: '',
+              unit: 'kg',
+              type: 'co2_reduction',
+              icon: Icons.eco,
+              color: const Color(0xFF48631F),
+            )
+          : _goals.firstWhere((g) => g.type == 'co2_reduction');
+      final double targetMonthEndKg = _resolveMonthlyCo2TargetKg(
+        reductionGoal.target.clamp(0.0, double.infinity),
       );
-      final double targetMonthEndKg =
-          reductionGoal.target.clamp(0.0, double.infinity);
 
       final prefs = await SharedPreferences.getInstance();
       final bool useEspSensorMode =
@@ -831,25 +885,45 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       // Ay başı yerine son 30 gün: seyrek Firebase geçmişinde de örnek yakalar
       final rollingStart = today.subtract(const Duration(days: 29));
-      final dailyTotals = await _buildDailyCombinedTotals(rollingStart, now);
+      final dailyTotals = useEspSensorMode
+          ? await _buildDailyEspShellyTotals(rollingStart, now)
+          : await _buildDailyCombinedTotals(rollingStart, now);
 
       const double paceEps = 1e-9;
 
       if (useEspSensorMode) {
-        final liveKg = await _estimateLiveEspShellyKgCo2eToday();
+        await _liveEmission.bootstrapFromFirebase(
+          firebase: _firebaseService,
+          api: _apiService,
+          shellyDeviceId: 'shelly_plug_001',
+        );
+        var liveKg = await _estimateLiveEspShellyKgCo2eToday();
+        final gaugeKg = _liveEmission.gaugeDailyKgCo2e;
+        if (gaugeKg != null && gaugeKg > liveKg) {
+          liveKg = gaugeKg;
+        }
+        if (liveKg <= paceEps) {
+          liveKg = _liveEmission.combinedLiveKgCo2e();
+        }
         if (liveKg > paceEps) {
           dailyTotals[today] = liveKg;
         }
       }
 
-      final last7 = _lastSevenDaysSeries(dailyTotals, now);
-      final last30 = _lastNDaysSeries(dailyTotals, today, 30);
+      final last7 = _lastSevenDaysSeries(dailyTotals, now)
+          .map(_clampPlausibleDailyKg)
+          .toList();
+      final last30 = _lastNDaysSeries(dailyTotals, today, 30)
+          .map(_clampPlausibleDailyKg)
+          .toList();
 
       final double est7 = _estimateDailyAverageFromSeries(last7);
-      final double avg30Nz = _averageNonZeroDaily(last30);
 
-      final double estimatedDailyAverage =
-          useEspSensorMode ? (avg30Nz > paceEps ? avg30Nz : est7) : est7;
+      final double estimatedDailyAverage = useEspSensorMode
+          ? (est7 > paceEps
+              ? est7
+              : _medianNonZeroDaily(last30))
+          : est7;
       final double projectedMonthEnd =
           estimatedDailyAverage * daysInMonth.toDouble();
       final bool hasForecastBasis = estimatedDailyAverage > paceEps;
@@ -909,8 +983,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
         sumPrev7Esp += (espDaily[key] ?? 0.0);
       }
 
-      final Map<DateTime, double> combinedWindow =
-          await _buildDailyCombinedTotals(windowStart, now);
+      final Map<DateTime, double> combinedWindow = useEspSensorMode
+          ? await _buildDailyEspShellyTotals(windowStart, now)
+          : await _buildDailyCombinedTotals(windowStart, now);
       double sumLast7Comb = 0.0;
       double sumPrev7Comb = 0.0;
       for (int i = 0; i < 7; i++) {
@@ -1010,12 +1085,139 @@ class _GoalsScreenState extends State<GoalsScreen> {
         });
       }
     } catch (_) {
-      // Sessiz devam
+      if (mounted) {
+        final gaugeKg = _liveEmission.gaugeDailyKgCo2e ?? 0.0;
+        final fallbackDaily = gaugeKg > 1e-9
+            ? gaugeKg
+            : _liveEmission.combinedLiveKgCo2e();
+        setState(() {
+          _monthlyPrediction = _buildFallbackMonthlyPrediction(
+            isTr: isTr,
+            now: now,
+            dailyKg: fallbackDaily,
+            targetMonthEndKg: _kMinMonthlyCo2TargetKg,
+          );
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _predictionLoading = false);
       }
     }
+  }
+
+  double _clampPlausibleDailyKg(double kg) {
+    if (!kg.isFinite || kg <= 0) return 0.0;
+    return kg.clamp(0.0, _kMaxPlausibleDailyKgCo2e);
+  }
+
+  double _resolveMonthlyCo2TargetKg(double rawTarget) {
+    if (rawTarget <= 0) return _kMinMonthlyCo2TargetKg;
+    if (rawTarget < 50) return _kMinMonthlyCo2TargetKg;
+    return rawTarget;
+  }
+
+  DateTime _dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+
+  Map<DateTime, double> _espReadingsToDailyKgCo2e(List<ConsumptionEntry> raw) {
+    if (raw.isEmpty) return {};
+    final sorted = List<ConsumptionEntry>.from(raw)
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final totals = <DateTime, double>{};
+
+    for (int i = 1; i < sorted.length; i++) {
+      final prev = sorted[i - 1];
+      final cur = sorted[i];
+      if (cur.createdAt.difference(prev.createdAt) >
+          const Duration(hours: 48)) {
+        continue;
+      }
+      final delta = ConsumptionEntry(
+        electricityKwh: 0,
+        waterCubicMeters:
+            math.max(0, cur.waterCubicMeters - prev.waterCubicMeters),
+        fuelLiters: math.max(0, cur.fuelLiters - prev.fuelLiters),
+        wasteKg: math.max(0, cur.wasteKg - prev.wasteKg),
+        createdAt: cur.createdAt,
+        fuelIsNaturalGasM3: cur.fuelIsNaturalGasM3,
+      );
+      final kg = _clampPlausibleDailyKg(Calculation.calculateDailyEmission(delta));
+      if (kg > 1e-9) {
+        final key = _dayKey(cur.createdAt);
+        totals[key] = (totals[key] ?? 0) + kg;
+      }
+    }
+
+    final Map<DateTime, ConsumptionEntry> latestPerDay = {};
+    for (final e in sorted) {
+      final key = _dayKey(e.createdAt);
+      final current = latestPerDay[key];
+      if (current == null || e.createdAt.isAfter(current.createdAt)) {
+        latestPerDay[key] = e;
+      }
+    }
+    for (final e in latestPerDay.values) {
+      final key = _dayKey(e.createdAt);
+      if ((totals[key] ?? 0) > 1e-9) continue;
+      final snap = ConsumptionEntry(
+        electricityKwh: 0,
+        waterCubicMeters: e.waterCubicMeters,
+        fuelLiters: e.fuelLiters,
+        wasteKg: e.wasteKg,
+        createdAt: e.createdAt,
+        fuelIsNaturalGasM3: e.fuelIsNaturalGasM3,
+      );
+      final kg = _clampPlausibleDailyKg(Calculation.calculateDailyEmission(snap));
+      if (kg > 1e-9) totals[key] = kg;
+    }
+    return totals;
+  }
+
+  double _medianNonZeroDaily(List<double> series) {
+    final nz = series.where((e) => e > 1e-12).toList()..sort();
+    if (nz.isEmpty) return 0.0;
+    final mid = nz.length ~/ 2;
+    return nz.length.isOdd ? nz[mid] : (nz[mid - 1] + nz[mid]) / 2.0;
+  }
+
+  /// E modu: yalnızca ESP su/gaz + Shelly elektrik (delta); manuel kayıt yok.
+  Future<Map<DateTime, double>> _buildDailyEspShellyTotals(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final espHistory = await _firebaseService.getHistoryData(
+      deviceId: 'esp8266_001',
+      startDate: startDate,
+      endDate: endDate,
+    );
+
+    List<ShellyData> shellyRaw = [];
+    try {
+      shellyRaw = await _apiService.getFirebaseShellyHistory(
+        deviceId: 'shelly_plug_001',
+        startDate: startDate,
+        endDate: endDate,
+      );
+    } catch (_) {}
+
+    final espDaily = _espReadingsToDailyKgCo2e(espHistory);
+    final Map<DateTime, double> shellyKwhByDay = {};
+    for (final entry
+        in _apiService.shellyDataListToDeltaConsumptionEntries(shellyRaw)) {
+      final key = _dayKey(entry.createdAt);
+      shellyKwhByDay[key] =
+          (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
+    }
+
+    final allDays = <DateTime>{...espDaily.keys, ...shellyKwhByDay.keys};
+    final totals = <DateTime, double>{};
+    for (final day in allDays) {
+      final shellyKg = (shellyKwhByDay[day] ?? 0.0) *
+          Calculation.factorElectricityKgPerKwh;
+      final espKg = espDaily[day] ?? 0.0;
+      totals[day] = _clampPlausibleDailyKg(shellyKg + espKg);
+    }
+    return totals;
   }
 
   Future<Map<DateTime, double>> _buildDailyCombinedTotals(
@@ -1028,16 +1230,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
       endDate: endDate,
     );
 
-    List<ConsumptionEntry> shellyHistory = [];
+    List<ShellyData> shellyRaw = [];
     try {
-      final shellyData = await _apiService.getFirebaseShellyHistory(
+      shellyRaw = await _apiService.getFirebaseShellyHistory(
         deviceId: 'shelly_plug_001',
         startDate: startDate,
         endDate: endDate,
       );
-      shellyHistory = shellyData
-          .map((item) => _apiService.shellyDataToConsumptionEntry(item))
-          .toList();
     } catch (_) {}
 
     List<ConsumptionEntry> manualHistory = [];
@@ -1054,8 +1253,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
     DateTime dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
     final Map<DateTime, ConsumptionEntry> latestEsp = {};
-    final Map<DateTime, ConsumptionEntry> latestShelly = {};
     final Map<DateTime, ConsumptionEntry> latestManual = {};
+    final Map<DateTime, double> shellyKwhByDay = {};
+
+    for (final entry
+        in _apiService.shellyDataListToDeltaConsumptionEntries(shellyRaw)) {
+      final key = dayKey(entry.createdAt);
+      shellyKwhByDay[key] =
+          (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
+    }
 
     void pushLatest(
       Map<DateTime, ConsumptionEntry> target,
@@ -1071,45 +1277,39 @@ class _GoalsScreenState extends State<GoalsScreen> {
     for (final entry in espHistory) {
       pushLatest(latestEsp, entry);
     }
-    for (final entry in shellyHistory) {
-      pushLatest(latestShelly, entry);
-    }
     for (final entry in manualHistory) {
       pushLatest(latestManual, entry);
     }
 
     final allDays = <DateTime>{
       ...latestEsp.keys,
-      ...latestShelly.keys,
       ...latestManual.keys,
+      ...shellyKwhByDay.keys,
     };
 
     final totals = <DateTime, double>{};
     for (final day in allDays) {
       final manual = latestManual[day];
       final esp = latestEsp[day];
-      final shelly = latestShelly[day];
+      final shellyKwh = shellyKwhByDay[day] ?? 0.0;
 
       if (manual != null) {
-        totals[day] = Calculation.calculateDailyEmission(manual);
+        totals[day] =
+            _clampPlausibleDailyKg(Calculation.calculateDailyEmission(manual));
         continue;
       }
-      if (esp != null && shelly != null) {
+
+      if (esp != null || shellyKwh > 1e-12) {
         final combined = ConsumptionEntry(
-          electricityKwh: shelly.electricityKwh,
-          waterCubicMeters: esp.waterCubicMeters,
-          fuelLiters: esp.fuelLiters,
-          wasteKg: (esp.wasteKg + shelly.wasteKg) / 2,
-          createdAt: shelly.createdAt.isAfter(esp.createdAt)
-              ? shelly.createdAt
-              : esp.createdAt,
-          fuelIsNaturalGasM3: esp.fuelIsNaturalGasM3,
+          electricityKwh: shellyKwh,
+          waterCubicMeters: esp?.waterCubicMeters ?? 0,
+          fuelLiters: esp?.fuelLiters ?? 0,
+          wasteKg: esp?.wasteKg ?? 0,
+          createdAt: day,
+          fuelIsNaturalGasM3: esp?.fuelIsNaturalGasM3 ?? true,
         );
-        totals[day] = Calculation.calculateDailyEmission(combined);
-      } else if (esp != null) {
-        totals[day] = Calculation.calculateDailyEmission(esp);
-      } else if (shelly != null) {
-        totals[day] = Calculation.calculateDailyEmission(shelly);
+        totals[day] =
+            _clampPlausibleDailyKg(Calculation.calculateDailyEmission(combined));
       }
     }
     return totals;
@@ -1281,13 +1481,33 @@ class _GoalsScreenState extends State<GoalsScreen> {
         final ThemeData earnTheme = ThemeData(
           useMaterial3: true,
           fontFamily: 'PlayfairDisplay',
-          colorScheme: const ColorScheme.light(
+          colorScheme: ColorScheme.light(
             primary: AppTheme.infoDialogForeground,
             onPrimary: Colors.white,
             surface: AppTheme.infoDialogBackground,
             onSurface: AppTheme.infoDialogForeground,
             secondary: AppTheme.lightPrimaryColor,
             onSecondary: Colors.white,
+            surfaceContainerHighest: AppTheme.infoDialogForeground.withValues(
+              alpha: 0.28,
+            ),
+          ),
+          sliderTheme: SliderThemeData(
+            activeTrackColor: AppTheme.infoDialogForeground,
+            inactiveTrackColor: AppTheme.infoDialogForeground.withValues(
+              alpha: 0.28,
+            ),
+            secondaryActiveTrackColor: AppTheme.infoDialogForeground.withValues(
+              alpha: 0.28,
+            ),
+            thumbColor: AppTheme.infoDialogForeground,
+            overlayColor: WidgetStateColor.resolveWith(
+              (states) => AppTheme.infoDialogForeground.withValues(
+                alpha: states.contains(WidgetState.pressed) ? 0.22 : 0.12,
+              ),
+            ),
+            trackHeight: 8,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
           ),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
@@ -1432,19 +1652,50 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             ),
                       ),
                       const SizedBox(height: 8),
-                      Slider(
-                        value: sliderVal.clamp(0.0, maxSlide),
-                        max: maxSlide,
-                        divisions: maxSlide <= 50 ? maxSlide.round() : 48,
-                        label: sliderVal.toStringAsFixed(1),
-                        onChanged: (v) {
-                          setLocal(() {
-                            sliderVal = v;
-                            controller.text = kind == _EnginePointKind.recycle
-                                ? v.toStringAsFixed(2)
-                                : v.toStringAsFixed(1);
-                          });
-                        },
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.88),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppTheme.infoDialogForeground.withValues(
+                              alpha: 0.35,
+                            ),
+                          ),
+                        ),
+                        child: SliderTheme(
+                          data: earnTheme.sliderTheme.copyWith(
+                            activeTrackColor: AppTheme.infoDialogForeground,
+                            inactiveTrackColor:
+                                AppTheme.infoDialogForeground.withValues(
+                              alpha: 0.45,
+                            ),
+                            trackHeight: 10,
+                            thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 12,
+                            ),
+                          ),
+                          child: Slider(
+                            value: sliderVal.clamp(0.0, maxSlide),
+                            max: maxSlide,
+                            divisions:
+                                maxSlide <= 50 ? maxSlide.round() : 48,
+                            label: sliderVal.toStringAsFixed(1),
+                            onChanged: (v) {
+                              setLocal(() {
+                                sliderVal = v;
+                                controller.text =
+                                    kind == _EnginePointKind.recycle
+                                        ? v.toStringAsFixed(2)
+                                        : v.toStringAsFixed(1);
+                              });
+                            },
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 15),
                       Text(
@@ -1713,6 +1964,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   @override
   void dispose() {
+    _liveEmission.removeListener(_onLiveGaugeUpdated);
     _greenScoreSubscription?.cancel();
     _goalsSubscription?.cancel();
     _consumptionSubscription?.cancel();
@@ -1775,15 +2027,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         size: 24,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        translate('achievement_badges', locale),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
-                              height: 1.2,
-                            ),
+                      Expanded(
+                        child: Text(
+                          translate('achievement_badges', locale),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.bold,
+                                height: 1.2,
+                              ),
+                        ),
                       ),
-                      const SizedBox(width: 8),
                       Tooltip(
                         message: translate('achievement_badges_info', locale),
                         child: InkWell(
@@ -2003,15 +2259,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         size: 24,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        translate('next_month_outlook', locale),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
-                              height: 1.2,
-                            ),
+                      Expanded(
+                        child: Text(
+                          translate('next_month_outlook', locale),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.bold,
+                                height: 1.2,
+                              ),
+                        ),
                       ),
-                      const SizedBox(width: 8),
                       Tooltip(
                         message: translate('next_month_outlook_info', locale),
                         child: InkWell(
@@ -2035,16 +2295,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  if (_userId != null) ...[
-                    if (_predictionLoading && _monthlyPrediction == null)
-                      _PredictionLoadingShell(isDark: isDark)
-                    else if (_monthlyPrediction != null)
-                      _PredictionCard(
-                        prediction: _monthlyPrediction!,
-                        languageProvider: widget.languageProvider,
-                        loadingOverlay: _predictionLoading,
-                      ),
-                  ],
+                  if (_predictionLoading && _monthlyPrediction == null)
+                    _PredictionLoadingShell(isDark: isDark)
+                  else if (_monthlyPrediction != null)
+                    _PredictionCard(
+                      prediction: _monthlyPrediction!,
+                      languageProvider: widget.languageProvider,
+                      loadingOverlay: _predictionLoading,
+                    )
+                  else
+                    _PredictionRetryCard(
+                      isDark: isDark,
+                      locale: locale,
+                      onRetry: _refreshPrediction,
+                    ),
                   const SizedBox(height: 32),
                   // Green Score başlığı - Konteynır dışında
                   Row(
@@ -2055,15 +2319,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         size: 24,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        translate('green_score', locale),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
-                              height: 1.2,
-                            ),
+                      Expanded(
+                        child: Text(
+                          translate('green_score', locale),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.bold,
+                                height: 1.2,
+                              ),
+                        ),
                       ),
-                      const SizedBox(width: 8),
                       Tooltip(
                         message: translate('green_score_info', locale),
                         child: InkWell(
@@ -3451,6 +3719,75 @@ class MonthlyPrediction {
   });
 }
 
+/// Tahmin yüklenemediğinde yeniden dene kartı.
+class _PredictionRetryCard extends StatelessWidget {
+  const _PredictionRetryCard({
+    required this.isDark,
+    required this.locale,
+    required this.onRetry,
+  });
+
+  final bool isDark;
+  final Locale locale;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.black.withValues(alpha: 0.35) : null,
+            gradient: isDark
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.15),
+                      Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.08),
+                    ],
+                  ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary,
+              width: isDark ? 1 : 2,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                translate('sensor_data_waiting', locale),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text(translate('refresh', locale)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Tahmin bölümü ilk yüklemede iskelet + shimmer.
 class _PredictionLoadingShell extends StatefulWidget {
   const _PredictionLoadingShell({required this.isDark});
@@ -3658,10 +3995,16 @@ Widget _predictionMetaLine(
         color: _goalsReadableOnCard(context, isDark),
         fontWeight: FontWeight.w600,
       );
-  final String targetFmt =
-      _formatDecimalWithSeparators(prediction.targetMonthEndKg, locale);
-  final String paceFmt =
-      _formatDecimalWithSeparators(prediction.currentAverageKgPerDay, locale);
+  final String targetFmt = _formatDecimalWithSeparators(
+    prediction.targetMonthEndKg,
+    locale,
+    fractionDigits: prediction.targetMonthEndKg >= 100 ? 0 : 1,
+  );
+  final String paceFmt = _formatDecimalWithSeparators(
+    prediction.currentAverageKgPerDay,
+    locale,
+    fractionDigits: 2,
+  );
 
   return Wrap(
     crossAxisAlignment: WrapCrossAlignment.center,
@@ -3710,11 +4053,13 @@ class _PredictionCard extends StatelessWidget {
     final efficiencyPct = gaugeSafe * 100.0;
     final double screenW = MediaQuery.sizeOf(context).width;
     final double cardOuterPad = screenW < 360 ? 16.0 : 24.0;
-    final String worldDiffFmt = _formatDecimalWithSeparators(
-      prediction.worldDiffPercent,
-      locale,
-      fractionDigits: 1,
-    );
+    final String worldDiffFmt = prediction.worldDiffPercent >= 200.0
+        ? '200+'
+        : _formatDecimalWithSeparators(
+            prediction.worldDiffPercent,
+            locale,
+            fractionDigits: 1,
+          );
     final String badgeLabel = prediction.worldRoughlyEqual
         ? (isTr
             ? 'Küresel günlük ortalamayla aynı hizada'
@@ -3808,7 +4153,7 @@ class _PredictionCard extends StatelessWidget {
                                 ),
                           ),
                           Text(
-                            isTr ? 'verim' : 'eff.',
+                            isTr ? 'hedef uyumu' : 'goal fit',
                             style: Theme.of(context)
                                 .textTheme
                                 .labelSmall
@@ -3885,6 +4230,10 @@ class _PredictionCard extends StatelessWidget {
                             : _formatDecimalWithSeparators(
                                 prediction.projectedMonthEndKg,
                                 locale,
+                                fractionDigits:
+                                    prediction.projectedMonthEndKg >= 100
+                                        ? 0
+                                        : 1,
                               );
                         final double valueFont =
                             (c2.maxWidth * 0.095).clamp(20.0, 36.0);

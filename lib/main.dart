@@ -17,6 +17,7 @@ import 'localization/translations.dart';
 import 'services/postgres_service.dart';
 import 'services/firebase_realtime_service.dart';
 import 'services/notification_service.dart';
+import 'services/firebase_auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,14 +26,22 @@ void main() async {
 
   // Firebase'i başlat
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
     FirebaseRealtimeService.instance.initialize();
     debugPrint('Firebase başarıyla başlatıldı');
   } catch (e) {
     debugPrint('Firebase başlatma hatası: $e');
-    // Firebase hatası olsa bile uygulama çalışmaya devam eder
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        FirebaseRealtimeService.instance.initialize();
+      } catch (initError) {
+        debugPrint('Firebase Realtime init hatası: $initError');
+      }
+    }
   }
 
   runApp(const CarbonFootprintApp());
@@ -153,8 +162,18 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp>
   }
 
   void _handleLogout() {
+    final BuildContext? navContext = _navigatorKey.currentContext;
+    if (navContext != null) {
+      final navigator = Navigator.of(navContext);
+      // Ayarlar paneli (showGeneralDialog) açıksa kapat
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+    }
+    FirebaseAuthService.instance.signOut().catchError((_) {});
     setState(() {
       _isLoggedIn = false;
+      _selectedIndex = 0;
     });
   }
 

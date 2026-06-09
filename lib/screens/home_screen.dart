@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../widgets/info_flip_card.dart';
 import '../widgets/hero_donate_banner.dart';
@@ -11,6 +13,16 @@ import '../services/weather_service.dart';
 import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
 import '../services/carbon_data_service.dart';
+import '../services/firebase_realtime_service.dart';
+import '../services/firebase_auth_service.dart';
+import '../services/live_emission_service.dart';
+import '../algorithms/calculation.dart';
+import '../models/consumption_entry.dart';
+import '../models/shelly_data.dart';
+
+const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
+const double _kSalonSectorAvgTonnesPerMonth = 3.2;
+const double _kMaxPlausibleDailyKgCo2e = 80.0;
 
 /// Ana sayfa bölüm aralığı ve kart içi boşluk (diğer ekranlarla uyumlu ritim).
 /// Önceki konteynır ile sonraki başlık arası; başlık ile altındaki konteynır arası ayrı.
@@ -44,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _autoScrollTimer;
   Timer? _heroAutoScrollTimer;
   double? _dailyEmissionKg; // son hesaplanan günlük emisyon
+  bool _hasRealUserEmission = false;
 
   // Listener'ları sakla (dispose için)
   late final VoidCallback _tipsListener;
@@ -65,7 +78,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Shelly Plug S için eklenen değişkenler
   final ApiService _apiService = ApiService();
+  final FirebaseRealtimeService _firebaseService =
+      FirebaseRealtimeService.instance;
   final String _shellyDeviceId = 'shelly_plug_001';
+  StreamSubscription<ConsumptionEntry?>? _espEmissionSubscription;
+  StreamSubscription<ShellyData?>? _shellyEmissionSubscription;
+  Timer? _emissionRetryTimer;
+  int _emissionRetryCount = 0;
+  final LiveEmissionService _liveEmission = LiveEmissionService.instance;
 
   @override
   void initState() {
@@ -243,9 +263,251 @@ class _HomeScreenState extends State<HomeScreen> {
     // Hava durumu verilerini yükle
     _loadWeatherData();
     _loadAverageEmissions();
+    _listenToEmissionSources();
+    _liveEmission.addListener(_onSharedGaugeUpdated);
+    _applyPublishedGaugeIfAny();
+    _bootstrapAndLoadEmission();
 
-    // Shelly'yi başlat (IP ADRESİNİZİ BURAYA YAZIN!)
-    _initializeShelly();
+    // Shelly'yi başlat; veri Firebase'e yazıldıktan sonra tabloyu yenile
+    _initializeShelly().whenComplete(() {
+      if (!mounted) return;
+      _bootstrapAndLoadEmission();
+      _scheduleEmissionRetries();
+    });
+  }
+
+  void _onSharedGaugeUpdated() {
+    _applyPublishedGaugeIfAny();
+  }
+
+  void _applyPublishedGaugeIfAny() {
+    final kg = _liveEmission.gaugeDailyKgCo2e;
+    if (kg != null && kg > 1e-9) {
+      _applyResolvedEmissionKg(kg);
+    }
+  }
+
+  Future<void> _bootstrapAndLoadEmission() async {
+    await LiveEmissionService.instance.bootstrapFromFirebase(
+      firebase: _firebaseService,
+      api: _apiService,
+      shellyDeviceId: _shellyDeviceId,
+    );
+    await _loadUserDailyEmission();
+  }
+
+  void _listenToEmissionSources() {
+    final live = LiveEmissionService.instance;
+
+    _espEmissionSubscription?.cancel();
+    _espEmissionSubscription = _firebaseService
+        .listenToEsp8266Data('esp8266_001')
+        .listen((entry) {
+      if (entry == null || !mounted) return;
+      live.setEspEntry(entry);
+      _applyResolvedEmissionKg(live.combinedLiveKgCo2e());
+    });
+
+    _shellyEmissionSubscription?.cancel();
+    _shellyEmissionSubscription = _apiService
+        .listenToFirebaseShellyData(_shellyDeviceId)
+        .listen((shellyData) {
+      if (shellyData == null || !mounted) return;
+      live.ingestShellyReading(
+        shellyData,
+        _apiService.shellyDataToConsumptionEntry(shellyData),
+      );
+      _applyResolvedEmissionKg(live.combinedLiveKgCo2e());
+    });
+  }
+
+  void _applyResolvedEmissionKg(double kg) {
+    final clamped = _clampPlausibleDailyKg(kg);
+    if (clamped > 1e-9 && mounted) {
+      setState(() {
+        _dailyEmissionKg = clamped;
+        _hasRealUserEmission = true;
+      });
+      _emissionRetryTimer?.cancel();
+    }
+  }
+
+  void _scheduleEmissionRetries() {
+    _emissionRetryTimer?.cancel();
+    _emissionRetryCount = 0;
+    _emissionRetryTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (!mounted || _hasRealUserEmission || _emissionRetryCount >= 6) {
+        timer.cancel();
+        return;
+      }
+      _emissionRetryCount++;
+      _bootstrapAndLoadEmission();
+    });
+  }
+
+  double _clampPlausibleDailyKg(double kg) =>
+      kg.clamp(0.0, _kMaxPlausibleDailyKgCo2e);
+
+  DateTime _dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+
+  /// Raporlar / hedefler ekranı ile uyumlu günlük emisyon (ESP + Shelly veya manuel).
+  Future<void> _loadUserDailyEmission() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final useEsp = prefs.getBool(_kPrefsReportsUseEspData) ?? true;
+      final kg = await _resolveUserDailyEmissionKg(useEsp);
+
+      if (!mounted) return;
+      if (kg != null && kg > 0) {
+        setState(() {
+          _dailyEmissionKg = kg;
+          _hasRealUserEmission = true;
+        });
+        _emissionRetryTimer?.cancel();
+      }
+    } catch (_) {
+      // Sessiz: karşılaştırma tablosu beklemeye devam eder
+    }
+  }
+
+  Future<double?> _resolveUserDailyEmissionKg(bool useEsp) async {
+    const paceEps = 1e-9;
+
+    final published = _liveEmission.gaugeDailyKgCo2e;
+    if (published != null && published > paceEps) {
+      return _clampPlausibleDailyKg(published);
+    }
+
+    final live = LiveEmissionService.instance;
+
+    if (useEsp) {
+      var kg = live.combinedLiveKgCo2e();
+      if (kg > paceEps) return _clampPlausibleDailyKg(kg);
+
+      kg = await _estimateTodayEspShellyKgFromHistory();
+      if (kg > paceEps) return kg;
+
+      kg = await _estimate7DayAverageEspShellyKg();
+      if (kg > paceEps) return kg;
+    } else {
+      final manualKg = await _loadManualDailyEmissionKg();
+      if (manualKg != null && manualKg > paceEps) return manualKg;
+    }
+
+    if (useEsp) {
+      final manualKg = await _loadManualDailyEmissionKg();
+      if (manualKg != null && manualKg > paceEps) return manualKg;
+    }
+
+    return null;
+  }
+
+  Future<double> _estimateTodayEspShellyKgFromHistory() async {
+    final now = DateTime.now();
+    final today = _dayKey(now);
+    final totals = await _buildDailyEspShellyTotals(
+      today.subtract(const Duration(days: 2)),
+      now,
+    );
+    return totals[today] ?? 0.0;
+  }
+
+  Future<double?> _loadManualDailyEmissionKg() async {
+    final userId = FirebaseAuthService.instance.currentUser?.uid;
+    if (userId == null) return null;
+    final manual = await _firebaseService.getLatestManualData(userId);
+    if (manual == null) return null;
+    return _clampPlausibleDailyKg(Calculation.calculateDailyEmission(manual));
+  }
+
+  Future<double> _estimate7DayAverageEspShellyKg() async {
+    final now = DateTime.now();
+    final today = _dayKey(now);
+    final startDate = today.subtract(const Duration(days: 13));
+    final dailyTotals = await _buildDailyEspShellyTotals(startDate, now);
+
+    final last7 = <double>[];
+    for (int i = 0; i < 7; i++) {
+      final day = today.subtract(Duration(days: i));
+      final kg = dailyTotals[day] ?? 0.0;
+      if (kg > 1e-9) last7.add(kg);
+    }
+    if (last7.isEmpty) return 0.0;
+    return _clampPlausibleDailyKg(
+      last7.reduce((a, b) => a + b) / last7.length,
+    );
+  }
+
+  Map<DateTime, double> _espReadingsToDailyKgCo2e(List<ConsumptionEntry> raw) {
+    if (raw.isEmpty) return {};
+    final sorted = List<ConsumptionEntry>.from(raw)
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final totals = <DateTime, double>{};
+
+    for (int i = 1; i < sorted.length; i++) {
+      final prev = sorted[i - 1];
+      final cur = sorted[i];
+      if (cur.createdAt.difference(prev.createdAt) >
+          const Duration(hours: 48)) {
+        continue;
+      }
+      final delta = ConsumptionEntry(
+        electricityKwh: 0,
+        waterCubicMeters:
+            math.max(0, cur.waterCubicMeters - prev.waterCubicMeters),
+        fuelLiters: math.max(0, cur.fuelLiters - prev.fuelLiters),
+        wasteKg: math.max(0, cur.wasteKg - prev.wasteKg),
+        createdAt: cur.createdAt,
+        fuelIsNaturalGasM3: cur.fuelIsNaturalGasM3,
+      );
+      final kg = _clampPlausibleDailyKg(
+        Calculation.calculateDailyEmission(delta),
+      );
+      if (kg > 1e-9) {
+        final key = _dayKey(cur.createdAt);
+        totals[key] = (totals[key] ?? 0) + kg;
+      }
+    }
+
+    return totals;
+  }
+
+  Future<Map<DateTime, double>> _buildDailyEspShellyTotals(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final espHistory = await _firebaseService.getHistoryData(
+      deviceId: 'esp8266_001',
+      startDate: startDate,
+      endDate: endDate,
+    );
+
+    List<ShellyData> shellyRaw = [];
+    try {
+      shellyRaw = await _apiService.getFirebaseShellyHistory(
+        deviceId: _shellyDeviceId,
+        startDate: startDate,
+        endDate: endDate,
+      );
+    } catch (_) {}
+
+    final espDaily = _espReadingsToDailyKgCo2e(espHistory);
+    final shellyKwhByDay = <DateTime, double>{};
+    for (final entry
+        in _apiService.shellyDataListToDeltaConsumptionEntries(shellyRaw)) {
+      final key = _dayKey(entry.createdAt);
+      shellyKwhByDay[key] =
+          (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
+    }
+
+    final allDays = <DateTime>{...espDaily.keys, ...shellyKwhByDay.keys};
+    final totals = <DateTime, double>{};
+    for (final day in allDays) {
+      final shellyKg = (shellyKwhByDay[day] ?? 0.0) *
+          Calculation.factorElectricityKgPerKwh;
+      totals[day] = _clampPlausibleDailyKg((espDaily[day] ?? 0.0) + shellyKg);
+    }
+    return totals;
   }
 
   /// Shelly Plug S'yi başlat
@@ -337,6 +599,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _autoScrollTimer?.cancel();
     _heroAutoScrollTimer?.cancel();
+    _emissionRetryTimer?.cancel();
+    _espEmissionSubscription?.cancel();
+    _shellyEmissionSubscription?.cancel();
+    _liveEmission.removeListener(_onSharedGaugeUpdated);
     _tipsController.removeListener(_tipsListener);
     _heroController.removeListener(_heroListener);
     _tipsController.dispose();
@@ -560,7 +826,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: homeTitleStyle,
                 ),
                 const SizedBox(height: _kHomeTitleBelowGap),
-                _BusinessComparisonTable(locale: locale, isDark: isDark),
+                _BusinessComparisonTable(
+                  locale: locale,
+                  isDark: isDark,
+                  gaugeDailyKgCo2e:
+                      _liveEmission.gaugeDailyKgCo2e ?? _dailyEmissionKg,
+                  hasRealUserEmission: _hasRealUserEmission ||
+                      (_liveEmission.gaugeDailyKgCo2e ?? 0) > 0,
+                ),
                 const SizedBox(height: _kHomeSectionGap),
                 // Fatura tarama başlığı
                 Text(
@@ -571,8 +844,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Fatura tarama kartı
                 BillScannerCard(
                   languageProvider: widget.languageProvider,
-                  onCalculated: (value) =>
-                      setState(() => _dailyEmissionKg = value),
+                  onCalculated: (value) => setState(() {
+                    _dailyEmissionKg = value;
+                    _hasRealUserEmission = true;
+                  }),
                 ),
                 const SizedBox(height: _kHomeSectionGap),
                 // GNÇ tarzında başlık
@@ -1356,7 +1631,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: _kHomeTitleBelowGap),
                 _EmissionComparisonCard(
-                  userDailyEmissionKg: _dailyEmissionKg ?? 12.0,
+                  userDailyEmissionKg: _hasRealUserEmission
+                      ? (_dailyEmissionKg ?? 0)
+                      : (_dailyEmissionKg ?? 12.0),
                   nationalAvgKg: _nationalAverageKg ?? 6.8,
                   globalAvgKg: _globalAverageKg ?? 4.1,
                   locale: locale,
@@ -1369,7 +1646,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: _kHomeTitleBelowGap),
                 _EquivalentsCard(
-                  dailyEmissionKg: _dailyEmissionKg ?? 12.0,
+                  dailyEmissionKg: _hasRealUserEmission
+                      ? (_dailyEmissionKg ?? 0)
+                      : (_dailyEmissionKg ?? 12.0),
                   locale: locale,
                 ),
                 // Eski alıntı görsel bloğu kaldırıldı (yukarıda blur olarak gösteriliyor)
@@ -1860,41 +2139,106 @@ class _EquivalentsCard extends StatelessWidget {
 
 // İşletme karşılaştırma tablosu widget'ı
 class _BusinessComparisonTable extends StatelessWidget {
-  const _BusinessComparisonTable({required this.locale, required this.isDark});
+  const _BusinessComparisonTable({
+    required this.locale,
+    required this.isDark,
+    this.gaugeDailyKgCo2e,
+    this.hasRealUserEmission = false,
+  });
 
   final Locale locale;
   final bool isDark;
+  final double? gaugeDailyKgCo2e;
+  final bool hasRealUserEmission;
 
-  @override
-  Widget build(BuildContext context) {
-    // Örnek işletme verileri
-    final List<Map<String, dynamic>> businesses = [
+  List<Map<String, dynamic>> _buildBusinessRows() {
+    final unit = translate('tonnes_co2e_monthly', locale);
+    final sectorAvg = _kSalonSectorAvgTonnesPerMonth;
+
+    String userEmissionLabel;
+    String userStatus;
+    if (hasRealUserEmission &&
+        gaugeDailyKgCo2e != null &&
+        gaugeDailyKgCo2e! > 0) {
+      final monthlyTonnes = gaugeDailyKgCo2e! * 30 / 1000;
+      userEmissionLabel =
+          formatGaugeKgCo2eDisplay(gaugeDailyKgCo2e!, locale);
+      if (monthlyTonnes < sectorAvg * 0.98) {
+        userStatus = 'better';
+      } else if (monthlyTonnes > sectorAvg * 1.02) {
+        userStatus = 'worse';
+      } else {
+        userStatus = 'same';
+      }
+    } else {
+      userEmissionLabel = translate('sensor_data_waiting', locale);
+      userStatus = 'pending';
+    }
+
+    return [
       {
         'name': 'Teknoloji Şirketi A',
-        'emission': 2.5,
-        'industryAvg': 3.2,
+        'emissionLabel': '2.5 $unit',
+        'industryAvgLabel': '3.2 $unit',
         'status': 'better',
       },
       {
         'name': 'İmalat Firması B',
-        'emission': 4.8,
-        'industryAvg': 4.1,
+        'emissionLabel': '4.8 $unit',
+        'industryAvgLabel': '4.1 $unit',
         'status': 'worse',
       },
       {
         'name': 'Hizmet Şirketi C',
-        'emission': 1.9,
-        'industryAvg': 1.9,
+        'emissionLabel': '1.9 $unit',
+        'industryAvgLabel': '1.9 $unit',
         'status': 'same',
       },
       {
         'name': translate('your_business', locale),
-        'emission': 3.1,
-        'industryAvg': 3.2,
-        'status': 'better',
+        'emissionLabel': userEmissionLabel,
+        'industryAvgLabel': '${sectorAvg.toStringAsFixed(1)} $unit',
+        'status': userStatus,
         'isHighlighted': true,
+        'isLiveData': hasRealUserEmission &&
+            gaugeDailyKgCo2e != null &&
+            gaugeDailyKgCo2e! > 0,
       },
     ];
+  }
+
+  ({Color color, String text, IconData icon}) _statusStyle(String status) {
+    switch (status) {
+      case 'better':
+        return (
+          color: isDark ? const Color(0xFF69F0AE) : const Color(0xFF1B5E20),
+          text: translate('better_than_avg', locale),
+          icon: Icons.trending_down,
+        );
+      case 'worse':
+        return (
+          color: isDark ? Colors.redAccent : const Color(0xFFB71C1C),
+          text: translate('worse_than_avg', locale),
+          icon: Icons.trending_up,
+        );
+      case 'pending':
+        return (
+          color: isDark ? Colors.white70 : Colors.black54,
+          text: translate('sensor_data_waiting', locale),
+          icon: Icons.hourglass_empty,
+        );
+      default:
+        return (
+          color: isDark ? Colors.blueAccent : const Color(0xFF1565C0),
+          text: translate('same_as_avg', locale),
+          icon: Icons.trending_flat,
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final businesses = _buildBusinessRows();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1968,7 +2312,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                           Expanded(
                             flex: 2,
                             child: Text(
-                              translate('monthly_emission', locale),
+                              translate('emission_column', locale),
                               style: Theme.of(context)
                                   .textTheme
                                   .titleMedium
@@ -2018,23 +2362,10 @@ class _BusinessComparisonTable extends StatelessWidget {
                         final business = entry.value;
                         final bool isHighlighted =
                             business['isHighlighted'] == true;
+                        final bool isLiveData =
+                            business['isLiveData'] == true;
                         final String status = business['status'] as String;
-
-                        Color statusColor;
-                        String statusText;
-                        switch (status) {
-                          case 'better':
-                            statusColor = Colors.greenAccent;
-                            statusText = translate('better_than_avg', locale);
-                            break;
-                          case 'worse':
-                            statusColor = Colors.redAccent;
-                            statusText = translate('worse_than_avg', locale);
-                            break;
-                          default:
-                            statusColor = Colors.blueAccent;
-                            statusText = translate('same_as_avg', locale);
-                        }
+                        final statusStyle = _statusStyle(status);
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
@@ -2095,14 +2426,18 @@ class _BusinessComparisonTable extends StatelessWidget {
                               Expanded(
                                 flex: 2,
                                 child: Text(
-                                  '${business['emission']} ${translate('tonnes_co2e_monthly', locale)}',
+                                  business['emissionLabel'] as String,
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
                                       ?.copyWith(
-                                        color: isDark
-                                            ? Colors.white
-                                            : Colors.black,
+                                        color: isLiveData
+                                            ? (isDark
+                                                ? const Color(0xFF69F0AE)
+                                                : const Color(0xFF1B5E20))
+                                            : (isDark
+                                                ? Colors.white
+                                                : Colors.black),
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -2113,7 +2448,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                               Expanded(
                                 flex: 2,
                                 child: Text(
-                                  '${business['industryAvg']} ${translate('tonnes_co2e_monthly', locale)}',
+                                  business['industryAvgLabel'] as String,
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
@@ -2133,23 +2468,19 @@ class _BusinessComparisonTable extends StatelessWidget {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      status == 'better'
-                                          ? Icons.trending_down
-                                          : status == 'worse'
-                                              ? Icons.trending_up
-                                              : Icons.trending_flat,
-                                      color: statusColor,
+                                      statusStyle.icon,
+                                      color: statusStyle.color,
                                       size: 16,
                                     ),
                                     const SizedBox(width: 4),
                                     Expanded(
                                       child: Text(
-                                        statusText,
+                                        statusStyle.text,
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
                                             ?.copyWith(
-                                              color: statusColor,
+                                              color: statusStyle.color,
                                               fontWeight: FontWeight.w600,
                                             ),
                                         textAlign: TextAlign.center,
@@ -2162,6 +2493,24 @@ class _BusinessComparisonTable extends StatelessWidget {
                           ),
                         );
                       }),
+                      if (hasRealUserEmission &&
+                          gaugeDailyKgCo2e != null &&
+                          gaugeDailyKgCo2e! > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            translate('comparison_gauge_footnote', locale),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Colors.white70
+                                      : Colors.black54,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -2231,12 +2580,14 @@ class _BusinessComparisonTable extends StatelessWidget {
                                     color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                   ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           Expanded(
                             flex: 2,
                             child: Text(
-                              translate('monthly_emission', locale),
+                              translate('emission_column', locale),
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
@@ -2245,6 +2596,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           Expanded(
@@ -2259,6 +2612,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           Expanded(
@@ -2273,6 +2628,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                     fontWeight: FontWeight.bold,
                                   ),
                               textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -2286,23 +2643,10 @@ class _BusinessComparisonTable extends StatelessWidget {
                         final business = entry.value;
                         final bool isHighlighted =
                             business['isHighlighted'] == true;
+                        final bool isLiveData =
+                            business['isLiveData'] == true;
                         final String status = business['status'] as String;
-
-                        Color statusColor;
-                        String statusText;
-                        switch (status) {
-                          case 'better':
-                            statusColor = Colors.greenAccent;
-                            statusText = translate('better_than_avg', locale);
-                            break;
-                          case 'worse':
-                            statusColor = Colors.redAccent;
-                            statusText = translate('worse_than_avg', locale);
-                            break;
-                          default:
-                            statusColor = Colors.blueAccent;
-                            statusText = translate('same_as_avg', locale);
-                        }
+                        final statusStyle = _statusStyle(status);
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 6),
@@ -2363,14 +2707,18 @@ class _BusinessComparisonTable extends StatelessWidget {
                               Expanded(
                                 flex: 2,
                                 child: Text(
-                                  '${business['emission']} ${translate('tonnes_co2e_monthly', locale)}',
+                                  business['emissionLabel'] as String,
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
                                       ?.copyWith(
-                                        color: isDark
-                                            ? Colors.white
-                                            : Colors.black,
+                                        color: isLiveData
+                                            ? (isDark
+                                                ? const Color(0xFF69F0AE)
+                                                : const Color(0xFF1B5E20))
+                                            : (isDark
+                                                ? Colors.white
+                                                : Colors.black),
                                         fontWeight: isHighlighted
                                             ? FontWeight.bold
                                             : FontWeight.normal,
@@ -2381,7 +2729,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                               Expanded(
                                 flex: 2,
                                 child: Text(
-                                  '${business['industryAvg']} ${translate('tonnes_co2e_monthly', locale)}',
+                                  business['industryAvgLabel'] as String,
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
@@ -2404,23 +2752,19 @@ class _BusinessComparisonTable extends StatelessWidget {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      status == 'better'
-                                          ? Icons.trending_down
-                                          : status == 'worse'
-                                              ? Icons.trending_up
-                                              : Icons.trending_flat,
-                                      color: statusColor,
+                                      statusStyle.icon,
+                                      color: statusStyle.color,
                                       size: 12,
                                     ),
                                     const SizedBox(width: 2),
                                     Expanded(
                                       child: Text(
-                                        statusText,
+                                        statusStyle.text,
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
                                             ?.copyWith(
-                                              color: statusColor,
+                                              color: statusStyle.color,
                                               fontWeight: FontWeight.w600,
                                             ),
                                         textAlign: TextAlign.center,
@@ -2433,6 +2777,25 @@ class _BusinessComparisonTable extends StatelessWidget {
                           ),
                         );
                       }),
+                      if (hasRealUserEmission &&
+                          gaugeDailyKgCo2e != null &&
+                          gaugeDailyKgCo2e! > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            translate('comparison_gauge_footnote', locale),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: isDark
+                                      ? Colors.white70
+                                      : Colors.black54,
+                                  fontStyle: FontStyle.italic,
+                                  fontSize: 11,
+                                ),
+                          ),
+                        ),
                     ],
                   ),
                 ),

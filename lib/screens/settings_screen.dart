@@ -513,15 +513,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () {
                 Navigator.of(context).pop();
                 widget.onLogout?.call();
-
-                // Başarı mesajı göster
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(translate('logout_success', locale)),
-                    backgroundColor: Colors.green,
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,

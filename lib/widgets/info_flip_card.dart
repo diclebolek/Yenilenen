@@ -92,17 +92,23 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                       children: [
                         Icon(Icons.touch_app, color: colorScheme.onPrimary),
                         const SizedBox(width: 6),
-                        Text(
-                          translate(
-                            'touch_to_flip',
-                            widget.languageProvider?.currentLocale ??
-                                const Locale('tr'),
+                        Expanded(
+                          child: Text(
+                            translate(
+                              'touch_to_flip',
+                              widget.languageProvider?.currentLocale ??
+                                  const Locale('tr'),
+                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                  color: colorScheme.onPrimary
+                                      .withValues(alpha: 0.9),
+                                ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          style:
-                              Theme.of(context).textTheme.labelMedium?.copyWith(
-                                    color: colorScheme.onPrimary
-                                        .withValues(alpha: 0.9),
-                                  ),
                         ),
                       ],
                     ),

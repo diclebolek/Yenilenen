@@ -468,6 +468,9 @@ const Map<String, String> trTranslations = {
   'update_user_info': 'Kullanıcı Bilgilerini Güncelle',
   'user_information_section': 'Kullanıcı Bilgileri',
   'monthly_emission': 'Aylık Emisyon',
+  'emission_column': 'Emisyon',
+  'comparison_gauge_footnote':
+      'Sizin işletme değeri, raporlar göstergesi ile aynı günlük kg CO₂e değeridir.',
   'industry_avg': 'Sektör Ort.',
   'your_business': 'Sizin İşletmeniz',
   'kg_co2e': 'kg CO₂e',
@@ -947,6 +950,9 @@ const Map<String, String> enTranslations = {
   'update_user_info': 'Update User Information',
   'user_information_section': 'User Information',
   'monthly_emission': 'Monthly Emission',
+  'emission_column': 'Emission',
+  'comparison_gauge_footnote':
+      'Your business value is the same daily kg CO₂e shown on the reports gauge.',
   'industry_avg': 'Industry Avg.',
   'your_business': 'Your Business',
   'kg_co2e': 'kg CO₂e',

@@ -352,4 +352,45 @@ class ApiService {
       createdAt: shellyData.timestamp,
     );
   }
+
+  /// Kümülatif Shelly kayıtlarını ardışık farkla tüketim girişlerine çevirir.
+  /// Uzun veri boşluklarında veya sayaç sıçramalarında tüm kümülatif fark günlük
+  /// tüketim sanılmasın diye aralık ve delta üst sınırı uygulanır.
+  List<ConsumptionEntry> shellyDataListToDeltaConsumptionEntries(
+    List<ShellyData> raw, {
+    Duration maxReadingGap = const Duration(hours: 36),
+    double maxDeltaKwhPerReading = 80.0,
+  }) {
+    if (raw.isEmpty) return [];
+    final sorted = List<ShellyData>.from(raw)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final out = <ConsumptionEntry>[];
+    double? prevMeter;
+    DateTime? prevTimestamp;
+    for (final sd in sorted) {
+      var deltaKwh = 0.0;
+      if (prevMeter != null && prevTimestamp != null) {
+        final gap = sd.timestamp.difference(prevTimestamp);
+        if (gap <= maxReadingGap) {
+          final d = sd.energyKwh - prevMeter;
+          if (d >= 0 && d <= maxDeltaKwhPerReading) {
+            deltaKwh = d;
+          }
+        }
+      }
+      prevMeter = sd.energyKwh;
+      prevTimestamp = sd.timestamp;
+      out.add(
+        ConsumptionEntry(
+          electricityKwh: deltaKwh,
+          waterCubicMeters: 0,
+          fuelLiters: 0,
+          wasteKg: 0,
+          createdAt: sd.timestamp,
+          fuelIsNaturalGasM3: true,
+        ),
+      );
+    }
+    return out;
+  }
 }

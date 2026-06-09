@@ -121,8 +121,6 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   Widget build(BuildContext context) {
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
-    final screenW = MediaQuery.of(context).size.width;
-    final logoSize = (screenW * 0.46).clamp(170.0, 280.0);
 
     return Scaffold(
       appBar: null,
@@ -143,8 +141,13 @@ class _LoginScreenState extends State<LoginScreen>
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 600;
                     final double cardWidth = isWide
-                        ? 520
+                        ? 400
                         : (constraints.maxWidth - 16).clamp(300.0, 520.0);
+                    final double logoSize = isWide
+                        ? 96
+                        : (cardWidth * 0.42).clamp(100.0, 170.0);
+                    final double horizontalPadding = isWide ? 24 : 32;
+                    final double sectionGap = isWide ? 20 : 32;
 
                     return SizedBox(
                       width: cardWidth,
@@ -162,11 +165,11 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                             ),
                             child: Padding(
-                              padding: const EdgeInsets.only(
-                                left: 32,
-                                right: 32,
-                                top: 12,
-                                bottom: 16,
+                              padding: EdgeInsets.only(
+                                left: horizontalPadding,
+                                right: horizontalPadding,
+                                top: isWide ? 8 : 12,
+                                bottom: isWide ? 12 : 16,
                               ),
                               child: Form(
                                 key: _formKey,
@@ -223,17 +226,18 @@ class _LoginScreenState extends State<LoginScreen>
                                         'Zero Trace',
                                         style: Theme.of(context)
                                             .textTheme
-                                            .headlineMedium
+                                            .titleLarge
                                             ?.copyWith(
                                               color: Colors.white,
                                               fontWeight: FontWeight.bold,
+                                              fontSize: isWide ? 22 : null,
                                               height: 1.15,
                                               letterSpacing: 0.3,
                                             ),
                                         textAlign: TextAlign.center,
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
+                                    SizedBox(height: isWide ? 6 : 8),
 
                                     Text(
                                       translate('login_subtitle', locale),
@@ -244,12 +248,13 @@ class _LoginScreenState extends State<LoginScreen>
                                             color: Colors.white.withValues(
                                               alpha: 0.8,
                                             ),
+                                            fontSize: isWide ? 13 : null,
                                             height: 1.35,
                                             letterSpacing: 0.15,
                                           ),
                                       textAlign: TextAlign.center,
                                     ),
-                                    const SizedBox(height: 32),
+                                    SizedBox(height: sectionGap),
 
                                     // Email field
                                     TextFormField(
@@ -434,7 +439,7 @@ class _LoginScreenState extends State<LoginScreen>
                                     // Login button with water fill animation
                                     SizedBox(
                                       width: double.infinity,
-                                      height: 50,
+                                      height: isWide ? 44 : 50,
                                       child: AnimatedBuilder(
                                         animation: _fillAnimation,
                                         builder: (context, child) {
@@ -447,7 +452,7 @@ class _LoginScreenState extends State<LoginScreen>
                                                 // Base button (white background) - sabit boyut, her zaman beyaz
                                                 SizedBox(
                                                   width: double.infinity,
-                                                  height: 50,
+                                                  height: isWide ? 44 : 50,
                                                   child: ElevatedButton(
                                                     onPressed: _isLoading
                                                         ? null
@@ -534,7 +539,9 @@ class _LoginScreenState extends State<LoginScreen>
                                                             Radius.circular(12),
                                                       ),
                                                       child: Container(
-                                                        height: 50 *
+                                                        height: (isWide
+                                                                ? 44.0
+                                                                : 50.0) *
                                                             _fillAnimation
                                                                 .value,
                                                         decoration:
@@ -720,7 +727,7 @@ class _LoginScreenState extends State<LoginScreen>
                                               color: Colors.white.withValues(
                                                 alpha: 0.9,
                                               ),
-                                              fontSize: 16,
+                                              fontSize: isWide ? 14 : 16,
                                               height: 1.25,
                                               letterSpacing: 0.1,
                                             ),
@@ -776,7 +783,7 @@ class _LoginScreenState extends State<LoginScreen>
                                                   context,
                                                 ).colorScheme.primary,
                                                 fontWeight: FontWeight.bold,
-                                                fontSize: 18,
+                                                fontSize: isWide ? 15 : 18,
                                                 height: 1.2,
                                                 decoration:
                                                     TextDecoration.underline,
