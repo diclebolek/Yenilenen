@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 // Platform kontrolleri yerine ekran boyutu ile karar vereceğiz; ek ithalat yok
 import 'dart:ui' show ImageFilter;
 
@@ -23,6 +24,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Release derlemede IP/tüketim logları logcat'e düşmesin (debugPrint yalnızca log).
+  if (kReleaseMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
 
   // Firebase'i başlat
   try {

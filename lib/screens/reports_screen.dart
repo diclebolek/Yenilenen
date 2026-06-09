@@ -24,6 +24,7 @@ import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
 import '../algorithms/calculation.dart';
 import '../widgets/theme_independent_info_dialog.dart';
+import '../themes/app_theme.dart';
 
 /// Kart içi metin ve grafik alanı — tüm panellerde aynı.
 const EdgeInsets _kReportsCardInnerPadding = EdgeInsets.all(16);
@@ -165,24 +166,57 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return _cachedPdfUnicodeTheme!;
   }
 
+  /// PDF dil seçici: seçili = beyaz zemin + uygulama yeşili metin.
   ButtonStyle _pdfLangSegmentedStyle(BuildContext context) {
-    final Color accent = Theme.of(context).colorScheme.primary;
+    const Color appGreen = AppTheme.lightPrimaryColor;
+    const Color selectedBg = Colors.white;
+    final Color unselectedFg = Colors.white.withValues(alpha: 0.72);
+    final Color unselectedBg = Colors.white.withValues(alpha: 0.12);
+
     return ButtonStyle(
       visualDensity: VisualDensity.compact,
-      foregroundColor: WidgetStateProperty.all<Color>(accent),
-      iconColor: WidgetStateProperty.all<Color>(accent),
+      padding: WidgetStateProperty.all(
+        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      foregroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+        return states.contains(WidgetState.selected) ? appGreen : unselectedFg;
+      }),
+      iconColor: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+        return states.contains(WidgetState.selected) ? appGreen : unselectedFg;
+      }),
       backgroundColor:
           WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-        if (states.contains(WidgetState.selected)) {
-          return accent.withValues(alpha: 0.22);
-        }
-        return accent.withValues(alpha: 0.08);
+        return states.contains(WidgetState.selected) ? selectedBg : unselectedBg;
       }),
       side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-        final double a = states.contains(WidgetState.selected) ? 0.55 : 0.35;
-        return BorderSide(color: accent.withValues(alpha: a));
+        if (states.contains(WidgetState.selected)) {
+          return const BorderSide(color: appGreen, width: 1.5);
+        }
+        return BorderSide(color: Colors.white.withValues(alpha: 0.35));
+      }),
+      textStyle: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+        final base = Theme.of(context).textTheme.labelLarge;
+        return states.contains(WidgetState.selected)
+            ? base?.copyWith(fontWeight: FontWeight.w700, color: appGreen)
+            : base?.copyWith(fontWeight: FontWeight.w500);
       }),
     );
+  }
+
+  /// Uygulama dili yüklendiğinde/değiştiğinde PDF seçiciyi senkron tutar.
+  Locale? _trackedAppLocaleForPdf;
+
+  void _onAppLanguageChanged() {
+    if (!mounted) return;
+    final appLocale =
+        widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final localeChanged = _trackedAppLocaleForPdf != appLocale;
+    _trackedAppLocaleForPdf = appLocale;
+    setState(() {
+      if (localeChanged) {
+        _pdfExportLocaleOverride = null;
+      }
+    });
   }
 
   double? _lastCalculatedKgCo2e;
@@ -247,6 +281,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void initState() {
     super.initState();
+    _trackedAppLocaleForPdf =
+        widget.languageProvider?.currentLocale ?? const Locale('tr');
+    widget.languageProvider?.addListener(_onAppLanguageChanged);
     SharedPreferences.getInstance().then((p) {
       final saved = p.getBool(_kPrefsReportsUseEspData);
       if (saved != null && mounted) {
@@ -656,6 +693,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   void dispose() {
+    widget.languageProvider?.removeListener(_onAppLanguageChanged);
     _espDataSubscription?.cancel();
     _shellyDataSubscription?.cancel();
     super.dispose();
@@ -1890,33 +1928,36 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final safeAverage = selectedAverage.isFinite ? selectedAverage : 0.0;
 
       final activeCategoryDistribution = _activeCategoryDistribution();
-      // E (ESP + Shelly): PDF'te yalnızca elektrik / su / doğalgaz; atık satırı yok; yüzdeler 3 kategoriye göre normalize
+      // E (ESP + Shelly): PDF kg sütunu gerçek sensör emisyonu; yüzde bu kg'lardan hesaplanır
       final List<List<String>> categoryRows = _useEspData
           ? _buildPdfCategoryRowsSensorMode(
               locale,
-              safeTotal,
-              activeCategoryDistribution,
+              _sensorCategoryKg(),
             )
           : [
               _buildCategoryRowForPdf(
                 translate('electricity_label', locale),
                 activeCategoryDistribution['electricity'] ?? 0,
                 safeTotal,
+                forPdf: true,
               ),
               _buildCategoryRowForPdf(
                 translate('water_label', locale),
                 activeCategoryDistribution['water'] ?? 0,
                 safeTotal,
+                forPdf: true,
               ),
               _buildCategoryRowForPdf(
                 translate('gas_label', locale),
                 activeCategoryDistribution['gas'] ?? 0,
                 safeTotal,
+                forPdf: true,
               ),
               _buildCategoryRowForPdf(
                 translate('waste_label', locale),
                 activeCategoryDistribution['waste'] ?? 0,
                 safeTotal,
+                forPdf: true,
               ),
             ];
 
@@ -2052,43 +2093,80 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  /// PDF — [ReportsScreen] E (ESP + Shelly): atık satırı yok; pasta ile uyumlu yüzdeler üç kaleme bölünür.
+  /// E modu: anlık Shelly + ESP kaynaklı gerçek kg CO₂e (pasta/PDF için ham değer).
+  ConsumptionEntry? _espEntryForPdf() =>
+      _espEntry ?? LiveEmissionService.instance.espEntry;
+
+  double _shellyKwhForPdf() {
+    if (_shellySessionKwhConsumed > 1e-9) return _shellySessionKwhConsumed;
+    return LiveEmissionService.instance.shellySessionKwhConsumed;
+  }
+
+  Map<String, double> _sensorCategoryKg() {
+    final espEntry = _espEntryForPdf();
+    return {
+      'electricity':
+          _shellyKwhForPdf() * Calculation.factorElectricityKgPerKwh,
+      'gas': espEntry == null ? 0.0 : Calculation.fuelEmissionKgCo2e(espEntry),
+      'water': espEntry == null
+          ? 0.0
+          : espEntry.waterCubicMeters * Calculation.factorWaterKgPerM3,
+    };
+  }
+
+  String _pdfWaterRowLabel(Locale locale) {
+    final base = translate('water_label', locale);
+    final esp = _espEntryForPdf();
+    if (esp == null || esp.waterCubicMeters <= 1e-9) return base;
+    final liters = esp.waterCubicMeters * 1000.0;
+    final vol =
+        liters < 10 ? liters.toStringAsFixed(2) : liters.toStringAsFixed(1);
+    return '$base ($vol L)';
+  }
+
+  String _pdfGasRowLabel(Locale locale) {
+    final base = translate('gas_label', locale);
+    final esp = _espEntryForPdf();
+    if (esp == null || esp.fuelLiters <= 1e-9) return base;
+    final m3 = esp.fuelLiters;
+    final vol = m3 < 10 ? m3.toStringAsFixed(3) : m3.toStringAsFixed(2);
+    return '$base ($vol m³)';
+  }
+
+  /// PDF — [ReportsScreen] E (ESP + Shelly): atık satırı yok; kg gerçek sensörden, yüzde kg payından.
   List<List<String>> _buildPdfCategoryRowsSensorMode(
     Locale locale,
-    double totalKg,
-    Map<String, double> dist,
+    Map<String, double> kgByCategory,
   ) {
-    final double e = (dist['electricity'] ?? 0).clamp(0.0, 100.0);
-    final double w = (dist['water'] ?? 0).clamp(0.0, 100.0);
-    final double g = (dist['gas'] ?? 0).clamp(0.0, 100.0);
-    final double sum = e + w + g;
-    final double pe;
-    final double pw;
-    final double pg;
-    if (sum > 1e-9) {
-      pe = (e / sum) * 100.0;
-      pw = (w / sum) * 100.0;
-      pg = (g / sum) * 100.0;
-    } else {
-      pe = 0;
-      pw = 0;
-      pg = 0;
-    }
+    final elecKg = (kgByCategory['electricity'] ?? 0).clamp(0.0, double.infinity);
+    final waterKg = (kgByCategory['water'] ?? 0).clamp(0.0, double.infinity);
+    final gasKg = (kgByCategory['gas'] ?? 0).clamp(0.0, double.infinity);
+    final totalKg = elecKg + waterKg + gasKg;
+
+    double pct(double kg) =>
+        totalKg > 1e-9 ? (kg / totalKg) * 100.0 : 0.0;
+
     return [
       _buildCategoryRowForPdf(
         translate('electricity_label', locale),
-        pe,
-        totalKg,
+        pct(elecKg),
+        elecKg,
+        kgOverride: elecKg,
+        forPdf: true,
       ),
       _buildCategoryRowForPdf(
-        translate('water_label', locale),
-        pw,
-        totalKg,
+        _pdfWaterRowLabel(locale),
+        pct(waterKg),
+        waterKg,
+        kgOverride: waterKg,
+        forPdf: true,
       ),
       _buildCategoryRowForPdf(
-        translate('gas_label', locale),
-        pg,
-        totalKg,
+        _pdfGasRowLabel(locale),
+        pct(gasKg),
+        gasKg,
+        kgOverride: gasKg,
+        forPdf: true,
       ),
     ];
   }
@@ -2096,14 +2174,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<String> _buildCategoryRowForPdf(
     String label,
     double percent,
-    double totalKg,
-  ) {
-    final shareKg = totalKg * (percent / 100);
+    double totalKg, {
+    double? kgOverride,
+    bool forPdf = false,
+  }) {
+    final shareKg = kgOverride ?? (totalKg * (percent / 100));
+    final hasKg = shareKg > 1e-9;
     return [
       label,
-      '${_formatPercent(percent)}%',
+      '${forPdf ? _formatPercentForPdf(percent, hasKg: hasKg) : _formatPercent(percent)}%',
       _formatKgForPdf(shareKg),
     ];
+  }
+
+  /// PDF tablosu: gaz %100'e yuvarlanmasın; su gibi küçük paylar görünür kalsın.
+  String _formatPercentForPdf(double percent, {required bool hasKg}) {
+    if (percent <= 0) {
+      return hasKg ? '<0.01' : '0.0';
+    }
+    if (percent < 0.01) return percent.toStringAsFixed(3);
+    if (percent < 1) return percent.toStringAsFixed(2);
+    if (percent < 100) return percent.toStringAsFixed(1);
+    return '100.0';
   }
 
   String _formatPercent(double percent) {
@@ -4108,7 +4200,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             width: double.infinity,
                                             child: SegmentedButton<String>(
                                               multiSelectionEnabled: false,
-                                              showSelectedIcon: false,
+                                              showSelectedIcon: true,
+                                              selectedIcon: const Icon(
+                                                Icons.check_circle,
+                                                size: 18,
+                                              ),
                                               segments: [
                                                 ButtonSegment<String>(
                                                   value: 'tr',
