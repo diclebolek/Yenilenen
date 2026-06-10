@@ -523,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeShelly() async {
     // ⚠️ KENDİ IP ADRESİNİZİ YAZIN!
     _apiService.initializeShelly(
-      deviceIp: '192.168.137.39', // 👈 Shelly cihazınızın IP adresi
+      deviceIp: '192.168.137.43', // 👈 Shelly cihazınızın IP adresi
       deviceId: _shellyDeviceId,
     );
 
