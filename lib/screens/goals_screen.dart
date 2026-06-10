@@ -82,58 +82,65 @@ class _QuickSetSlider extends StatelessWidget {
     final clamped = value.clamp(0.0, max);
     final fraction = max > 0 ? (clamped / max).clamp(0.0, 1.0) : 0.0;
 
-    return SizedBox(
-      height: 44,
-      width: double.infinity,
-      child: Stack(
-        alignment: Alignment.centerLeft,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(5),
-              child: SizedBox(
-                height: 10,
-                width: double.infinity,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ColoredBox(color: inactiveColor),
-                    FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: fraction,
-                      child: ColoredBox(color: trackColor),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final trackWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width - 80;
+        return SizedBox(
+          height: 44,
+          width: trackWidth,
+          child: Stack(
+            alignment: Alignment.centerLeft,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(5),
+                  child: SizedBox(
+                    height: 10,
+                    width: math.max(0, trackWidth - 24),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ColoredBox(color: inactiveColor),
+                        FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: fraction,
+                          child: ColoredBox(color: trackColor),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-          SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 10,
-              activeTrackColor: Colors.transparent,
-              inactiveTrackColor: Colors.transparent,
-              disabledActiveTrackColor: Colors.transparent,
-              disabledInactiveTrackColor: Colors.transparent,
-              thumbColor: trackColor,
-              overlayColor: WidgetStateColor.resolveWith(
-                (states) => trackColor.withValues(
-                  alpha: states.contains(WidgetState.pressed) ? 0.22 : 0.12,
+              SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: 10,
+                  activeTrackColor: Colors.transparent,
+                  inactiveTrackColor: Colors.transparent,
+                  disabledActiveTrackColor: Colors.transparent,
+                  disabledInactiveTrackColor: Colors.transparent,
+                  thumbColor: trackColor,
+                  overlayColor: WidgetStateColor.resolveWith(
+                    (states) => trackColor.withValues(
+                      alpha: states.contains(WidgetState.pressed) ? 0.22 : 0.12,
+                    ),
+                  ),
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
+                  trackShape: const RoundedRectSliderTrackShape(),
+                ),
+                child: Slider(
+                  value: clamped,
+                  max: max,
+                  divisions: divisions,
+                  onChanged: onChanged,
                 ),
               ),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
-              trackShape: const RoundedRectSliderTrackShape(),
-            ),
-            child: Slider(
-              value: clamped,
-              max: max,
-              divisions: divisions,
-              onChanged: onChanged,
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -5239,178 +5246,238 @@ class _EarnPointsDialogState extends State<_EarnPointsDialog> {
 
     return Theme(
       data: _earnTheme,
-      child: AlertDialog(
+      child: Dialog(
         backgroundColor: AppTheme.infoDialogBackground,
         surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        contentPadding: const EdgeInsets.all(20),
-        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        title: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(widget.icon, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                translate(widget.titleKey, widget.locale),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                translate(
-                  explainKey,
-                  widget.locale,
-                  params: {'multiplier': '${widget.mult}'},
-                ),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      height: 1.35,
-                    ),
-              ),
-              const SizedBox(height: 15),
-              Text(
-                translate(questionKey, widget.locale),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _controller,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-                ],
-                decoration: InputDecoration(
-                  hintText: translate('numeric_entry_hint', widget.locale),
-                ),
-                onChanged: (s) {
-                  final p = _parseLocaleDouble(s);
-                  setState(() {
-                    if (p != null && p >= 0 && p <= widget.maxSlide + 1e-9) {
-                      _sliderVal = p.clamp(0.0, widget.maxSlide);
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 15),
-              Text(
-                translate('slider_quick_set', widget.locale),
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.88),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color:
-                        AppTheme.infoDialogForeground.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: _QuickSetSlider(
-                  value: _sliderVal.clamp(0.0, widget.maxSlide),
-                  max: widget.maxSlide,
-                  divisions: _sliderDivisions,
-                  onChanged: (v) {
-                    setState(() {
-                      _sliderVal = v;
-                      _controller.text = widget.kind == _EnginePointKind.recycle
-                          ? v.toStringAsFixed(2)
-                          : v.toStringAsFixed(1);
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(height: 15),
-              Text(
-                translate(
-                  'points_total_label',
-                  widget.locale,
-                  params: {'points': '$totalPreview'},
-                ),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 420,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      widget.icon,
                       color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w700,
                     ),
-              ),
-              if (widget.kind == _EnginePointKind.walk) ...[
-                const SizedBox(height: 15),
-                Text(
-                  translate(
-                    'weekly_progress_km',
-                    widget.locale,
-                    params: {
-                      'current': widget.weekWalkKmTotal.toStringAsFixed(1),
-                      'target': '10',
-                    },
-                  ),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        translate(widget.titleKey, widget.locale),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
                       ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.weekWalkBonusClaimed
-                      ? translate('weekly_bonus_claimed', widget.locale)
-                      : translate('weekly_bonus_pending', widget.locale),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.58,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          translate(
+                            explainKey,
+                            widget.locale,
+                            params: {'multiplier': '${widget.mult}'},
+                          ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    height: 1.35,
+                                  ),
+                        ),
+                        const SizedBox(height: 15),
+                        Text(
+                          translate(questionKey, widget.locale),
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        const SizedBox(height: 15),
+                        TextField(
+                          controller: _controller,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[0-9.,]'),
+                            ),
+                          ],
+                          decoration: InputDecoration(
+                            hintText:
+                                translate('numeric_entry_hint', widget.locale),
+                          ),
+                          onChanged: (s) {
+                            final p = _parseLocaleDouble(s);
+                            setState(() {
+                              if (p != null &&
+                                  p >= 0 &&
+                                  p <= widget.maxSlide + 1e-9) {
+                                _sliderVal = p.clamp(0.0, widget.maxSlide);
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 15),
+                        Text(
+                          translate('slider_quick_set', widget.locale),
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppTheme.infoDialogForeground.withValues(
+                                alpha: 0.35,
+                              ),
+                            ),
+                          ),
+                          child: _QuickSetSlider(
+                            value: _sliderVal.clamp(0.0, widget.maxSlide),
+                            max: widget.maxSlide,
+                            divisions: _sliderDivisions,
+                            onChanged: (v) {
+                              setState(() {
+                                _sliderVal = v;
+                                _controller.text =
+                                    widget.kind == _EnginePointKind.recycle
+                                        ? v.toStringAsFixed(2)
+                                        : v.toStringAsFixed(1);
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 15),
+                        Text(
+                          translate(
+                            'points_total_label',
+                            widget.locale,
+                            params: {'points': '$totalPreview'},
+                          ),
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                        if (widget.kind == _EnginePointKind.walk) ...[
+                          const SizedBox(height: 15),
+                          Text(
+                            translate(
+                              'weekly_progress_km',
+                              widget.locale,
+                              params: {
+                                'current':
+                                    widget.weekWalkKmTotal.toStringAsFixed(1),
+                                'target': '10',
+                              },
+                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            widget.weekWalkBonusClaimed
+                                ? translate(
+                                    'weekly_bonus_claimed',
+                                    widget.locale,
+                                  )
+                                : translate(
+                                    'weekly_bonus_pending',
+                                    widget.locale,
+                                  ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                        const SizedBox(height: 15),
+                        Text(
+                          !widget.userLoggedIn
+                              ? translate(
+                                  'savings_bonus_requires_login',
+                                  widget.locale,
+                                )
+                              : widget.savingsUsedToday
+                                  ? translate(
+                                      'savings_bonus_used_today',
+                                      widget.locale,
+                                    )
+                                  : widget.savingsEligible
+                                      ? translate(
+                                          'savings_bonus_available',
+                                          widget.locale,
+                                          params: {'points': '50'},
+                                        )
+                                      : translate(
+                                          'savings_bonus_not_eligible',
+                                          widget.locale,
+                                        ),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                height: 1.3,
+                                fontWeight: FontWeight.w500,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text(translate('cancel', widget.locale)),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {
+                        final v = _parseLocaleDouble(_controller.text);
+                        if (v == null || v <= 0) return;
+                        Navigator.of(context).pop(v);
+                      },
+                      child: Text(
+                        translate('log_action_confirm', widget.locale),
                       ),
+                    ),
+                  ],
                 ),
               ],
-              const SizedBox(height: 15),
-              Text(
-                !widget.userLoggedIn
-                    ? translate('savings_bonus_requires_login', widget.locale)
-                    : widget.savingsUsedToday
-                        ? translate('savings_bonus_used_today', widget.locale)
-                        : widget.savingsEligible
-                            ? translate(
-                                'savings_bonus_available',
-                                widget.locale,
-                                params: {'points': '50'},
-                              )
-                            : translate(
-                                'savings_bonus_not_eligible',
-                                widget.locale,
-                              ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      height: 1.3,
-                      fontWeight: FontWeight.w500,
-                    ),
-              ),
-            ],
+            ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(translate('cancel', widget.locale)),
-          ),
-          FilledButton(
-            onPressed: () {
-              final v = _parseLocaleDouble(_controller.text);
-              if (v == null || v <= 0) return;
-              Navigator.of(context).pop(v);
-            },
-            child: Text(translate('log_action_confirm', widget.locale)),
-          ),
-        ],
       ),
     );
   }
