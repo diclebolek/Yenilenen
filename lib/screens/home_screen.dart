@@ -290,6 +290,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _onBillScanCalculated(double value) {
+    if (!mounted) return;
+    final clamped = _clampPlausibleDailyKg(value);
+    setState(() {
+      _dailyEmissionKg = clamped;
+      _hasRealUserEmission = true;
+    });
+  }
+
   void _applyPublishedGaugeIfAny() {
     _onSharedGaugeUpdated();
   }
@@ -862,10 +871,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Fatura tarama kartı
                 BillScannerCard(
                   languageProvider: widget.languageProvider,
-                  onCalculated: (value) => setState(() {
-                    _dailyEmissionKg = value;
-                    _hasRealUserEmission = true;
-                  }),
+                  onCalculated: _onBillScanCalculated,
                 ),
                 const SizedBox(height: _kHomeSectionGap),
                 // GNÇ tarzında başlık

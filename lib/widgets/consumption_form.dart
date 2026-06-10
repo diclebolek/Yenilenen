@@ -69,7 +69,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   /// TabBarView yükseklikleri — sekmeler: atık, su, yakıt (elektrik dinamik).
   static const List<double> _kTabViewHeights = [520.0, 480.0, 540.0];
   static const double _kElectricityTabHeightCollapsed = 400.0;
-  static const double _kElectricityTabHeightExpanded = 680.0;
+  static const double _kElectricityTabHeightExpanded = 560.0;
   static const double _kDevicesMobileBreakpoint = 600.0;
   double _tabViewHeight = _kElectricityTabHeightCollapsed;
 
@@ -287,7 +287,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
       barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (sheetContext) {
         final viewInsets = MediaQuery.viewInsetsOf(sheetContext);
-        final sheetHeight = MediaQuery.sizeOf(sheetContext).height * 0.88;
+        final sheetHeight = MediaQuery.sizeOf(sheetContext).height * 0.72;
         return Padding(
           padding: EdgeInsets.only(bottom: viewInsets.bottom),
           child: Align(
@@ -311,12 +311,12 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                        padding: const EdgeInsets.fromLTRB(10, 6, 4, 0),
                         child: Row(
                           children: [
                             const Icon(
                               Icons.devices_other,
-                              size: 18,
+                              size: 16,
                               color: Colors.white,
                             ),
                             const SizedBox(width: 6),
@@ -325,17 +325,25 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                                 'Cihazlar',
                                 style: Theme.of(sheetContext)
                                     .textTheme
-                                    .titleSmall
+                                    .labelLarge
                                     ?.copyWith(
                                       color: Colors.white,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
                                     ),
                               ),
                             ),
                             IconButton(
                               onPressed: () =>
                                   Navigator.of(sheetContext).pop(),
-                              icon: const Icon(Icons.close, color: Colors.white),
+                              icon: const Icon(Icons.close,
+                                  color: Colors.white, size: 20),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
                               tooltip: 'Kapat',
                             ),
                           ],
@@ -343,7 +351,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                       ),
                       Expanded(
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                          padding: const EdgeInsets.fromLTRB(10, 2, 10, 16),
                           child: _buildDevicesPanelBody(
                             sheetContext,
                             locale,
@@ -2132,7 +2140,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 12,
+                  vertical: 10,
                 ),
                 child: Row(
                   children: [
@@ -2199,7 +2207,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             clipBehavior: Clip.hardEdge,
             child: showInlineExpanded
                 ? Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                     child: _buildDevicesPanelBody(
                       context,
                       locale,
@@ -2244,14 +2252,14 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     return LayoutBuilder(
       builder: (context, constraints) {
         final double maxW = constraints.maxWidth;
-        final bool mobile = MediaQuery.sizeOf(context).width <
-            _kDevicesMobileBreakpoint;
-        final int columns = preferWideTiles || mobile
-            ? (maxW >= 720 ? 2 : 1)
-            : (maxW >= 560 ? 2 : 1);
-        const double spacing = 10;
+        final int columns = maxW >= 680
+            ? 3
+            : maxW >= 340
+                ? 2
+                : 1;
+        const double spacing = 6;
         final double tileW =
-            columns == 2 ? (maxW - spacing) / 2 : maxW;
+            columns == 1 ? maxW : (maxW - spacing * (columns - 1)) / columns;
         return Wrap(
           spacing: spacing,
           runSpacing: spacing,
@@ -2296,34 +2304,36 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Text(
           'Seçilen Cihazlar',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: _kManualEntryOnGlass.withValues(alpha: 0.92),
                 fontWeight: FontWeight.w600,
+                fontSize: 11,
               ),
         ),
-        const SizedBox(height: 6),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: _selectedDevices
-                .map(
-                  (d) => Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Chip(
-                      label: Text('${d.name} x${d.quantity}'),
-                      deleteIcon: const Icon(Icons.close, size: 16),
-                      onDeleted: () {
-                        setState(() => _selectedDevices.remove(d));
-                        onDevicesChanged();
-                      },
-                    ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: _selectedDevices
+              .map(
+                (d) => Chip(
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  label: Text(
+                    '${d.name} x${d.quantity}',
+                    style: const TextStyle(fontSize: 11),
                   ),
-                )
-                .toList(),
-          ),
+                  deleteIcon: const Icon(Icons.close, size: 14),
+                  onDeleted: () {
+                    setState(() => _selectedDevices.remove(d));
+                    onDevicesChanged();
+                  },
+                ),
+              )
+              .toList(),
         ),
       ],
     );
@@ -2936,97 +2946,106 @@ class _DeviceTileState extends State<_DeviceTile> {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
         color: const Color(0xFF304411).withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: const Color(0xFF304411).withValues(alpha: 0.28),
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(widget.preset.icon, color: Colors.white, size: 22),
-              const SizedBox(width: 8),
+              Icon(widget.preset.icon, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  widget.preset.name,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.preset.name,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            fontSize: 12,
+                            height: 1.15,
+                          ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${widget.preset.powerW.toStringAsFixed(0)} W • ${widget.preset.hoursPerDay.toStringAsFixed(1)} s/g',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: Colors.lightGreenAccent,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 10,
+                          ),
+                    ),
+                  ],
                 ),
               ),
               IconButton(
                 onPressed: widget.onEdit,
                 icon: Icon(
-                  Icons.edit,
+                  Icons.edit_outlined,
                   color: Theme.of(context).colorScheme.primary,
-                  size: 20,
+                  size: 16,
                 ),
                 tooltip: 'Düzenle',
                 visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 28,
+                  minHeight: 28,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${widget.preset.powerW.toStringAsFixed(0)} W • ${widget.preset.hoursPerDay.toStringAsFixed(1)} s/g',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.lightGreenAccent,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 12),
-          Column(
+          const SizedBox(height: 6),
+          Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _QtyButton(icon: Icons.remove, onPressed: _decrease),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      '$_quantity',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: Colors.white,
-                          ),
-                    ),
-                  ),
-                  _QtyButton(icon: Icons.add, onPressed: _increase),
-                ],
+              _QtyButton(icon: Icons.remove, onPressed: _decrease),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  '$_quantity',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => widget.onAddQuantity(_quantity),
-                  style: TextButton.styleFrom(
-                    foregroundColor:
-                        Theme.of(context).brightness == Brightness.dark
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    minimumSize: const Size(0, 36),
-                  ),
-                  child: Text(
-                    '+ Ekle',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).brightness == Brightness.dark
+              _QtyButton(icon: Icons.add, onPressed: _increase),
+              const Spacer(),
+              TextButton(
+                onPressed: () => widget.onAddQuantity(_quantity),
+                style: TextButton.styleFrom(
+                  foregroundColor:
+                      Theme.of(context).brightness == Brightness.dark
                           ? Theme.of(context).colorScheme.primary
                           : Colors.white,
-                    ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  '+ Ekle',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.white,
                   ),
                 ),
               ),
@@ -3049,18 +3068,18 @@ class _QtyButton extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        width: 28,
-        height: 28,
+        width: 24,
+        height: 24,
         decoration: BoxDecoration(
           color: const Color(0xFF304411).withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
           border: Border.all(
             color: const Color(0xFF304411).withValues(alpha: 0.28),
           ),
         ),
         child: Icon(
           icon,
-          size: 18,
+          size: 14,
           color: Theme.of(context).colorScheme.onSurface,
         ),
       ),

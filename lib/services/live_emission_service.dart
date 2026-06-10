@@ -143,6 +143,11 @@ class LiveEmissionService extends ChangeNotifier {
     }
   }
 
+  /// Manuel giriş / fatura taraması sonrası M modu gauge değerini paylaşır.
+  void publishManualSave(double kg) {
+    publishGaugeDailyKg(kg, useEspMode: false);
+  }
+
   Future<void> bootstrapFromFirebase({
     required FirebaseRealtimeService firebase,
     required ApiService api,

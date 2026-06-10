@@ -77,7 +77,7 @@ class _QuickSetSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final trackColor = AppTheme.infoDialogForeground;
+    const trackColor = AppTheme.infoDialogForeground;
     final inactiveColor = trackColor.withValues(alpha: 0.28);
     final clamped = value.clamp(0.0, max);
     final fraction = max > 0 ? (clamped / max).clamp(0.0, 1.0) : 0.0;
@@ -102,7 +102,7 @@ class _QuickSetSlider extends StatelessWidget {
                     FractionallySizedBox(
                       alignment: Alignment.centerLeft,
                       widthFactor: fraction,
-                      child: ColoredBox(color: trackColor),
+                      child: const ColoredBox(color: trackColor),
                     ),
                   ],
                 ),
