@@ -343,6 +343,15 @@ const Map<String, String> trTranslations = {
       'Şablon seçin, başlık ve hedefi düzenleyin. Elektrik, CO₂ ve su hedefleri tüketim verilerinize göre otomatik güncellenir; özel hedeflerde ilerlemeyi siz takip edersiniz.',
   'goal_choose_template': 'Hedef şablonu',
   'goal_tracking_auto': 'Tüketim verilerine göre otomatik güncellenir',
+  'goal_tracking_co2_percent':
+      'Önceki aya göre toplam CO₂e emisyonunda azaltmak istediğiniz yüzdeyi siz belirlersiniz',
+  'goal_co2_percent_hint': 'Örn: 5 (toplam emisyonda %5 azaltma)',
+  'goal_co2_percent_range': 'CO₂ azaltma hedefi %0,1 ile %95 arasında olmalıdır',
+  'outlook_edit_target': 'Azaltma hedefini düzenle',
+  'outlook_set_reduction_target': 'Emisyon azaltma hedefi',
+  'outlook_set_reduction_target_body':
+      'Önceki aya göre toplam CO₂e emisyonunuzda kaç yüzde azaltmak istediğinizi belirleyin. Ay sonu üst sınır ve hedef uyumu buna göre hesaplanır.',
+  'outlook_reduction_percent_label': 'Azaltma hedefi (%)',
   'goal_tracking_waste':
       'Atık hedefi — ilerleme şimdilik manuel (otomatik bağlantı eklenebilir)',
   'goal_tracking_custom':
@@ -418,7 +427,7 @@ const Map<String, String> trTranslations = {
   'goal_info_electricity_saving':
       'Bu kart, önceki aya göre elektrik kullanımınızdaki yüzde düşüşü izler. İlerleme, faturalarınız veya ölçüm verilerinizle otomatik güncellenir.',
   'goal_info_co2_reduction':
-      'CO₂ hedefi, aylık toplam karbon ayak izinizdeki azalmayı (kg CO₂e) önceki dönemlere göre takip eder; verileriniz güncellendikçe doluluk artar.',
+      'Toplam aylık CO₂e emisyonunuzda, önceki aya kıyasla hedeflediğiniz yüzde kadar azaltımı izler (ör. %5). Hedef yüzdesini siz belirlersiniz; ilerleme sensör ve kayıtlarla güncellenir.',
   'goal_info_water_saving':
       'Su tasarrufu, önceki aya göre su kullanımınızdaki yüzde iyileşmeyi gösterir. Sayaç veya manuel girişlerle otomatik hesaplanır.',
   'green_score': 'Yeşil Skor',
@@ -429,7 +438,7 @@ const Map<String, String> trTranslations = {
       'Yeşil Skor, çevre dostu aktiviteleriniz ve hedeflerinize ulaşmanız sonucu kazandığınız puanlardır. Daha fazla puan kazanarak rozetler açabilir ve seviye atlayabilirsiniz.',
   'next_month_outlook': 'Gelecek Ay Beklentisi',
   'next_month_outlook_info':
-      'Günlük tüketim temponuza göre ay sonu CO₂e tahmini, hedefinize göre durumunuz ve dünya ortalamasıyla karşılaştırma bu kartta özetlenir. Verimlilik göstergesi ve metinler, kalan gün ve güncel verilerle birlikte güncellenir.',
+      'Bu kartta toplam emisyon azaltma hedefinizi (%) siz belirlersiniz. Günlük temponuza göre ay sonu CO₂e tahmini, hesaplanan üst sınır ve dünya ortalaması karşılaştırması gösterilir.',
 
   // Login Screen
   'welcome_back': 'Tekrar Hoş Geldiniz',
@@ -844,6 +853,15 @@ const Map<String, String> enTranslations = {
       'Pick a template, then edit the title and target. Electricity, CO₂, and water goals update from your usage data; custom goals are tracked manually for now.',
   'goal_choose_template': 'Goal template',
   'goal_tracking_auto': 'Updates automatically from usage data',
+  'goal_tracking_co2_percent':
+      'You set the % reduction you want in total monthly CO₂e vs the previous month',
+  'goal_co2_percent_hint': 'E.g. 5 (5% cut in total emissions)',
+  'goal_co2_percent_range': 'CO₂ reduction goal must be between 0.1% and 95%',
+  'outlook_edit_target': 'Edit reduction target',
+  'outlook_set_reduction_target': 'Emission reduction target',
+  'outlook_set_reduction_target_body':
+      'Set how much you want to cut total monthly CO₂e vs the previous month (%). Month-end cap and goal fit are calculated from this.',
+  'outlook_reduction_percent_label': 'Reduction target (%)',
   'goal_tracking_waste':
       'Waste goal — progress is manual for now (auto link may be added later)',
   'goal_tracking_custom':
@@ -919,7 +937,7 @@ const Map<String, String> enTranslations = {
   'goal_info_electricity_saving':
       'This card tracks your month-over-month electricity reduction (%). Progress updates automatically from bills or meter data.',
   'goal_info_co2_reduction':
-      'This goal tracks how much your monthly CO₂ footprint drops (kg CO₂e) compared to earlier periods; it fills as your data updates.',
+      'Tracks your target % reduction in total monthly CO₂e vs the previous month (e.g. 5%). You set the percentage; progress updates from sensors and logs.',
   'goal_info_water_saving':
       'Water savings shows your usage improvement vs the previous month (%). It is calculated from meter or manual entries.',
   'green_score': 'Green Score',
@@ -930,7 +948,7 @@ const Map<String, String> enTranslations = {
       'Green Score is the points you earn as a result of your environmentally friendly activities and reaching your goals. You can unlock badges and level up by earning more points.',
   'next_month_outlook': 'Next Month Outlook',
   'next_month_outlook_info':
-      'This card summarizes your projected month-end CO₂e from your current daily pace, how you compare to your goal and the world average. The efficiency gauge and text update as remaining days and data change.',
+      'Set your total emission reduction target (%) here. The card shows your month-end CO₂e forecast, computed cap, and comparison to the world average from your daily pace.',
 
   // Login Screen
   'welcome_back': 'Welcome Back',

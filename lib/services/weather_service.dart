@@ -10,6 +10,15 @@ class WeatherService {
   static const String _geocodingBaseUrl = 'https://geocoding-api.open-meteo.com/v1';
   static const String _airQualityBaseUrl = 'https://air-quality-api.open-meteo.com/v1';
 
+  /// Geocoding "Sakarya" araması ilçe köylerini döndürür; il merkezi Adapazarı koordinatları.
+  static const Map<String, Map<String, dynamic>> _knownCityCoordinates = {
+    'sakarya': {
+      'latitude': 40.78056,
+      'longitude': 30.40333,
+      'name': 'Sakarya',
+    },
+  };
+
   WeatherService();
 
   /// Şehir için hava durumu verilerini çek
@@ -203,11 +212,25 @@ class WeatherService {
     try {
       // Şehir adını temizle (örn: "Istanbul,TR" -> "Istanbul")
       final cleanCityName = cityName.split(',')[0].trim();
+      final known = _knownCityCoordinates[cleanCityName.toLowerCase()];
+      if (known != null) {
+        return {
+          'latitude': known['latitude'] as double,
+          'longitude': known['longitude'] as double,
+          'name': known['name'] as String,
+        };
+      }
+
+      final countrySuffix = cityName.split(',').length > 1
+          ? cityName.split(',')[1].trim().toUpperCase()
+          : '';
+      final countryParam =
+          countrySuffix.isNotEmpty ? '&country=$countrySuffix' : '';
 
       final response = await http
           .get(
             Uri.parse(
-              '$_geocodingBaseUrl/search?name=$cleanCityName&count=1&language=tr&format=json',
+              '$_geocodingBaseUrl/search?name=$cleanCityName&count=10&language=tr$countryParam&format=json',
             ),
           )
           .timeout(const Duration(seconds: 10));
@@ -217,7 +240,17 @@ class WeatherService {
         final results = data['results'] as List?;
 
         if (results != null && results.isNotEmpty) {
-          final result = results[0];
+          Map<String, dynamic>? best;
+          var bestPopulation = -1;
+          for (final raw in results) {
+            final result = raw as Map<String, dynamic>;
+            final pop = (result['population'] as num?)?.toInt() ?? 0;
+            if (pop > bestPopulation) {
+              bestPopulation = pop;
+              best = result;
+            }
+          }
+          final result = best ?? results[0] as Map<String, dynamic>;
           return {
             'latitude': result['latitude'] ?? 0.0,
             'longitude': result['longitude'] ?? 0.0,
@@ -316,7 +349,7 @@ class WeatherService {
     return {
       'success': false,
       'city': cityName.split(',')[0],
-      'temperature': 24.0,
+      'temperature': 27.0,
       'condition': 'Açık',
       'description': 'Mock hava durumu verisi',
       'humidity': 60,
@@ -330,21 +363,21 @@ class WeatherService {
     return [
       {
         'date': DateTime.now(),
-        'temperature': 24.0,
+        'temperature': 27.0,
         'condition': 'Açık',
         'description': 'Placeholder',
         'icon': '01d',
       },
       {
         'date': DateTime.now().add(const Duration(days: 1)),
-        'temperature': 18.0,
+        'temperature': 27.0,
         'condition': 'Bulutlu',
         'description': 'Placeholder',
         'icon': '02d',
       },
       {
         'date': DateTime.now().add(const Duration(days: 2)),
-        'temperature': 22.0,
+        'temperature': 27.0,
         'condition': 'Karışık',
         'description': 'Placeholder',
         'icon': '03d',

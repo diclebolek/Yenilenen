@@ -91,4 +91,41 @@ Toplam Doğalgaz Kullanımı:
     final notes = BillOcrParser.parseConsumption(sample).conversionNotes;
     expect(notes.length, notes.toSet().length);
   });
+
+  test('parses OCR-corrupted electricity kWh label and unit', () {
+    const sample = 'Akt1f Enerj1 Tüket1m1 150,5O kVVh';
+    final entry = BillOcrParser.parseConsumption(sample).entry;
+    expect(entry.electricityKwh, closeTo(150.5, 0.01));
+  });
+
+  test('parses OCR-corrupted natural gas with rn3 unit', () {
+    const sample = 'D0gal gaz kullanimi 25,30 rn3';
+    final entry = BillOcrParser.parseConsumption(sample).entry;
+    expect(entry.fuelLiters, closeTo(25.3, 0.01));
+    expect(entry.fuelIsNaturalGasM3, isTrue);
+  });
+
+  test('parses OCR-corrupted stacked table layout', () {
+    const sample = '''
+Akt1f Enerj1
+D0galgaz Kullanimi
+Su Tuketim Miktari
+Evse1 At1k Miktari
+150,5O kVVh
+25,3O rn3
+8,7O m O3
+12,OO kg
+''';
+    final entry = BillOcrParser.parseConsumption(sample).entry;
+    expect(entry.electricityKwh, closeTo(150.5, 0.01));
+    expect(entry.fuelLiters, closeTo(25.3, 0.01));
+    expect(entry.waterCubicMeters, closeTo(8.7, 0.01));
+    expect(entry.wasteKg, closeTo(12.0, 0.01));
+  });
+
+  test('parseTrNumber fixes common OCR digit confusions', () {
+    expect(BillOcrParser.parseTrNumber('15O,5O'), closeTo(150.5, 0.01));
+    expect(BillOcrParser.parseTrNumber('l2,OO'), closeTo(12.0, 0.01));
+    expect(BillOcrParser.parseTrNumber('8.7O'), closeTo(8.7, 0.01));
+  });
 }

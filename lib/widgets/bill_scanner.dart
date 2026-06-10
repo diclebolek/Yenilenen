@@ -39,6 +39,12 @@ class _BillScannerCardState extends State<BillScannerCard> {
   TextRecognizer? _textRecognizer;
   bool _isScanning = false;
 
+  /// Kamera/galeri sıkıştırması — OCR için yüksek kalite.
+  static const int _pickImageQuality = 95;
+
+  /// ML Kit bitmap yolu JPEG kalitesi.
+  static const int _ocrJpegQuality = 95;
+
   @override
   void initState() {
     super.initState();
@@ -114,12 +120,12 @@ class _BillScannerCardState extends State<BillScannerCard> {
       try {
         image = await _picker.pickImage(
           source: ImageSource.camera,
-          imageQuality: 85,
+          imageQuality: _pickImageQuality,
         );
       } catch (_) {
         image = await _picker.pickImage(
           source: ImageSource.gallery,
-          imageQuality: 85,
+          imageQuality: _pickImageQuality,
         );
       }
 
@@ -228,16 +234,18 @@ class _BillScannerCardState extends State<BillScannerCard> {
     }
   }
 
-  /// ML Kit OCR — önce dosya yolu, gerekirse JPEG bitmap (Android bgra8888 bytes desteklemez).
+  /// ML Kit OCR — çoklu geçiş: dosya yolu + ön işlenmiş bitmap varyantları.
   Future<RecognizedText> _processBillImage(XFile image) async {
+    final candidates = <RecognizedText>[];
     final path = image.path;
+
     if (_isLocalFilePath(path)) {
       try {
         final fromFile = InputImage.fromFilePath(path);
-        return await _textRecognizer!.processImage(fromFile);
+        candidates.add(await _textRecognizer!.processImage(fromFile));
       } catch (e, st) {
         dev.log(
-          'fromFilePath OCR denemesi başarısız, bitmap yedeklenecek: $e',
+          'fromFilePath OCR denemesi başarısız: $e',
           name: 'BillScanner',
           error: e,
           stackTrace: st,
@@ -245,24 +253,129 @@ class _BillScannerCardState extends State<BillScannerCard> {
       }
     }
 
-    try {
-      final fromBitmap = await _inputImageFromDecodedBitmap(image);
-      return await _textRecognizer!.processImage(fromBitmap);
-    } catch (bitmapError, st) {
-      dev.log(
-        'Bitmap OCR denemesi başarısız: $bitmapError',
-        name: 'BillScanner',
-        level: 1000,
-        error: bitmapError,
-        stackTrace: st,
-      );
+    final bytes = await image.readAsBytes();
+    var decoded = img.decodeImage(bytes);
+    if (decoded == null) {
+      if (candidates.isNotEmpty) return _pickBestRecognizedText(candidates);
+      throw const FormatException('Görüntü çözümlenemedi');
+    }
+    decoded = _resizeIfNeeded(decoded);
+
+    for (final variant in _buildOcrImageVariants(decoded)) {
+      try {
+        final input = _inputImageFromProcessed(variant);
+        candidates.add(await _textRecognizer!.processImage(input));
+      } catch (e, st) {
+        dev.log(
+          'Bitmap OCR varyant denemesi başarısız: $e',
+          name: 'BillScanner',
+          error: e,
+          stackTrace: st,
+        );
+      }
+    }
+
+    if (candidates.isEmpty) {
       if (_isLocalFilePath(path)) {
         return await _textRecognizer!.processImage(
           InputImage.fromFilePath(path),
         );
       }
-      rethrow;
+      throw const FormatException('OCR için görüntü işlenemedi');
     }
+
+    return _pickBestRecognizedText(candidates);
+  }
+
+  /// OCR için orijinal + kontrast artırılmış + yüksek kontrast varyantları.
+  List<img.Image> _buildOcrImageVariants(img.Image base) {
+    final variants = <img.Image>[img.Image.from(base)];
+
+    var enhanced = img.grayscale(img.Image.from(base));
+    enhanced = img.adjustColor(
+      enhanced,
+      contrast: 1.35,
+      brightness: 1.08,
+    );
+    enhanced = img.convolution(
+      enhanced,
+      filter: [0, -1, 0, -1, 5, -1, 0, -1, 0],
+    );
+    variants.add(enhanced);
+
+    var highContrast = img.grayscale(img.Image.from(base));
+    highContrast = img.adjustColor(
+      highContrast,
+      contrast: 1.6,
+      brightness: 1.12,
+      gamma: 0.85,
+    );
+    variants.add(highContrast);
+
+    return variants;
+  }
+
+  InputImage _inputImageFromProcessed(img.Image processed) {
+    final jpgBytes = Uint8List.fromList(
+      img.encodeJpg(processed, quality: _ocrJpegQuality),
+    );
+    return InputImage.fromBitmap(
+      bitmap: jpgBytes,
+      width: processed.width,
+      height: processed.height,
+    );
+  }
+
+  int _ocrCandidateScore(String text, BillOcrParseResult parseResult) {
+    var score = text.length;
+    final low = text.toLowerCase();
+    for (final kw in [
+      'kwh',
+      'aktif',
+      'enerji',
+      'dogalgaz',
+      'doğalgaz',
+      'su',
+      'm3',
+      'kg',
+      'tuketim',
+      'tüketim',
+      'atik',
+      'atık',
+    ]) {
+      if (low.contains(kw)) score += 50;
+    }
+    score += RegExp(
+      r'[\d,\.]+\s*(kwh|m3|kg|l|lt)\b',
+      caseSensitive: false,
+    ).allMatches(low).length *
+        80;
+
+    final e = parseResult.entry;
+    if (e.electricityKwh > 0) score += 500;
+    if (e.fuelLiters > 0) score += 500;
+    if (e.waterCubicMeters > 0) score += 500;
+    if (e.wasteKg > 0) score += 500;
+    return score;
+  }
+
+  RecognizedText _pickBestRecognizedText(List<RecognizedText> candidates) {
+    RecognizedText best = candidates.first;
+    var bestScore = -1;
+    for (final rt in candidates) {
+      final text = _flattenRecognizedText(rt);
+      final parseResult = BillOcrParser.parseConsumption(text);
+      final score = _ocrCandidateScore(text, parseResult);
+      if (score > bestScore) {
+        bestScore = score;
+        best = rt;
+      }
+    }
+    dev.log(
+      'OCR çoklu geçiş: ${candidates.length} aday, en iyi skor $bestScore',
+      name: 'BillScanner',
+    );
+    return best;
   }
 
   bool _isLocalFilePath(String path) {
@@ -290,22 +403,6 @@ class _BillScannerCardState extends State<BillScannerCard> {
       decoded,
       height: maxEdge,
       interpolation: img.Interpolation.linear,
-    );
-  }
-
-  /// Decode + JPEG; ML Kit Android/iOS [InputImage.fromBitmap] ile uyumlu.
-  Future<InputImage> _inputImageFromDecodedBitmap(XFile image) async {
-    final bytes = await image.readAsBytes();
-    var decoded = img.decodeImage(bytes);
-    if (decoded == null) {
-      throw const FormatException('Görüntü çözümlenemedi');
-    }
-    decoded = _resizeIfNeeded(decoded);
-    final jpgBytes = Uint8List.fromList(img.encodeJpg(decoded, quality: 92));
-    return InputImage.fromBitmap(
-      bitmap: jpgBytes,
-      width: decoded.width,
-      height: decoded.height,
     );
   }
 
@@ -705,8 +802,15 @@ class BillOcrParser {
     var s = raw.trim().replaceAll(RegExp(r'\s'), '').replaceAll('\u00a0', '');
     if (s.isEmpty) return null;
     // Sadece rakam ve ayırıcılar
-    s = s.replaceAll(RegExp(r'[^\d\.,]'), '');
+    s = s.replaceAll(RegExp(r'[^\d\.,OoIlS]'), '');
     if (s.isEmpty) return null;
+    // OCR rakam karışıklıkları (O→0, l/I→1, S→5)
+    s = s
+        .replaceAll('O', '0')
+        .replaceAll('o', '0')
+        .replaceAll('l', '1')
+        .replaceAll('I', '1')
+        .replaceAll('S', '5');
 
     if (s.contains(',') && s.contains('.')) {
       final lc = s.lastIndexOf(',');
@@ -783,7 +887,57 @@ class BillOcrParser {
         .replaceAll(RegExp(r'k\s*w\s*h', caseSensitive: false), 'kWh');
     text = text.replaceAll(RegExp(r'k\s*W\s*h', caseSensitive: false), 'kWh');
     text = text.replaceAll(RegExp(r'm\s+3\b', caseSensitive: false), 'm3');
+    // OCR birim hataları
+    text = text.replaceAll(RegExp(r'k[wv]{1,3}h', caseSensitive: false), 'kWh');
+    text = text.replaceAll(RegExp(r'\brn\s*3\b', caseSensitive: false), 'm3');
+    text = text.replaceAll(RegExp(r'\brn3\b', caseSensitive: false), 'm3');
+    text = text.replaceAll(RegExp(r'\bm\s*O\s*3\b', caseSensitive: false), 'm3');
+    text = _fixOcrTurkishLabels(text);
+    text = _fixOcrDigitRuns(text);
     return text;
+  }
+
+  /// Sayı dizilerindeki OCR harf hatalarını düzeltir (150,5O → 150,50).
+  static String _fixOcrDigitRuns(String text) {
+    return text.replaceAllMapped(
+      RegExp(r'[\d][\d\.,\s\u00a0OoIlS]*'),
+      (m) {
+        final run = m.group(0)!;
+        if (!RegExp(r'[OoIlS]').hasMatch(run)) return run;
+        return run
+            .replaceAll('O', '0')
+            .replaceAll('o', '0')
+            .replaceAll('l', '1')
+            .replaceAll('I', '1')
+            .replaceAll('S', '5');
+      },
+    );
+  }
+
+  /// OCR'ın sık bozduğu Türkçe fatura etiketlerini düzeltir.
+  static String _fixOcrTurkishLabels(String text) {
+    var t = text;
+    final fixes = <RegExp, String>{
+      RegExp(r'akt[i1!íl]\s*f\s*enerj[i1íl]', caseSensitive: false):
+          'aktif enerji',
+      RegExp(r'akt[i1!íl]\s*enerji\s*t[uüù]ket[i1íl]m[i1]?', caseSensitive: false):
+          'aktif enerji tuketimi',
+      RegExp(r't[uüùù]k[e3]t[i1íl1][mM][i1íl1]?', caseSensitive: false): 'tuketim',
+      RegExp(r't[uüùù]ket[i1íl1][mM][i1íl1]?', caseSensitive: false): 'tuketim',
+      RegExp(r'd[oö0][g9]algaz', caseSensitive: false): 'dogalgaz',
+      RegExp(r'd[oö0]gal\s*gaz', caseSensitive: false): 'dogal gaz',
+      RegExp(r'd[oö0][g9]al\s*gaz', caseSensitive: false): 'dogal gaz',
+      RegExp(r'su\s*t[uüù]k[e3]t[i1íl]m', caseSensitive: false): 'su tuketim',
+      RegExp(r's[o0][g9]uk\s*su', caseSensitive: false): 'soguk su',
+      RegExp(r'evs[e3]l\s*at[i1íl]k', caseSensitive: false): 'evsel atik',
+      RegExp(r'at[i1íl]k\s*m[i1íl]ktar', caseSensitive: false): 'atik miktar',
+      RegExp(r'say[aáà]c|say[i1íl]c', caseSensitive: false): 'sayac',
+      RegExp(r'elektr[i1íl]k', caseSensitive: false): 'elektrik',
+    };
+    for (final entry in fixes.entries) {
+      t = t.replaceAll(entry.key, entry.value);
+    }
+    return t;
   }
 
   /// OCR tablo satırı: tüketim etiketi (elektrik / gaz / su / atık).

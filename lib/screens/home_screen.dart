@@ -1135,7 +1135,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     {
                                       'title': translate('today', locale),
                                       'temp':
-                                          '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 24}°C',
+                                          '${_currentWeather?['temperature']?.toStringAsFixed(0) ?? 27}°C',
                                       'condition': _localizeWeatherCondition(
                                         _currentWeather?['condition'],
                                         locale,
@@ -1152,37 +1152,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                         _currentWeather?['icon'] ?? '01d',
                                       ),
                                     },
-                                    if (_weatherForecast!.isNotEmpty)
+                                    if (_weatherForecast!.length > 1)
                                       {
                                         'title': translate('tomorrow', locale),
                                         'temp':
-                                            '${_weatherForecast![0]['temperature']?.toStringAsFixed(0) ?? 18}°C',
-                                        'condition': _weatherForecast![0]
-                                                    ['condition'] !=
-                                                null
-                                            ? _localizeWeatherCondition(
-                                                _weatherForecast![0]
-                                                    ['condition'] as String?,
-                                                locale,
-                                              )
-                                            : translate('cloudy', locale),
-                                        'icon': _getWeatherIcon(
-                                          _weatherForecast![0]['icon'] ?? '02d',
-                                        ),
-                                        'tip': _getWeatherTip(
-                                          _weatherForecast![0]['condition'] ??
-                                              'Clouds',
-                                          locale,
-                                        ),
-                                        'color': _getWeatherColor(
-                                          _weatherForecast![0]['icon'] ?? '02d',
-                                        ),
-                                      },
-                                    if (_weatherForecast!.length > 1)
-                                      {
-                                        'title': translate('week', locale),
-                                        'temp':
-                                            '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 22}°C',
+                                            '${_weatherForecast![1]['temperature']?.toStringAsFixed(0) ?? 27}°C',
                                         'condition': _weatherForecast![1]
                                                     ['condition'] !=
                                                 null
@@ -1191,9 +1165,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     ['condition'] as String?,
                                                 locale,
                                               )
-                                            : translate('mixed', locale),
+                                            : translate('cloudy', locale),
                                         'icon': _getWeatherIcon(
-                                          _weatherForecast![1]['icon'] ?? '03d',
+                                          _weatherForecast![1]['icon'] ?? '02d',
                                         ),
                                         'tip': _getWeatherTip(
                                           _weatherForecast![1]['condition'] ??
@@ -1201,7 +1175,33 @@ class _HomeScreenState extends State<HomeScreen> {
                                           locale,
                                         ),
                                         'color': _getWeatherColor(
-                                          _weatherForecast![1]['icon'] ?? '03d',
+                                          _weatherForecast![1]['icon'] ?? '02d',
+                                        ),
+                                      },
+                                    if (_weatherForecast!.length > 2)
+                                      {
+                                        'title': translate('week', locale),
+                                        'temp':
+                                            '${_weatherForecast![2]['temperature']?.toStringAsFixed(0) ?? 27}°C',
+                                        'condition': _weatherForecast![2]
+                                                    ['condition'] !=
+                                                null
+                                            ? _localizeWeatherCondition(
+                                                _weatherForecast![2]
+                                                    ['condition'] as String?,
+                                                locale,
+                                              )
+                                            : translate('mixed', locale),
+                                        'icon': _getWeatherIcon(
+                                          _weatherForecast![2]['icon'] ?? '03d',
+                                        ),
+                                        'tip': _getWeatherTip(
+                                          _weatherForecast![2]['condition'] ??
+                                              'Clouds',
+                                          locale,
+                                        ),
+                                        'color': _getWeatherColor(
+                                          _weatherForecast![2]['icon'] ?? '03d',
                                         ),
                                       },
                                   ];
@@ -1210,7 +1210,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   weatherCards = [
                                     {
                                       'title': translate('today', locale),
-                                      'temp': '24°C',
+                                      'temp': '27°C',
                                       'condition': translate('sunny', locale),
                                       'icon': Icons.wb_sunny,
                                       'tip': translate('solar_ideal', locale),
@@ -1218,7 +1218,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     },
                                     {
                                       'title': translate('tomorrow', locale),
-                                      'temp': '18°C',
+                                      'temp': '27°C',
                                       'condition': translate('cloudy', locale),
                                       'icon': Icons.cloud,
                                       'tip': translate(
@@ -1227,7 +1227,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     },
                                     {
                                       'title': translate('week', locale),
-                                      'temp': '22°C',
+                                      'temp': '27°C',
                                       'condition': translate('mixed', locale),
                                       'icon': Icons.wb_cloudy,
                                       'tip': translate(

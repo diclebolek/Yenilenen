@@ -169,6 +169,10 @@ class _GoalAddTemplate {
 
 /// [ReportsScreen] E/M toggle ile aynı anahtar (SharedPreferences).
 const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
+
+/// Gelecek Ay Beklentisi kartından belirlenen toplam emisyon azaltma % hedefi.
+const String _kPrefsOutlookCo2ReductionPercent =
+    'prefs_outlook_co2_reduction_percent';
 const String _kGreenScoreFreshStartKey = 'gs_fresh_start_jun2026_v2';
 
 Map<String, bool> _defaultGreenScoreBadges() => {
@@ -184,8 +188,14 @@ int _greenScoreLevel(int score) => (score ~/ 100) + 1;
 /// Günlük emisyon üst sınırı (Shelly/ESP sıçramalarını ay sonu tahminine taşımamak için).
 const double _kMaxPlausibleDailyKgCo2e = 80.0;
 
-/// Eski Firebase hedefleri bazen aylık 15 kg olarak kayıtlı; gerçekçi aylık taban.
-const double _kMinMonthlyCo2TargetKg = 450.0;
+/// CO₂ azaltma hedefi varsayılanı: toplam emisyonda kullanıcının belirlediği %.
+const double _kDefaultCo2ReductionGoalPercent = 5.0;
+
+/// Eski kayıtlarda hedef bazen doğrudan aylık kg CO₂e üst sınırı olarak tutulur (≥50).
+const double _kOutlookLegacyMonthlyCapKg = 50.0;
+
+/// Önceki ay / tempo verisi yokken Gelecek Ay Beklentisi yedek üst sınırı.
+const double _kOutlookFallbackMonthlyCapKg = 450.0;
 
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key, this.languageProvider});
@@ -210,11 +220,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
     _GoalAddTemplate(
       storageType: 'co2_reduction',
       titleKey: 'co2_emission_reduction',
-      defaultUnit: 'kg',
+      defaultUnit: '%',
       icon: Icons.eco,
       iconString: 'eco',
-      trackingHelpKey: 'goal_tracking_auto',
-      defaultTarget: '15',
+      trackingHelpKey: 'goal_tracking_co2_percent',
+      defaultTarget: '5',
     ),
     _GoalAddTemplate(
       storageType: 'water_saving',
@@ -275,6 +285,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
   bool _predictionLoading = true;
   bool _isLoading = true;
 
+  /// Gelecek Ay Beklentisi konteynerinden yönetilen azaltma hedefi (%).
+  double _outlookCo2ReductionPercent = _kDefaultCo2ReductionGoalPercent;
+
   /// Gelecek ay tahminiyle aynı kaynak: son 7 günün tahmini günlük kg CO₂e.
   double _userDailyEmissionKg = 0;
 
@@ -311,11 +324,150 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
+  Future<void> _loadOutlookCo2ReductionPercent() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final stored = prefs.getDouble(_kPrefsOutlookCo2ReductionPercent);
+    if (stored != null && stored.isFinite && stored > 0) {
+      if (mounted) {
+        setState(
+          () => _outlookCo2ReductionPercent = stored.clamp(0.1, 95.0),
+        );
+      }
+      return;
+    }
+    final co2Goals =
+        _goals.where((g) => g.type == 'co2_reduction').toList();
+    if (co2Goals.isNotEmpty) {
+      final g = co2Goals.first;
+      final seeded = g.unit == '%'
+          ? g.target.clamp(0.1, 95.0)
+          : _kDefaultCo2ReductionGoalPercent;
+      if (mounted) {
+        setState(() => _outlookCo2ReductionPercent = seeded);
+      }
+      await prefs.setDouble(_kPrefsOutlookCo2ReductionPercent, seeded);
+    }
+  }
+
+  Future<void> _saveOutlookCo2ReductionPercent(double percent) async {
+    final value = percent.clamp(0.1, 95.0);
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    await prefs.setDouble(_kPrefsOutlookCo2ReductionPercent, value);
+    if (mounted) {
+      setState(() => _outlookCo2ReductionPercent = value);
+    }
+    await _syncCo2ReductionGoalFromOutlookPercent(value);
+    await _refreshPrediction();
+  }
+
+  Future<void> _syncCo2ReductionGoalFromOutlookPercent(double percent) async {
+    if (_userId == null) return;
+    try {
+      final goalsData = await _firebaseService.getGoals(_userId!);
+      final index = goalsData.indexWhere(
+        (g) => (g['type'] ?? '') == 'co2_reduction',
+      );
+      if (index >= 0) {
+        goalsData[index]['target'] = percent;
+        goalsData[index]['unit'] = '%';
+        await _firebaseService.saveGoals(_userId!, goalsData);
+      } else {
+        final locale =
+            widget.languageProvider?.currentLocale ?? const Locale('tr');
+        await _firebaseService.addGoal(_userId!, {
+          'title': translate('co2_emission_reduction', locale),
+          'target': percent,
+          'current': 0.0,
+          'unit': '%',
+          'type': 'co2_reduction',
+          'icon': 'eco',
+          'color': 0xFF48631F,
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _showOutlookReductionTargetDialog() async {
+    if (!mounted) return;
+    final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
+    final isTr = locale.languageCode == 'tr';
+    final controller = TextEditingController(
+      text: _outlookCo2ReductionPercent.toStringAsFixed(1),
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(translate('outlook_set_reduction_target', locale)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                translate('outlook_set_reduction_target_body', locale),
+                style: Theme.of(ctx).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: translate('outlook_reduction_percent_label', locale),
+                  hintText: translate('goal_co2_percent_hint', locale),
+                  suffixText: '%',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(translate('cancel', locale)),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final raw = controller.text.trim().replaceAll(',', '.');
+                final value = double.tryParse(raw);
+                if (value == null || value < 0.1 || value > 95) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        translate('goal_co2_percent_range', locale),
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(ctx);
+                await _saveOutlookCo2ReductionPercent(value);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isTr
+                            ? 'Azaltma hedefi %${value.toStringAsFixed(1)} olarak kaydedildi.'
+                            : 'Reduction target saved as ${value.toStringAsFixed(1)}%.',
+                      ),
+                    ),
+                  );
+                }
+              },
+              child: Text(translate('ok', locale)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _loadData() async {
     await _resetGreenScoreProgressIfNeeded();
 
     if (_userId == null) {
       await _refreshWeeklyWalkState();
+      await _loadOutlookCo2ReductionPercent();
       await _refreshPrediction();
       if (mounted) {
         setState(() => _isLoading = false);
@@ -392,6 +544,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       // Rozet kontrolü yap
       _checkAndUnlockBadges();
       await _refreshWeeklyWalkState();
+      await _loadOutlookCo2ReductionPercent();
     } catch (e) {
       // Hata durumunda varsayılan hedefleri göster
       _createDefaultGoalsList();
@@ -420,11 +573,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
       },
       {
         'title': translate('co2_emission_reduction', locale),
-        'target': 450.0,
+        'target': _kDefaultCo2ReductionGoalPercent,
         'current': 0.0,
         'monthlyChangePercent': 0.0,
         'recommendation': '',
-        'unit': 'kg',
+        'unit': '%',
         'type': 'co2_reduction',
         'icon': 'eco',
         'color': 0xFF48631F,
@@ -464,11 +617,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
         CarbonGoal(
           id: 'default2',
           title: translate('co2_emission_reduction', locale),
-          target: 450.0,
+          target: _kDefaultCo2ReductionGoalPercent,
           current: 0.0,
           monthlyChangePercent: 0.0,
           recommendation: '',
-          unit: 'kg',
+          unit: '%',
           type: 'co2_reduction',
           icon: Icons.eco,
           color: const Color(0xFF48631F),
@@ -566,21 +719,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
       // Bu ayın toplam tüketimlerini hesapla
       double currentMonthElectricity = 0;
       double currentMonthWater = 0;
-      double currentMonthGas = 0;
       for (var entry in currentMonthData) {
         currentMonthElectricity += entry.electricityKwh;
         currentMonthWater += entry.waterCubicMeters;
-        currentMonthGas += entry.fuelLiters;
       }
 
       // Önceki ayın toplam tüketimlerini hesapla
       double previousMonthElectricity = 0;
       double previousMonthWater = 0;
-      double previousMonthGas = 0;
       for (var entry in previousMonthData) {
         previousMonthElectricity += entry.electricityKwh;
         previousMonthWater += entry.waterCubicMeters;
-        previousMonthGas += entry.fuelLiters;
       }
 
       final threeMonthAverages = await _calculateThreeMonthAverageReductions(
@@ -629,30 +778,51 @@ class _GoalsScreenState extends State<GoalsScreen> {
             }
             break;
           case 'co2_reduction':
-            dynamicTarget = threeMonthAverages['co2'] ?? dynamicTarget;
-            // CO2 azaltma (kg) - gerçek emisyon faktörüyle hesapla
-            // Önceki ayın CO2 emisyonu - Bu ayın CO2 emisyonu
+            // Kullanıcının girdiği % hedefi korunur (otomatik üzerine yazılmaz).
+            var co2Unit = (goalData['unit'] ?? '%').toString();
+            dynamicTarget = (goalData['target'] ?? _kDefaultCo2ReductionGoalPercent)
+                .toDouble();
             final previousMonthCO2 =
-                previousMonthGas * Calculation.factorNaturalGasKgPerM3;
-            final currentMonthCO2 =
-                currentMonthGas * Calculation.factorNaturalGasKgPerM3;
-            final reduction = previousMonthCO2 - currentMonthCO2;
+                _sumHistoryMonthCo2Kg(previousMonthData);
+            // Eski kg kayıtlarını (ör. 15 kg) toplam emisyona göre %'ye taşı.
+            if (co2Unit == 'kg' &&
+                dynamicTarget < _kOutlookLegacyMonthlyCapKg &&
+                previousMonthCO2 > 1e-9) {
+              dynamicTarget =
+                  ((dynamicTarget / previousMonthCO2) * 100).clamp(0.1, 95.0);
+              goalData['unit'] = '%';
+              goalData['target'] = dynamicTarget;
+              co2Unit = '%';
+              updated = true;
+            } else if (_isCo2GoalPercentUnit(co2Unit)) {
+              dynamicTarget = dynamicTarget.clamp(0.1, 95.0);
+            }
+            final currentMonthCO2 = _sumHistoryMonthCo2Kg(currentMonthData);
             if (previousMonthCO2 > 0) {
-              newMonthlyChangePercent = (reduction / previousMonthCO2) * 100;
+              final reductionPct =
+                  ((previousMonthCO2 - currentMonthCO2) / previousMonthCO2) *
+                      100;
+              newMonthlyChangePercent = reductionPct;
+              newCurrent = reductionPct;
+              if (newCurrent < 0) newCurrent = 0;
             } else {
+              newCurrent = 0.0;
               newMonthlyChangePercent = 0.0;
             }
-            // Negatif değerler (artış) için 0 göster
-            newCurrent = reduction > 0 ? reduction : 0.0;
-            if (newCurrent < dynamicTarget) {
-              final missingKg =
-                  (dynamicTarget - newCurrent).clamp(0.0, double.infinity);
+            final targetPercent = _co2ReductionTargetPercent(
+              target: dynamicTarget,
+              unit: co2Unit,
+              baselineKg: previousMonthCO2,
+            );
+            if (newCurrent < targetPercent) {
+              final missingPct =
+                  (targetPercent - newCurrent).clamp(0.0, 100.0);
               if (locale.languageCode == 'tr') {
                 newRecommendation =
-                    'Önceki 3 ay ortalamasına ulaşmak için bu ay yaklaşık ${missingKg.toStringAsFixed(1)} kg CO₂e daha azaltmalısınız.';
+                    'Toplam emisyon hedefiniz için önceki aya göre yaklaşık %${missingPct.toStringAsFixed(1)} daha azaltmanız gerekiyor.';
               } else {
                 newRecommendation =
-                    'To reach the 3-month dynamic target, reduce about ${missingKg.toStringAsFixed(1)} kg CO₂e more this month.';
+                    'To hit your total emission goal, cut about ${missingPct.toStringAsFixed(1)}% more vs last month.';
               }
             } else {
               newRecommendation = '';
@@ -697,7 +867,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
           goalData['current'] = newCurrent;
           updated = true;
         }
-        if ((goalData['target'] ?? 0.0) != dynamicTarget) {
+        if (type != 'co2_reduction' &&
+            (goalData['target'] ?? 0.0) != dynamicTarget) {
+          goalData['target'] = dynamicTarget;
+          updated = true;
+        }
+        if (type == 'co2_reduction' &&
+            _isCo2GoalPercentUnit((goalData['unit'] ?? '%').toString()) &&
+            (goalData['target'] ?? 0.0) != dynamicTarget) {
           goalData['target'] = dynamicTarget;
           updated = true;
         }
@@ -962,24 +1139,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
 
     try {
-      final reductionGoal =
-          _goals.where((g) => g.type == 'co2_reduction').isEmpty
-              ? CarbonGoal(
-                  id: 'fallback_co2',
-                  title: '',
-                  target: 450,
-                  current: 0,
-                  monthlyChangePercent: 0,
-                  recommendation: '',
-                  unit: 'kg',
-                  type: 'co2_reduction',
-                  icon: Icons.eco,
-                  color: const Color(0xFF48631F),
-                )
-              : _goals.firstWhere((g) => g.type == 'co2_reduction');
-      final double targetMonthEndKg = _resolveMonthlyCo2TargetKg(
-        reductionGoal.target.clamp(0.0, double.infinity),
-      );
+      final double co2GoalTarget = _outlookCo2ReductionPercent;
+      const String co2GoalUnit = '%';
 
       final prefs = await SharedPreferences.getInstance();
       final bool useEspSensorMode =
@@ -1032,24 +1193,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final double projectedMonthEnd = forecast.projectedMonthEndKg;
       final bool hasForecastBasis = forecast.hasForecastBasis;
       final bool isLowConfidence = forecast.isLowConfidence;
-
-      final bool isOnTrack = !hasForecastBasis
-          ? true
-          : targetMonthEndKg <= 0.0
-              ? true
-              : projectedMonthEnd <= targetMonthEndKg;
       final int remainingDays =
           (daysInMonth - elapsedDays).clamp(0, daysInMonth);
-
-      // Veri yokken (günlük ortalama ~0) halkayı %100 dolu gösterme; hedef yoksa nötr 1.0
-      final double gaugeEfficiency = targetMonthEndKg <= 0.0
-          ? 1.0
-          : (!hasForecastBasis
-              ? 0.0
-              : math.min(
-                  1.0,
-                  targetMonthEndKg / math.max(projectedMonthEnd, paceEps),
-                ));
 
       double worldDailyRefKg = 4.1;
       try {
@@ -1062,6 +1207,31 @@ class _GoalsScreenState extends State<GoalsScreen> {
           worldDailyRefKg = sum / trend.length.toDouble();
         }
       } catch (_) {}
+
+      final double targetMonthEndKg = await _resolveOutlookMonthEndTargetKg(
+        co2GoalTarget: co2GoalTarget,
+        co2GoalUnit: co2GoalUnit,
+        today: today,
+        useEspSensorMode: useEspSensorMode,
+        dailyPaceKg: estimatedDailyAverage,
+        worldDailyRefKg: worldDailyRefKg,
+      );
+
+      final bool isOnTrack = !hasForecastBasis
+          ? true
+          : targetMonthEndKg <= 0.0
+              ? true
+              : projectedMonthEnd <= targetMonthEndKg;
+
+      // Veri yokken (günlük ortalama ~0) halkayı %100 dolu gösterme; hedef yoksa nötr 1.0
+      final double gaugeEfficiency = targetMonthEndKg <= 0.0
+          ? 1.0
+          : (!hasForecastBasis
+              ? 0.0
+              : math.min(
+                  1.0,
+                  targetMonthEndKg / math.max(projectedMonthEnd, paceEps),
+                ));
 
       final double userDaily = estimatedDailyAverage;
       final double diffWorldDaily = userDaily - worldDailyRefKg;
@@ -1224,12 +1394,27 @@ class _GoalsScreenState extends State<GoalsScreen> {
         final gaugeKg = _liveEmission.gaugeDailyKgCo2e ?? 0.0;
         final fallbackDaily =
             gaugeKg > 1e-9 ? gaugeKg : _liveEmission.combinedLiveKgCo2e();
+        final co2GoalTarget = _outlookCo2ReductionPercent;
+        const co2GoalUnit = '%';
+        final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+        final baseline = fallbackDaily * daysInMonth;
+        final percent = _co2ReductionTargetPercent(
+          target: co2GoalTarget,
+          unit: co2GoalUnit,
+          baselineKg: baseline,
+        );
+        final fallbackTarget = co2GoalUnit == 'kg' &&
+                co2GoalTarget >= _kOutlookLegacyMonthlyCapKg
+            ? co2GoalTarget
+            : math.max(1.0, baseline * (1 - percent / 100));
         setState(() {
           _monthlyPrediction = _buildFallbackMonthlyPrediction(
             isTr: isTr,
             now: now,
             dailyKg: fallbackDaily,
-            targetMonthEndKg: _kMinMonthlyCo2TargetKg,
+            targetMonthEndKg: fallbackTarget > 1e-9
+                ? fallbackTarget
+                : _kOutlookFallbackMonthlyCapKg,
           );
         });
       }
@@ -1245,10 +1430,100 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return kg.clamp(0.0, _kMaxPlausibleDailyKgCo2e);
   }
 
-  double _resolveMonthlyCo2TargetKg(double rawTarget) {
-    if (rawTarget <= 0) return _kMinMonthlyCo2TargetKg;
-    if (rawTarget < 50) return _kMinMonthlyCo2TargetKg;
-    return rawTarget;
+  double _sumMonthTotalKg(
+    Map<DateTime, double> dailyTotals,
+    int year,
+    int month,
+  ) {
+    final lastDay = DateTime(year, month + 1, 0).day;
+    var sum = 0.0;
+    for (var d = 1; d <= lastDay; d++) {
+      final day = DateTime(year, month, d);
+      sum += _clampPlausibleDailyKg(dailyTotals[day] ?? 0);
+    }
+    return sum;
+  }
+
+  bool _isCo2GoalPercentUnit(String unit) =>
+      unit == '%' || unit.toLowerCase() == 'percent';
+
+  /// Toplam aylık CO₂e (kg): elektrik + gaz + su + atık.
+  double _sumHistoryMonthCo2Kg(List<ConsumptionEntry> entries) {
+    var electricity = 0.0;
+    var water = 0.0;
+    var gas = 0.0;
+    var waste = 0.0;
+    for (final entry in entries) {
+      electricity += entry.electricityKwh;
+      water += entry.waterCubicMeters;
+      gas += entry.fuelLiters;
+      waste += entry.wasteKg;
+    }
+    return electricity * Calculation.factorElectricityKgPerKwh +
+        gas * Calculation.factorNaturalGasKgPerM3 +
+        water * Calculation.factorWaterKgPerM3 +
+        waste * Calculation.factorWasteKgPerKg;
+  }
+
+  /// Kullanıcı hedefi (% veya eski kg kayıtları) → azaltma yüzdesi.
+  double _co2ReductionTargetPercent({
+    required double target,
+    required String unit,
+    double baselineKg = 0,
+  }) {
+    if (_isCo2GoalPercentUnit(unit)) {
+      return target.clamp(0.1, 95.0);
+    }
+    if (unit == 'kg' && baselineKg > 1e-9) {
+      return ((target / baselineKg) * 100).clamp(0.1, 95.0);
+    }
+    return _kDefaultCo2ReductionGoalPercent;
+  }
+
+  /// Gelecek Ay Beklentisi: önceki ay toplam × (1 − hedef %).
+  Future<double> _resolveOutlookMonthEndTargetKg({
+    required double co2GoalTarget,
+    required String co2GoalUnit,
+    required DateTime today,
+    required bool useEspSensorMode,
+    required double dailyPaceKg,
+    required double worldDailyRefKg,
+  }) async {
+    const paceEps = 1e-9;
+    final daysInMonth = DateTime(today.year, today.month + 1, 0).day;
+
+    if (co2GoalUnit == 'kg' && co2GoalTarget >= _kOutlookLegacyMonthlyCapKg) {
+      return co2GoalTarget;
+    }
+
+    final prevMonth = DateTime(today.year, today.month - 1, 1);
+    final prevMonthEnd = DateTime(today.year, today.month, 0);
+    final prevDaily = useEspSensorMode
+        ? await _buildDailyEspShellyTotals(prevMonth, prevMonthEnd)
+        : await _buildDailyCombinedTotals(prevMonth, prevMonthEnd);
+
+    var baseline = _sumMonthTotalKg(
+      prevDaily,
+      prevMonth.year,
+      prevMonth.month,
+    );
+
+    if (baseline <= paceEps) {
+      if (dailyPaceKg > paceEps) {
+        baseline = dailyPaceKg * daysInMonth;
+      } else if (worldDailyRefKg > paceEps) {
+        baseline = worldDailyRefKg * daysInMonth;
+      } else {
+        return _kOutlookFallbackMonthlyCapKg;
+      }
+    }
+
+    final percent = _co2ReductionTargetPercent(
+      target: co2GoalTarget,
+      unit: co2GoalUnit,
+      baselineKg: baseline,
+    );
+    return math.max(1.0, baseline * (1 - percent / 100));
   }
 
   DateTime _dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
@@ -2150,8 +2425,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   else if (_monthlyPrediction != null)
                     _PredictionCard(
                       prediction: _monthlyPrediction!,
+                      reductionTargetPercent: _outlookCo2ReductionPercent,
                       languageProvider: widget.languageProvider,
                       loadingOverlay: _predictionLoading,
+                      onEditReductionTarget: _showOutlookReductionTargetDialog,
                     )
                   else
                     _PredictionRetryCard(
@@ -3218,12 +3495,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
               setDialogState(() {
                 selectedTemplateIndex = index;
                 selectedType = t.storageType;
-                selectedUnit = t.defaultUnit;
+                selectedUnit = t.storageType == 'co2_reduction'
+                    ? '%'
+                    : t.defaultUnit;
                 selectedIconStr = t.iconString;
                 titleController.text = translate(t.titleKey, locale);
                 targetController.text = t.defaultTarget;
               });
             }
+
+            final bool co2PercentGoal = selectedType == 'co2_reduction';
+            final List<String> unitChoices = co2PercentGoal
+                ? const ['%']
+                : const ['%', 'kg', 'kWh', 'L', 'm³', 'km'];
 
             final helpKey =
                 _kGoalAddTemplates[selectedTemplateIndex].trackingHelpKey;
@@ -3412,6 +3696,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             ),
                             decoration: InputDecoration(
                               labelText: translate('target_value', locale),
+                              hintText: co2PercentGoal
+                                  ? translate('goal_co2_percent_hint', locale)
+                                  : null,
                               filled: true,
                               fillColor: fieldFill,
                               border: OutlineInputBorder(
@@ -3441,7 +3728,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,
                             ),
-                            items: ['%', 'kg', 'kWh', 'L', 'm³', 'km']
+                            items: unitChoices
                                 .map(
                                   (unit) => DropdownMenuItem(
                                     value: unit,
@@ -3449,11 +3736,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                   ),
                                 )
                                 .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setDialogState(() => selectedUnit = value);
-                              }
-                            },
+                            onChanged: co2PercentGoal
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      setDialogState(
+                                        () => selectedUnit = value,
+                                      );
+                                    }
+                                  },
                           ),
                           const SizedBox(height: 20),
                           Row(
@@ -3505,13 +3796,32 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                     }
                                     return;
                                   }
+                                  if (selectedType == 'co2_reduction' &&
+                                      (target < 0.1 || target > 95)) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(this.context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            translate(
+                                              'goal_co2_percent_range',
+                                              locale,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return;
+                                  }
 
                                   try {
                                     final goal = {
                                       'title': title,
                                       'target': target,
                                       'current': 0.0,
-                                      'unit': selectedUnit,
+                                      'unit': selectedType == 'co2_reduction'
+                                          ? '%'
+                                          : selectedUnit,
                                       'type': selectedType,
                                       'icon': selectedIconStr,
                                       'color': 0xFF304411,
@@ -3870,6 +4180,61 @@ String _formatDecimalWithSeparators(
 const double _kPredictionSideBySideBreakpoint = 520;
 const double _kInsightCardsColumnBreakpoint = 440;
 
+Widget _outlookTargetEditorRow(
+  BuildContext context, {
+  required double reductionTargetPercent,
+  required Locale locale,
+  required bool isTr,
+  required bool isDark,
+  required VoidCallback? onEdit,
+}) {
+  final TextStyle? base = Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: _goalsReadableOnCard(context, isDark),
+        fontWeight: FontWeight.w600,
+      );
+  final safePercent = reductionTargetPercent.isFinite && reductionTargetPercent > 0
+      ? reductionTargetPercent.clamp(0.1, 95.0)
+      : _kDefaultCo2ReductionGoalPercent;
+  final pctFmt = _formatDecimalWithSeparators(
+    safePercent,
+    locale,
+    fractionDigits: 1,
+  );
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    decoration: BoxDecoration(
+      color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+      ),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            isTr
+                ? 'Toplam emisyon azaltma hedefiniz: %$pctFmt'
+                : 'Your total emission cut target: $pctFmt%',
+            style: base,
+          ),
+        ),
+        if (onEdit != null)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            tooltip: translate('outlook_edit_target', locale),
+            icon: const Icon(Icons.edit_outlined, size: 20),
+            color: _kGoalsDeepOrangeText,
+            onPressed: onEdit,
+          ),
+      ],
+    ),
+  );
+}
+
 Widget _predictionMetaLine(
   BuildContext context, {
   required MonthlyPrediction prediction,
@@ -3896,7 +4261,10 @@ Widget _predictionMetaLine(
     crossAxisAlignment: WrapCrossAlignment.center,
     runSpacing: 8,
     children: [
-      Text(isTr ? 'Hedef: ' : 'Target: ', style: base),
+      Text(
+        isTr ? 'Ay sonu üst sınır: ' : 'Month-end cap: ',
+        style: base,
+      ),
       Text(targetFmt, style: base),
       const SizedBox(width: 8),
       Text('kg CO₂e', style: base),
@@ -3919,13 +4287,17 @@ Widget _predictionMetaLine(
 class _PredictionCard extends StatelessWidget {
   const _PredictionCard({
     required this.prediction,
+    required this.reductionTargetPercent,
     this.languageProvider,
     this.loadingOverlay = false,
+    this.onEditReductionTarget,
   });
 
   final MonthlyPrediction prediction;
+  final double reductionTargetPercent;
   final LanguageProvider? languageProvider;
   final bool loadingOverlay;
+  final VoidCallback? onEditReductionTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -4101,12 +4473,16 @@ class _PredictionCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: _goalsReadableOnCard(context, isDark),
-                            fontWeight: FontWeight.w600,
-                          ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: Text(
+                        isTr ? 'Tahmini ay sonu toplamı' : 'Projected month-end',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: _goalsReadableOnCard(context, isDark),
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     LayoutBuilder(
@@ -4137,24 +4513,25 @@ class _PredictionCard extends StatelessWidget {
                                   fontWeight: FontWeight.w500,
                                   fontSize: unitFont,
                                 );
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Expanded(
-                              child: Text(
+                        return Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(
                                 projStr,
                                 style: valueStyle,
-                                maxLines: 4,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            if (!noPaceData)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 6),
-                                child: Text('kg CO₂e', style: unitStyle),
-                              ),
-                          ],
+                              if (!noPaceData)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: Text('kg CO₂e', style: unitStyle),
+                                ),
+                            ],
+                          ),
                         );
                       },
                     ),
@@ -4172,6 +4549,15 @@ class _PredictionCard extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: 12),
+                    _outlookTargetEditorRow(
+                      context,
+                      reductionTargetPercent: reductionTargetPercent,
+                      locale: locale,
+                      isTr: isTr,
+                      isDark: isDark,
+                      onEdit: onEditReductionTarget,
+                    ),
+                    const SizedBox(height: 10),
                     _predictionMetaLine(
                       context,
                       prediction: prediction,
