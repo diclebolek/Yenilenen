@@ -861,10 +861,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Fatura tarama kartı
                 BillScannerCard(
                   languageProvider: widget.languageProvider,
-                  onCalculated: (value) => setState(() {
-                    _dailyEmissionKg = value;
-                    _hasRealUserEmission = true;
-                  }),
                 ),
                 const SizedBox(height: _kHomeSectionGap),
                 // GNÇ tarzında başlık

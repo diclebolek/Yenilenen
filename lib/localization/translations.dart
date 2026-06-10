@@ -109,6 +109,12 @@ const Map<String, String> trTranslations = {
   'calculate': 'Hesapla',
   'data_success': 'Veriler başarıyla girildi ve {co2e} kg CO₂e hesaplandı!',
   'bill_success': 'Fatura başarıyla taranıp {co2e} kg CO₂e hesaplandı!',
+  'bill_scan_result_title': 'Fatura Ölçüm Sonucu',
+  'bill_scan_result_note':
+      'Bu sonuç kaydedilmez; faturadan okunan anlık karbon ölçümüdür.',
+  'bill_scan_total_co2e': 'Toplam CO₂e',
+  'bill_scan_row_co2e': '{co2e} kg CO₂e',
+  'bill_scan_conversion_note': 'Birim dönüşümü: {note}',
   'no_data_extracted': 'Faturadan veri çıkarılamadı. Manuel giriş yapılacak.',
   'ocr_failed': 'OCR analizi başarısız. Manuel giriş yapılacak.',
   'scan_error': 'Fatura tarama hatası: {error}',
@@ -604,6 +610,12 @@ const Map<String, String> enTranslations = {
   'calculate': 'Calculate',
   'data_success': 'Data entered successfully and {co2e} kg CO₂e calculated!',
   'bill_success': 'Bill scanned successfully and {co2e} kg CO₂e calculated!',
+  'bill_scan_result_title': 'Bill Measurement Result',
+  'bill_scan_result_note':
+      'This result is not saved; it is an instant carbon reading from your bill.',
+  'bill_scan_total_co2e': 'Total CO₂e',
+  'bill_scan_row_co2e': '{co2e} kg CO₂e',
+  'bill_scan_conversion_note': 'Unit conversion: {note}',
   'no_data_extracted':
       'No data could be extracted from bill. Manual entry will be used.',
   'ocr_failed': 'OCR analysis failed. Manual entry will be used.',
