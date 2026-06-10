@@ -290,15 +290,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _onBillScanCalculated(double value) {
-    if (!mounted) return;
-    final clamped = _clampPlausibleDailyKg(value);
-    setState(() {
-      _dailyEmissionKg = clamped;
-      _hasRealUserEmission = true;
-    });
-  }
-
   void _applyPublishedGaugeIfAny() {
     _onSharedGaugeUpdated();
   }
@@ -850,8 +841,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     final dailyKg = _liveEmission.effectiveDailyKgCo2e(
                       preferEspLive: _liveEmission.gaugeUseEspMode,
                     );
-                    final hasGaugeValue =
-                        dailyKg != null && dailyKg > 1e-9;
+                    final hasGaugeValue = dailyKg != null && dailyKg > 1e-9;
                     return _BusinessComparisonTable(
                       locale: locale,
                       isDark: isDark,
@@ -871,7 +861,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Fatura tarama kartı
                 BillScannerCard(
                   languageProvider: widget.languageProvider,
-                  onCalculated: _onBillScanCalculated,
+                  onCalculated: (value) => setState(() {
+                    _dailyEmissionKg = value;
+                    _hasRealUserEmission = true;
+                  }),
                 ),
                 const SizedBox(height: _kHomeSectionGap),
                 // GNÇ tarzında başlık
@@ -2187,8 +2180,7 @@ class _BusinessComparisonTable extends StatelessWidget {
         gaugeDailyKgCo2e != null &&
         gaugeDailyKgCo2e! > 0) {
       final monthlyTonnes = gaugeDailyKgCo2e! * 30 / 1000;
-      userEmissionLabel =
-          formatGaugeKgCo2eDisplay(gaugeDailyKgCo2e!, locale);
+      userEmissionLabel = formatGaugeKgCo2eDisplay(gaugeDailyKgCo2e!, locale);
       if (monthlyTonnes < sectorAvg * 0.98) {
         userStatus = 'better';
       } else if (monthlyTonnes > sectorAvg * 1.02) {

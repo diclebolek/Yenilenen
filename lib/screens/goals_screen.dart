@@ -77,7 +77,7 @@ class _QuickSetSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const trackColor = AppTheme.infoDialogForeground;
+    final trackColor = AppTheme.infoDialogForeground;
     final inactiveColor = trackColor.withValues(alpha: 0.28);
     final clamped = value.clamp(0.0, max);
     final fraction = max > 0 ? (clamped / max).clamp(0.0, 1.0) : 0.0;
@@ -102,7 +102,7 @@ class _QuickSetSlider extends StatelessWidget {
                     FractionallySizedBox(
                       alignment: Alignment.centerLeft,
                       widthFactor: fraction,
-                      child: const ColoredBox(color: trackColor),
+                      child: ColoredBox(color: trackColor),
                     ),
                   ],
                 ),
@@ -282,7 +282,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
   StreamSubscription<List<Map<String, dynamic>>>? _goalsSubscription;
   StreamSubscription<ConsumptionEntry?>? _consumptionSubscription;
   StreamSubscription<Map<String, bool>>? _badgesSubscription;
-  bool _earnPointsDialogOpen = false;
   SharedPreferences? _prefs;
 
   String? get _userId => _authService.currentUser?.uid;
@@ -902,7 +901,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         !hasForecastBasis || projectedMonthEnd <= targetMonthEndKg;
     final gaugeEfficiency = !hasForecastBasis
         ? 0.0
-        : math.min(1.0, targetMonthEndKg / math.max(projectedMonthEnd, paceEps));
+        : math.min(
+            1.0, targetMonthEndKg / math.max(projectedMonthEnd, paceEps));
 
     return MonthlyPrediction(
       projectedMonthEndKg: projectedMonthEnd,
@@ -938,8 +938,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       insightTipTr: isTr
           ? 'Raporlar ekranındaki E modunu açık tutun veya manuel kayıt ekleyin.'
           : 'Keep E mode on in Reports or add manual entries.',
-      insightTipEn:
-          'Keep E mode on in Reports or add manual entries.',
+      insightTipEn: 'Keep E mode on in Reports or add manual entries.',
     );
   }
 
@@ -956,20 +955,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
 
     try {
-      final reductionGoal = _goals.where((g) => g.type == 'co2_reduction').isEmpty
-          ? CarbonGoal(
-              id: 'fallback_co2',
-              title: '',
-              target: 450,
-              current: 0,
-              monthlyChangePercent: 0,
-              recommendation: '',
-              unit: 'kg',
-              type: 'co2_reduction',
-              icon: Icons.eco,
-              color: const Color(0xFF48631F),
-            )
-          : _goals.firstWhere((g) => g.type == 'co2_reduction');
+      final reductionGoal =
+          _goals.where((g) => g.type == 'co2_reduction').isEmpty
+              ? CarbonGoal(
+                  id: 'fallback_co2',
+                  title: '',
+                  target: 450,
+                  current: 0,
+                  monthlyChangePercent: 0,
+                  recommendation: '',
+                  unit: 'kg',
+                  type: 'co2_reduction',
+                  icon: Icons.eco,
+                  color: const Color(0xFF48631F),
+                )
+              : _goals.firstWhere((g) => g.type == 'co2_reduction');
       final double targetMonthEndKg = _resolveMonthlyCo2TargetKg(
         reductionGoal.target.clamp(0.0, double.infinity),
       );
@@ -1058,14 +1058,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       final double userDaily = estimatedDailyAverage;
       final double diffWorldDaily = userDaily - worldDailyRefKg;
-      final bool worldRoughlyEqual = !hasForecastBasis ||
-          diffWorldDaily.abs() < 0.05;
+      final bool worldRoughlyEqual =
+          !hasForecastBasis || diffWorldDaily.abs() < 0.05;
       final bool isBetterThanWorld =
           hasForecastBasis && !worldRoughlyEqual && diffWorldDaily < 0.0;
       double worldDiffPct = 0.0;
-      if (hasForecastBasis &&
-          worldDailyRefKg > 1e-9 &&
-          !worldRoughlyEqual) {
+      if (hasForecastBasis && worldDailyRefKg > 1e-9 && !worldRoughlyEqual) {
         worldDiffPct = (diffWorldDaily.abs() / worldDailyRefKg) * 100.0;
         if (!worldDiffPct.isFinite) worldDiffPct = 0.0;
         worldDiffPct = worldDiffPct.clamp(0.0, 200.0);
@@ -1217,9 +1215,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     } catch (_) {
       if (mounted) {
         final gaugeKg = _liveEmission.gaugeDailyKgCo2e ?? 0.0;
-        final fallbackDaily = gaugeKg > 1e-9
-            ? gaugeKg
-            : _liveEmission.combinedLiveKgCo2e();
+        final fallbackDaily =
+            gaugeKg > 1e-9 ? gaugeKg : _liveEmission.combinedLiveKgCo2e();
         setState(() {
           _monthlyPrediction = _buildFallbackMonthlyPrediction(
             isTr: isTr,
@@ -1271,7 +1268,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
         createdAt: cur.createdAt,
         fuelIsNaturalGasM3: cur.fuelIsNaturalGasM3,
       );
-      final kg = _clampPlausibleDailyKg(Calculation.calculateDailyEmission(delta));
+      final kg =
+          _clampPlausibleDailyKg(Calculation.calculateDailyEmission(delta));
       if (kg > 1e-9) {
         final key = _dayKey(cur.createdAt);
         totals[key] = (totals[key] ?? 0) + kg;
@@ -1326,8 +1324,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
     dailyPaceKg = _clampPlausibleDailyKg(dailyPaceKg);
 
-    final hasForecastBasis =
-        monthToDateKg > paceEps || dailyPaceKg > paceEps;
+    final hasForecastBasis = monthToDateKg > paceEps || dailyPaceKg > paceEps;
     final projectedMonthEndKg = hasForecastBasis
         ? monthToDateKg + dailyPaceKg * remainingDays.toDouble()
         : 0.0;
@@ -1375,15 +1372,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
     for (final entry
         in _apiService.shellyDataListToDeltaConsumptionEntries(shellyRaw)) {
       final key = _dayKey(entry.createdAt);
-      shellyKwhByDay[key] =
-          (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
+      shellyKwhByDay[key] = (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
     }
 
     final allDays = <DateTime>{...espDaily.keys, ...shellyKwhByDay.keys};
     final totals = <DateTime, double>{};
     for (final day in allDays) {
-      final shellyKg = (shellyKwhByDay[day] ?? 0.0) *
-          Calculation.factorElectricityKgPerKwh;
+      final shellyKg =
+          (shellyKwhByDay[day] ?? 0.0) * Calculation.factorElectricityKgPerKwh;
       final espKg = espDaily[day] ?? 0.0;
       totals[day] = _clampPlausibleDailyKg(shellyKg + espKg);
     }
@@ -1430,8 +1426,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     for (final entry
         in _apiService.shellyDataListToDeltaConsumptionEntries(shellyRaw)) {
       final key = dayKey(entry.createdAt);
-      shellyKwhByDay[key] =
-          (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
+      shellyKwhByDay[key] = (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
     }
 
     void pushLatestManual(ConsumptionEntry entry) {
@@ -1462,8 +1457,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
       }
 
       final espKg = espDaily[day] ?? 0.0;
-      final shellyKg = (shellyKwhByDay[day] ?? 0.0) *
-          Calculation.factorElectricityKgPerKwh;
+      final shellyKg =
+          (shellyKwhByDay[day] ?? 0.0) * Calculation.factorElectricityKgPerKwh;
       if (espKg > 1e-12 || shellyKg > 1e-12) {
         totals[day] = _clampPlausibleDailyKg(espKg + shellyKg);
       }
@@ -1483,17 +1478,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   double _estimateDailyAverageFromSeries(List<double> series) {
-    final nz = series
-        .map(_clampPlausibleDailyKg)
-        .where((v) => v > 1e-9)
-        .toList();
+    final nz =
+        series.map(_clampPlausibleDailyKg).where((v) => v > 1e-9).toList();
     if (nz.isEmpty) return 0.0;
     if (nz.length == 1) return nz.first;
     nz.sort();
     final mid = nz.length ~/ 2;
-    return nz.length.isOdd
-        ? nz[mid]
-        : (nz[mid - 1] + nz[mid]) / 2.0;
+    return nz.length.isOdd ? nz[mid] : (nz[mid - 1] + nz[mid]) / 2.0;
   }
 
   Future<void> _resetGreenScoreProgressIfNeeded() async {
@@ -1600,13 +1591,30 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return 50;
   }
 
+  void _openEarnPointsDialog({
+    required String titleKey,
+    required IconData icon,
+    required _EnginePointKind kind,
+  }) {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        _showEarnPointsEngineeringDialog(
+          titleKey: titleKey,
+          icon: icon,
+          kind: kind,
+        ),
+      );
+    });
+  }
+
   Future<void> _showEarnPointsEngineeringDialog({
     required String titleKey,
     required IconData icon,
     required _EnginePointKind kind,
   }) async {
-    if (_earnPointsDialogOpen || !mounted) return;
-    _earnPointsDialogOpen = true;
+    if (!mounted) return;
 
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
     final mult = _engineMultiplier(kind);
@@ -1620,348 +1628,34 @@ class _GoalsScreenState extends State<GoalsScreen> {
         _worldDailyRefKg > 0 &&
         _userDailyEmissionKg < _worldDailyRefKg - 1e-9;
 
-    final explainKey = switch (kind) {
-      _EnginePointKind.walk => 'earn_points_dialog_explain_walk',
-      _EnginePointKind.publicTransport => 'earn_points_dialog_explain_bus',
-      _EnginePointKind.recycle => 'earn_points_dialog_explain_recycle',
-      _EnginePointKind.water => 'earn_points_dialog_explain_water',
-    };
-    final questionKey = switch (kind) {
-      _EnginePointKind.walk => 'how_many_km_today',
-      _EnginePointKind.publicTransport => 'how_many_km_today',
-      _EnginePointKind.recycle => 'how_many_kg_recycled',
-      _EnginePointKind.water => 'how_many_liters_water_saved',
-    };
-
-    final controller = TextEditingController();
-    var sliderVal = 0.0;
-
-    try {
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: true,
-        useRootNavigator: true,
-        builder: (ctx) {
-        // Bilgi (i) diyaloğu ile aynı: her zaman açık yeşil zemin + koyu yeşil metin.
-        final ThemeData earnTheme = ThemeData(
-          useMaterial3: true,
-          fontFamily: 'PlayfairDisplay',
-          colorScheme: ColorScheme.light(
-            primary: AppTheme.infoDialogForeground,
-            onPrimary: Colors.white,
-            surface: AppTheme.infoDialogBackground,
-            onSurface: AppTheme.infoDialogForeground,
-            secondary: AppTheme.lightPrimaryColor,
-            onSecondary: Colors.white,
-            surfaceContainerHighest: AppTheme.infoDialogForeground.withValues(
-              alpha: 0.28,
-            ),
-          ),
-          sliderTheme: SliderThemeData(
-            activeTrackColor: AppTheme.infoDialogForeground,
-            inactiveTrackColor: AppTheme.infoDialogForeground.withValues(
-              alpha: 0.28,
-            ),
-            secondaryActiveTrackColor: AppTheme.infoDialogForeground.withValues(
-              alpha: 0.28,
-            ),
-            thumbColor: AppTheme.infoDialogForeground,
-            overlayColor: WidgetStateColor.resolveWith(
-              (states) => AppTheme.infoDialogForeground.withValues(
-                alpha: states.contains(WidgetState.pressed) ? 0.22 : 0.12,
-              ),
-            ),
-            trackHeight: 8,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: AppTheme.infoDialogForeground.withValues(alpha: 0.35),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: AppTheme.infoDialogForeground.withValues(alpha: 0.35),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: AppTheme.infoDialogForeground,
-                width: 1.8,
-              ),
-            ),
-            hintStyle: TextStyle(
-              color: AppTheme.infoDialogForeground.withValues(alpha: 0.45),
-            ),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-          ),
-        );
-        return Theme(
-          data: earnTheme,
-          child: StatefulBuilder(
-            builder: (context, setLocal) {
-              final parsed = _parseLocaleDouble(controller.text);
-              final amt = ((parsed ?? 0) > 0) ? parsed! : 0.0;
-              final basePts = (amt * mult).round();
-              final previewSavings =
-                  (savingsEligible && !savingsUsedToday) ? 50 : 0;
-              final nextWalkKm = kind == _EnginePointKind.walk
-                  ? _weekWalkKmTotal + amt
-                  : _weekWalkKmTotal;
-              final previewWeekly = kind == _EnginePointKind.walk &&
-                      !_weekWalkBonusClaimed &&
-                      _weekWalkKmTotal < 10.0 &&
-                      nextWalkKm >= 10.0 - 1e-9
-                  ? 100
-                  : 0;
-              final totalPreview = basePts + previewSavings + previewWeekly;
-
-              return AlertDialog(
-                backgroundColor: AppTheme.infoDialogBackground,
-                surfaceTintColor: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                contentPadding: const EdgeInsets.all(20),
-                titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                title: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      icon,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        translate(titleKey, locale),
-                        textAlign: TextAlign.left,
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                      ),
-                    ),
-                  ],
-                ),
-                content: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        translate(
-                          explainKey,
-                          locale,
-                          params: {'multiplier': '$mult'},
-                        ),
-                        textAlign: TextAlign.left,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              height: 1.35,
-                            ),
-                      ),
-                      const SizedBox(height: 15),
-                      Text(
-                        translate(questionKey, locale),
-                        textAlign: TextAlign.left,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 15),
-                      TextField(
-                        controller: controller,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                        textAlign: TextAlign.left,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'[0-9.,]'),
-                          ),
-                        ],
-                        decoration: InputDecoration(
-                          hintText: translate('numeric_entry_hint', locale),
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        onChanged: (s) {
-                          final p = _parseLocaleDouble(s);
-                          setLocal(() {
-                            if (p != null && p >= 0 && p <= maxSlide + 1e-9) {
-                              sliderVal = p.clamp(0.0, maxSlide);
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 15),
-                      Text(
-                        translate('slider_quick_set', locale),
-                        textAlign: TextAlign.left,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.88),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppTheme.infoDialogForeground.withValues(
-                              alpha: 0.35,
-                            ),
-                          ),
-                        ),
-                        child: _QuickSetSlider(
-                          value: sliderVal.clamp(0.0, maxSlide),
-                          max: maxSlide,
-                          divisions:
-                              maxSlide <= 50 ? maxSlide.round() : 48,
-                          onChanged: (v) {
-                            setLocal(() {
-                              sliderVal = v;
-                              controller.text =
-                                  kind == _EnginePointKind.recycle
-                                      ? v.toStringAsFixed(2)
-                                      : v.toStringAsFixed(1);
-                            });
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      Text(
-                        translate(
-                          'points_total_label',
-                          locale,
-                          params: {'points': '$totalPreview'},
-                        ),
-                        textAlign: TextAlign.left,
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.primary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                      ),
-                      const SizedBox(height: 15),
-                      if (kind == _EnginePointKind.walk)
-                        Text(
-                          translate(
-                            'weekly_progress_km',
-                            locale,
-                            params: {
-                              'current': _weekWalkKmTotal.toStringAsFixed(1),
-                              'target': '10',
-                            },
-                          ),
-                          textAlign: TextAlign.left,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                      if (kind == _EnginePointKind.walk)
-                        const SizedBox(height: 8),
-                      if (kind == _EnginePointKind.walk)
-                        Text(
-                          _weekWalkBonusClaimed
-                              ? translate('weekly_bonus_claimed', locale)
-                              : translate('weekly_bonus_pending', locale),
-                          textAlign: TextAlign.left,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                      const SizedBox(height: 15),
-                      Text(
-                        _userId == null
-                            ? translate(
-                                'savings_bonus_requires_login',
-                                locale,
-                              )
-                            : savingsUsedToday
-                                ? translate(
-                                    'savings_bonus_used_today',
-                                    locale,
-                                  )
-                                : savingsEligible
-                                    ? translate(
-                                        'savings_bonus_available',
-                                        locale,
-                                        params: {'points': '50'},
-                                      )
-                                    : translate(
-                                        'savings_bonus_not_eligible',
-                                        locale,
-                                      ),
-                        textAlign: TextAlign.left,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              height: 1.3,
-                              color: Theme.of(context).colorScheme.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: Text(translate('cancel', locale)),
-                  ),
-                  FilledButton(
-                    onPressed: () async {
-                      final v = _parseLocaleDouble(controller.text);
-                      if (v == null || v <= 0) return;
-                      var total = (v * mult).round();
-                      if (kind == _EnginePointKind.walk) {
-                        total += await _applyWalkKmAndMaybeWeeklyBonus(v);
-                      }
-                      total += await _maybeSavingsBonusPoints();
-                      if (ctx.mounted) {
-                        Navigator.of(ctx).pop();
-                      }
-                      if (!mounted) return;
-                      await _awardPoints(total);
-                      await _refreshWeeklyWalkState();
-                    },
-                    child: Text(translate('log_action_confirm', locale)),
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-      },
+    final amount = await showDialog<double>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.5),
+      builder: (ctx) => _EarnPointsDialog(
+        titleKey: titleKey,
+        icon: icon,
+        kind: kind,
+        locale: locale,
+        mult: mult,
+        maxSlide: maxSlide,
+        savingsUsedToday: savingsUsedToday,
+        savingsEligible: savingsEligible,
+        userLoggedIn: _userId != null,
+        weekWalkKmTotal: _weekWalkKmTotal,
+        weekWalkBonusClaimed: _weekWalkBonusClaimed,
+      ),
     );
-    } finally {
-      _earnPointsDialogOpen = false;
-      controller.dispose();
+
+    if (!mounted || amount == null || amount <= 0) return;
+
+    var total = (amount * mult).round();
+    if (kind == _EnginePointKind.walk) {
+      total += await _applyWalkKmAndMaybeWeeklyBonus(amount);
     }
+    total += await _maybeSavingsBonusPoints();
+    await _awardPoints(total);
+    await _refreshWeeklyWalkState();
   }
 
   /// Rozet kontrolü yap ve gerekirse aç
@@ -2136,9 +1830,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final double layoutWidth = MediaQuery.sizeOf(context).width;
     final bool isWideLayout = layoutWidth >= 900;
     final double goalsContentMaxWidth = isWideLayout
-        ? (kIsWeb
-            ? (layoutWidth * 0.67).clamp(720.0, 1480.0)
-            : 800.0)
+        ? (kIsWeb ? (layoutWidth * 0.67).clamp(720.0, 1480.0) : 800.0)
         : double.infinity;
     final double horizontalPagePadding = layoutWidth < 360 ? 12.0 : 16.0;
 
@@ -2185,14 +1877,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       Expanded(
                         child: Text(
                           translate('achievement_badges', locale),
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.bold,
-                                height: 1.2,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.2,
+                                  ),
                         ),
                       ),
                       Tooltip(
@@ -2417,14 +2107,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       Expanded(
                         child: Text(
                           translate('next_month_outlook', locale),
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.bold,
-                                height: 1.2,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.2,
+                                  ),
                         ),
                       ),
                       Tooltip(
@@ -2477,14 +2165,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       Expanded(
                         child: Text(
                           translate('green_score', locale),
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.bold,
-                                height: 1.2,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.2,
+                                  ),
                         ),
                       ),
                       Tooltip(
@@ -2620,8 +2306,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                       ),
                                       const SizedBox(height: 12),
                                       ClipRRect(
-                                        borderRadius:
-                                            BorderRadius.circular(10),
+                                        borderRadius: BorderRadius.circular(10),
                                         child: TweenAnimationBuilder<double>(
                                           tween: Tween<double>(
                                             begin: 0.0,
@@ -2647,8 +2332,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 ),
                                               ),
                                               child: FractionallySizedBox(
-                                                alignment:
-                                                    Alignment.centerLeft,
+                                                alignment: Alignment.centerLeft,
                                                 widthFactor: value,
                                                 child: Container(
                                                   decoration: BoxDecoration(
@@ -2664,10 +2348,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                         Colors.deepOrange
                                                             .shade500,
                                                       ],
-                                                      begin: Alignment
-                                                          .centerLeft,
-                                                      end: Alignment
-                                                          .centerRight,
+                                                      begin:
+                                                          Alignment.centerLeft,
+                                                      end:
+                                                          Alignment.centerRight,
                                                     ),
                                                     boxShadow: [
                                                       BoxShadow(
@@ -3127,8 +2811,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                     'multiplier': '20',
                                                   },
                                                 ),
-                                                onTap: () =>
-                                                    _showEarnPointsEngineeringDialog(
+                                                onTap: () => _openEarnPointsDialog(
                                                   titleKey: 'recycle',
                                                   icon: Icons.recycling,
                                                   kind:
@@ -3149,8 +2832,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                     'multiplier': '10',
                                                   },
                                                 ),
-                                                onTap: () =>
-                                                    _showEarnPointsEngineeringDialog(
+                                                onTap: () => _openEarnPointsDialog(
                                                   titleKey: 'walk',
                                                   icon: Icons.directions_walk,
                                                   kind: _EnginePointKind.walk,
@@ -3176,8 +2858,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                     'multiplier': '5',
                                                   },
                                                 ),
-                                                onTap: () =>
-                                                    _showEarnPointsEngineeringDialog(
+                                                onTap: () => _openEarnPointsDialog(
                                                   titleKey: 'public_transport',
                                                   icon: Icons.directions_bus,
                                                   kind: _EnginePointKind
@@ -3200,8 +2881,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                     'multiplier': '4',
                                                   },
                                                 ),
-                                                onTap: () =>
-                                                    _showEarnPointsEngineeringDialog(
+                                                onTap: () => _openEarnPointsDialog(
                                                   titleKey: 'save_water',
                                                   icon: Icons.water_drop,
                                                   kind: _EnginePointKind.water,
@@ -3227,8 +2907,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 'multiplier': '20',
                                               },
                                             ),
-                                            onTap: () =>
-                                                _showEarnPointsEngineeringDialog(
+                                            onTap: () => _openEarnPointsDialog(
                                               titleKey: 'recycle',
                                               icon: Icons.recycling,
                                               kind: _EnginePointKind.recycle,
@@ -3247,8 +2926,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 'multiplier': '10',
                                               },
                                             ),
-                                            onTap: () =>
-                                                _showEarnPointsEngineeringDialog(
+                                            onTap: () => _openEarnPointsDialog(
                                               titleKey: 'walk',
                                               icon: Icons.directions_walk,
                                               kind: _EnginePointKind.walk,
@@ -3270,8 +2948,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 'multiplier': '5',
                                               },
                                             ),
-                                            onTap: () =>
-                                                _showEarnPointsEngineeringDialog(
+                                            onTap: () => _openEarnPointsDialog(
                                               titleKey: 'public_transport',
                                               icon: Icons.directions_bus,
                                               kind: _EnginePointKind
@@ -3292,8 +2969,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 'multiplier': '4',
                                               },
                                             ),
-                                            onTap: () =>
-                                                _showEarnPointsEngineeringDialog(
+                                            onTap: () => _openEarnPointsDialog(
                                               titleKey: 'save_water',
                                               icon: Icons.water_drop,
                                               kind: _EnginePointKind.water,
@@ -5085,8 +4761,7 @@ class _GoalCard extends StatelessWidget {
                                     const Icon(Icons.delete_outline, size: 20),
                                 onPressed: onDelete,
                                 tooltip: translate('delete', locale),
-                                color:
-                                    isDark ? Colors.white70 : Colors.black87,
+                                color: isDark ? Colors.white70 : Colors.black87,
                               ),
                           ],
                         ),
@@ -5121,8 +4796,8 @@ class _GoalCard extends StatelessWidget {
                                             ?.copyWith(
                                               color: isCompleted
                                                   ? (isDark
-                                                      ? Colors.greenAccent
-                                                          .shade200
+                                                      ? Colors
+                                                          .greenAccent.shade200
                                                       : const Color(
                                                           0xFF1B5E20,
                                                         ))
@@ -5139,8 +4814,7 @@ class _GoalCard extends StatelessWidget {
                                       const Padding(
                                         padding: EdgeInsets.only(left: 4),
                                         child: Icon(Icons.celebration,
-                                            color: Color(0xFFF57C00),
-                                            size: 18),
+                                            color: Color(0xFFF57C00), size: 18),
                                       ),
                                   ],
                                 ),
@@ -5226,13 +4900,11 @@ class _GoalCard extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text(
                           goal.recommendation,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                                color: _kGoalsDarkOrangeText,
-                                fontWeight: FontWeight.w700,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: _kGoalsDarkOrangeText,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                         ),
                       ],
                     ],
@@ -5424,6 +5096,319 @@ class _StatCard extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EarnPointsDialog extends StatefulWidget {
+  const _EarnPointsDialog({
+    required this.titleKey,
+    required this.icon,
+    required this.kind,
+    required this.locale,
+    required this.mult,
+    required this.maxSlide,
+    required this.savingsUsedToday,
+    required this.savingsEligible,
+    required this.userLoggedIn,
+    required this.weekWalkKmTotal,
+    required this.weekWalkBonusClaimed,
+  });
+
+  final String titleKey;
+  final IconData icon;
+  final _EnginePointKind kind;
+  final Locale locale;
+  final int mult;
+  final double maxSlide;
+  final bool savingsUsedToday;
+  final bool savingsEligible;
+  final bool userLoggedIn;
+  final double weekWalkKmTotal;
+  final bool weekWalkBonusClaimed;
+
+  @override
+  State<_EarnPointsDialog> createState() => _EarnPointsDialogState();
+}
+
+class _EarnPointsDialogState extends State<_EarnPointsDialog> {
+  late final TextEditingController _controller;
+  double _sliderVal = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  int get _sliderDivisions {
+    if (widget.maxSlide < 1) return 1;
+    return widget.maxSlide <= 50
+        ? widget.maxSlide.round().clamp(1, 50)
+        : 48;
+  }
+
+  ThemeData get _earnTheme => ThemeData(
+        useMaterial3: true,
+        colorScheme: const ColorScheme.light(
+          primary: AppTheme.infoDialogForeground,
+          onPrimary: Colors.white,
+          surface: AppTheme.infoDialogBackground,
+          onSurface: AppTheme.infoDialogForeground,
+          secondary: AppTheme.lightPrimaryColor,
+          onSecondary: Colors.white,
+          surfaceContainerHighest: AppTheme.infoDialogForeground,
+        ),
+        sliderTheme: SliderThemeData(
+          activeTrackColor: AppTheme.infoDialogForeground,
+          inactiveTrackColor:
+              AppTheme.infoDialogForeground.withValues(alpha: 0.28),
+          thumbColor: AppTheme.infoDialogForeground,
+          trackHeight: 8,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: AppTheme.infoDialogForeground.withValues(alpha: 0.35),
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: AppTheme.infoDialogForeground.withValues(alpha: 0.35),
+            ),
+          ),
+          focusedBorder: const OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(
+              color: AppTheme.infoDialogForeground,
+              width: 1.8,
+            ),
+          ),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 12,
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final parsed = _parseLocaleDouble(_controller.text);
+    final amt = ((parsed ?? 0) > 0) ? parsed! : 0.0;
+    final basePts = (amt * widget.mult).round();
+    final previewSavings =
+        (widget.savingsEligible && !widget.savingsUsedToday) ? 50 : 0;
+    final nextWalkKm = widget.kind == _EnginePointKind.walk
+        ? widget.weekWalkKmTotal + amt
+        : widget.weekWalkKmTotal;
+    final previewWeekly = widget.kind == _EnginePointKind.walk &&
+            !widget.weekWalkBonusClaimed &&
+            widget.weekWalkKmTotal < 10.0 &&
+            nextWalkKm >= 10.0 - 1e-9
+        ? 100
+        : 0;
+    final totalPreview = basePts + previewSavings + previewWeekly;
+
+    final explainKey = switch (widget.kind) {
+      _EnginePointKind.walk => 'earn_points_dialog_explain_walk',
+      _EnginePointKind.publicTransport => 'earn_points_dialog_explain_bus',
+      _EnginePointKind.recycle => 'earn_points_dialog_explain_recycle',
+      _EnginePointKind.water => 'earn_points_dialog_explain_water',
+    };
+    final questionKey = switch (widget.kind) {
+      _EnginePointKind.walk => 'how_many_km_today',
+      _EnginePointKind.publicTransport => 'how_many_km_today',
+      _EnginePointKind.recycle => 'how_many_kg_recycled',
+      _EnginePointKind.water => 'how_many_liters_water_saved',
+    };
+
+    return Theme(
+      data: _earnTheme,
+      child: AlertDialog(
+        backgroundColor: AppTheme.infoDialogBackground,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        contentPadding: const EdgeInsets.all(20),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(widget.icon, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                translate(widget.titleKey, widget.locale),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                translate(
+                  explainKey,
+                  widget.locale,
+                  params: {'multiplier': '${widget.mult}'},
+                ),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.35,
+                    ),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                translate(questionKey, widget.locale),
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _controller,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                ],
+                decoration: InputDecoration(
+                  hintText: translate('numeric_entry_hint', widget.locale),
+                ),
+                onChanged: (s) {
+                  final p = _parseLocaleDouble(s);
+                  setState(() {
+                    if (p != null && p >= 0 && p <= widget.maxSlide + 1e-9) {
+                      _sliderVal = p.clamp(0.0, widget.maxSlide);
+                    }
+                  });
+                },
+              ),
+              const SizedBox(height: 15),
+              Text(
+                translate('slider_quick_set', widget.locale),
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color:
+                        AppTheme.infoDialogForeground.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: _QuickSetSlider(
+                  value: _sliderVal.clamp(0.0, widget.maxSlide),
+                  max: widget.maxSlide,
+                  divisions: _sliderDivisions,
+                  onChanged: (v) {
+                    setState(() {
+                      _sliderVal = v;
+                      _controller.text = widget.kind == _EnginePointKind.recycle
+                          ? v.toStringAsFixed(2)
+                          : v.toStringAsFixed(1);
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                translate(
+                  'points_total_label',
+                  widget.locale,
+                  params: {'points': '$totalPreview'},
+                ),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              if (widget.kind == _EnginePointKind.walk) ...[
+                const SizedBox(height: 15),
+                Text(
+                  translate(
+                    'weekly_progress_km',
+                    widget.locale,
+                    params: {
+                      'current': widget.weekWalkKmTotal.toStringAsFixed(1),
+                      'target': '10',
+                    },
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.weekWalkBonusClaimed
+                      ? translate('weekly_bonus_claimed', widget.locale)
+                      : translate('weekly_bonus_pending', widget.locale),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+              const SizedBox(height: 15),
+              Text(
+                !widget.userLoggedIn
+                    ? translate('savings_bonus_requires_login', widget.locale)
+                    : widget.savingsUsedToday
+                        ? translate('savings_bonus_used_today', widget.locale)
+                        : widget.savingsEligible
+                            ? translate(
+                                'savings_bonus_available',
+                                widget.locale,
+                                params: {'points': '50'},
+                              )
+                            : translate(
+                                'savings_bonus_not_eligible',
+                                widget.locale,
+                              ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      height: 1.3,
+                      fontWeight: FontWeight.w500,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(translate('cancel', widget.locale)),
+          ),
+          FilledButton(
+            onPressed: () {
+              final v = _parseLocaleDouble(_controller.text);
+              if (v == null || v <= 0) return;
+              Navigator.of(context).pop(v);
+            },
+            child: Text(translate('log_action_confirm', widget.locale)),
           ),
         ],
       ),

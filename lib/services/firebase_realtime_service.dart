@@ -86,6 +86,7 @@ class FirebaseRealtimeService {
   Future<void> saveManualData({
     required String userId,
     required ConsumptionEntry consumption,
+    String source = 'manual',
   }) async {
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -95,9 +96,10 @@ class FirebaseRealtimeService {
         'water': consumption.waterCubicMeters,
         'fuel': consumption.fuelLiters,
         'waste': consumption.wasteKg,
+        'fuel_is_natural_gas': consumption.fuelIsNaturalGasM3,
         'timestamp': timestamp,
         'created_at': consumption.createdAt.toIso8601String(),
-        'source': 'manual', // Manuel giriş olduğunu belirt
+        'source': source,
       };
 
       // Latest veriyi kaydet
@@ -276,6 +278,7 @@ class FirebaseRealtimeService {
         fuelLiters: (data['fuel'] ?? 0.0).toDouble(),
         wasteKg: (data['waste'] ?? 0.0).toDouble(),
         createdAt: createdAt,
+        fuelIsNaturalGasM3: data['fuel_is_natural_gas'] == true,
       );
     } catch (e, st) {
       dev.log(

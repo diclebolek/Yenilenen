@@ -585,6 +585,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   ButtonStyle _segmentedAccent(Color accent) => ButtonStyle(
         visualDensity: VisualDensity.compact,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         foregroundColor: WidgetStateProperty.all<Color>(accent),
         iconColor: WidgetStateProperty.all<Color>(accent),
         backgroundColor:
@@ -601,37 +602,34 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         }),
       );
 
-  /// Atık birim seçici — seçili segment beyaz zemin + koyu kahve metin.
-  ButtonStyle _segmentedTabAccent(Color accent) => ButtonStyle(
+  /// Atık birim seçici — şeffaf kahve tonları (beyaz zemin yok).
+  ButtonStyle get _segmentedWasteAccent => ButtonStyle(
         visualDensity: VisualDensity.compact,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
-          return states.contains(WidgetState.selected) ? accent : Colors.white;
+          if (states.contains(WidgetState.selected)) {
+            return _kManualEntryOnGlass;
+          }
+          return Colors.white;
         }),
         iconColor: WidgetStateProperty.resolveWith((states) {
-          return states.contains(WidgetState.selected) ? accent : Colors.white;
+          if (states.contains(WidgetState.selected)) {
+            return _kManualEntryOnGlass;
+          }
+          return Colors.white;
         }),
         backgroundColor:
             WidgetStateProperty.resolveWith((Set<WidgetState> states) {
           if (states.contains(WidgetState.selected)) {
-            return Colors.white;
+            return _kAccentWaste.withValues(alpha: 0.92);
           }
-          return Colors.white.withValues(alpha: 0.12);
+          return _kAccentWaste.withValues(alpha: 0.14);
         }),
         side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-          if (states.contains(WidgetState.selected)) {
-            return BorderSide(color: accent, width: 1.5);
-          }
-          return BorderSide(color: Colors.white.withValues(alpha: 0.35));
-        }),
-        textStyle: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-          return TextStyle(
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w700
-                : FontWeight.w500,
-            color: states.contains(WidgetState.selected) ? accent : Colors.white,
-          );
+          final double a =
+              states.contains(WidgetState.selected) ? 0.95 : 0.45;
+          return BorderSide(color: _kAccentWaste.withValues(alpha: a));
         }),
       );
 
@@ -641,19 +639,6 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   ButtonStyle get _segmentedFuelAccent => _segmentedAccent(_kAccentFuel);
 
   ButtonStyle get _segmentedWaterAccent => _segmentedAccent(_kAccentWater);
-
-  /// Atık birimi: seçili = beyaz zemin (okunabilirlik).
-  ButtonStyle get _segmentedWasteAccent => _segmentedTabAccent(_kAccentWaste);
-
-  Widget _wasteSegmentLabel(String text, bool selected) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: selected ? _kAccentWaste : Colors.white,
-        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-      ),
-    );
-  }
 
   ButtonStyle get _wasteOutlinedButtonStyle => _outlinedWhiteOnGlass;
 
@@ -2610,45 +2595,18 @@ class _ConsumptionFormState extends State<ConsumptionForm>
               segments: [
                 ButtonSegment<_WasteInputUnit>(
                   value: _WasteInputUnit.kg,
-                  label: _wasteSegmentLabel(
-                    translate('waste_unit_kg', locale),
-                    selected == _WasteInputUnit.kg,
-                  ),
-                  icon: Icon(
-                    Icons.scale,
-                    size: 18,
-                    color: selected == _WasteInputUnit.kg
-                        ? _kAccentWaste
-                        : Colors.white,
-                  ),
+                  label: Text(translate('waste_unit_kg', locale)),
+                  icon: const Icon(Icons.scale, size: 18),
                 ),
                 ButtonSegment<_WasteInputUnit>(
                   value: _WasteInputUnit.tonnes,
-                  label: _wasteSegmentLabel(
-                    translate('waste_unit_tonnes', locale),
-                    selected == _WasteInputUnit.tonnes,
-                  ),
-                  icon: Icon(
-                    Icons.inventory_2,
-                    size: 18,
-                    color: selected == _WasteInputUnit.tonnes
-                        ? _kAccentWaste
-                        : Colors.white,
-                  ),
+                  label: Text(translate('waste_unit_tonnes', locale)),
+                  icon: const Icon(Icons.inventory_2, size: 18),
                 ),
                 ButtonSegment<_WasteInputUnit>(
                   value: _WasteInputUnit.grams,
-                  label: _wasteSegmentLabel(
-                    translate('waste_unit_g', locale),
-                    selected == _WasteInputUnit.grams,
-                  ),
-                  icon: Icon(
-                    Icons.pie_chart_outline,
-                    size: 18,
-                    color: selected == _WasteInputUnit.grams
-                        ? _kAccentWaste
-                        : Colors.white,
-                  ),
+                  label: Text(translate('waste_unit_g', locale)),
+                  icon: const Icon(Icons.pie_chart_outline, size: 18),
                 ),
               ],
               selected: {selected},

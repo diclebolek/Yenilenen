@@ -10,21 +10,14 @@ import '../models/consumption_entry.dart';
 import '../algorithms/calculation.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
-import '../services/live_emission_service.dart';
 import 'theme_independent_info_dialog.dart';
 
 /// Fatura tarama kartı widget'ı
 class BillScannerCard extends StatefulWidget {
-  const BillScannerCard({
-    super.key,
-    this.languageProvider,
-    this.onCalculated,
-  });
+  const BillScannerCard({super.key, this.languageProvider, this.onCalculated});
 
   final LanguageProvider? languageProvider;
-
-  /// OCR sonrası hesaplanan günlük kg CO₂e değeri (opsiyonel geri çağırım).
-  final ValueChanged<double>? onCalculated;
+  final void Function(double co2e)? onCalculated;
 
   @override
   State<BillScannerCard> createState() => _BillScannerCardState();
@@ -171,7 +164,7 @@ class _BillScannerCardState extends State<BillScannerCard> {
 
         // Karbon ayak izi hesapla
         final co2e = Calculation.calculateDailyEmission(billData);
-        LiveEmissionService.instance.publishManualSave(co2e);
+        // Dışarı bildirim
         widget.onCalculated?.call(co2e);
 
         setState(() {
