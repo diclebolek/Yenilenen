@@ -834,9 +834,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _initializeShelly() async {
-    debugPrint('🔌 Shelly başlatılıyor... IP: 192.168.137.57');
+    debugPrint('🔌 Shelly başlatılıyor... IP: 192.168.137.39');
     _apiService.initializeShelly(
-      deviceIp: '192.168.137.57',
+      deviceIp: '192.168.137.39',
       deviceId: _shellyDeviceId,
     );
     try {
@@ -855,12 +855,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         } else {
           debugPrint('❌ Shelly cihazına bağlanılamadı!');
           debugPrint('📋 Kontrol listesi:');
-          debugPrint('   1. IP adresi doğru mu? (192.168.137.57)');
+          debugPrint('   1. IP adresi doğru mu? (192.168.137.39)');
           debugPrint('   2. Cihaz aynı WiFi ağında mı?');
           debugPrint('   3. Cihaz çalışıyor mu? (LED ışığı yanıyor mu?)');
           debugPrint('   4. Firewall/Antivirus engelliyor olabilir');
           debugPrint(
-              '   5. Tarayıcıda http://192.168.137.57/status adresini açmayı deneyin');
+              '   5. Tarayıcıda http://192.168.137.39/status adresini açmayı deneyin');
         }
       } catch (checkError) {
         debugPrint('❌ Bağlantı kontrolü hatası: $checkError');
