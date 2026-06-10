@@ -78,6 +78,7 @@ class NotificationService {
     final android = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.requestNotificationsPermission();
+    await android?.requestExactAlarmsPermission();
 
     final ios = _notifications.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
@@ -219,7 +220,7 @@ class NotificationService {
           'Bugunun ESP+Shelly ozeti: ${cachedKg.toStringAsFixed(2)} kg CO2e (elektrik, su, dogalgaz).';
     } else {
       body =
-          'Bugun icin sensor verisi alinmadi. Raporlar sekmesinden cihaz baglantinizi kontrol edin.';
+          'Bugun icin sensor verisi alinmadi. Uygulamayi acip cihaz baglantinizi kontrol edin.';
     }
 
     await _notifications.zonedSchedule(
@@ -228,9 +229,17 @@ class NotificationService {
       body: body,
       scheduledDate: _nextInstanceOfTime(hour: _dailySummaryHour),
       notificationDetails: _notificationDetails(),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
       matchDateTimeComponents: DateTimeComponents.time,
     );
+  }
+
+  /// Uygulama acildiginda veya on plana geldiginde gun sonu bildirimini guncelle.
+  Future<void> refreshDailySensorSummarySchedule() async {
+    if (kIsWeb) return;
+    final settings = await loadPreferences();
+    if (!settings.dailySensorSummary) return;
+    await _scheduleDailySensorSummary();
   }
 
   Future<void> _scheduleWeeklyReport() async {

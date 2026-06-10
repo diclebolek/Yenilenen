@@ -151,7 +151,7 @@ class LiveEmissionService extends ChangeNotifier {
     try {
       final esp = await firebase.getLatestData('esp8266_001');
       if (esp != null) {
-        _espEntry = esp;
+        setEspEntry(esp);
       }
     } catch (_) {}
 
@@ -208,6 +208,16 @@ class LiveEmissionService extends ChangeNotifier {
     } catch (_) {
       syncEspGaugeFromLiveSensors();
     }
+    await refreshDailyNotificationSchedule();
+  }
+
+  Future<void> refreshDailyNotificationSchedule() async {
+    if (!_gaugeUseEspMode) return;
+    final kg = combinedLiveKgCo2e();
+    await NotificationService.instance.cacheAndScheduleDailySensorSummary(
+      kgCo2e: kg > 1e-9 ? kg : null,
+      sensorMode: true,
+    );
   }
 }
 

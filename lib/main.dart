@@ -19,6 +19,7 @@ import 'services/postgres_service.dart';
 import 'services/firebase_realtime_service.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_auth_service.dart';
+import 'services/live_emission_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -108,6 +109,23 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp>
     WidgetsBinding.instance.addObserver(this);
     _languageProvider.initialize();
     _loadThemePreference();
+    _restoreAuthSession();
+  }
+
+  /// Firebase oturumu cihazda kalıcıdır; uygulama yeniden açıldığında giriş durumunu geri yükle.
+  Future<void> _restoreAuthSession() async {
+    final auth = FirebaseAuthService.instance;
+    if (auth.currentUser != null) {
+      if (mounted) setState(() => _isLoggedIn = true);
+      return;
+    }
+    try {
+      final user = await auth.authStateChanges.first
+          .timeout(const Duration(seconds: 4));
+      if (user != null && mounted) {
+        setState(() => _isLoggedIn = true);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -121,6 +139,14 @@ class _CarbonFootprintAppState extends State<CarbonFootprintApp>
     if (_themeMode == ThemeMode.system) {
       setState(() {});
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (kIsWeb || state != AppLifecycleState.resumed) return;
+    LiveEmissionService.instance
+        .refreshDailyNotificationSchedule()
+        .catchError((_) {});
   }
 
   Future<void> _loadThemePreference() async {
