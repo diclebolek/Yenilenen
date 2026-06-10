@@ -877,8 +877,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (context, constraints) {
                     final bool isWide = constraints.maxWidth >= 900;
                     final double tipsCarouselHeight =
-                        (MediaQuery.of(context).size.height * 0.26)
-                            .clamp(230.0, 330.0);
+                        (MediaQuery.of(context).size.height * 0.28)
+                            .clamp(300.0, 420.0);
                     if (isWide) {
                       // Geniş ekran: horizontal slider, tek satırda kaydırılabilir
                       _tipsControllerWeb ??=

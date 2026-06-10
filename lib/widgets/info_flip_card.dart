@@ -46,10 +46,14 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
             constraints.maxWidth.isFinite && constraints.maxWidth > 0
                 ? constraints.maxWidth
                 : 320.0;
+        final double cardHeight =
+            constraints.maxHeight.isFinite && constraints.maxHeight > 0
+                ? constraints.maxHeight
+                : 168.0;
 
-        Widget front = Container(
+        Widget front = SizedBox(
           width: cardWidth,
-          constraints: const BoxConstraints(minHeight: 120),
+          height: cardHeight,
           child: Card(
             color: cardColor,
             surfaceTintColor: cardColor,
@@ -85,6 +89,7 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                       widget.frontSummary,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onPrimary.withValues(alpha: 0.9),
+                            height: 1.4,
                           ),
                     ),
                     const SizedBox(height: 8),
@@ -119,9 +124,9 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
           ),
         );
 
-        Widget back = Container(
+        Widget back = SizedBox(
           width: cardWidth,
-          constraints: const BoxConstraints(minHeight: 120),
+          height: cardHeight,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: BackdropFilter(
@@ -153,13 +158,19 @@ class _InfoFlipCardState extends State<InfoFlipCard> {
                               ?.copyWith(color: Colors.white),
                         ),
                         const SizedBox(height: 6),
-                        Text(
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Text(
                           widget.backDetails,
                           style:
                               Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     color: Colors.white.withValues(alpha: 0.95),
+                                    height: 1.45,
                                   ),
                         ),
+                      ),
+                    ),
                       ],
                     ),
                   ),

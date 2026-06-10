@@ -13,30 +13,33 @@ const Map<String, String> trTranslations = {
   'energy_tips': 'Enerji ve Çevre İpuçları',
   'see_all': 'Tümünü Gör',
   'lighting': 'Aydınlatma',
-  'lighting_tip': 'LED\'e geçin ve kullanılmayan ışıkları kapatın.',
+  'lighting_tip':
+      'Tüm aydınlatmayı LED\'e çevirin; kullanılmayan alanlarda ışıkları kapatın ve gün ışığından mümkün olduğunca yararlanın. Gece güvenlik aydınlatması dışında dekoratif spotları mesai bitiminde kapatmak aylık elektrik faturasını belirgin düşürür. Müşteri bekleme alanlarında gereğinden yüksek lümen kullanmayın; konfor için yönlendirilmiş, düşük wattlı armatürler yeterlidir. Sensör ve zamanlayıcı yatırımı kısa sürede kendini amorti eder.',
   'lighting_details':
-      'LED ampuller %75\'e kadar daha az enerji tüketir ve 25x daha uzun ömürlüdür. Periyodik kontrol yapın.',
+      'LED ampuller, halojen ve akkor lambalara göre %75\'e kadar daha az enerji tüketir ve yaklaşık 25 kat daha uzun ömürlüdür. Sensörlü ve zamanlayıcılı armatürler boş odalarda, depolarda ve tuvaletlerde gereksiz tüketimi otomatik keser. Periyodik armatür temizliği yapın; tozlu lambalar aynı parlaklık için daha fazla güç çeker. Müşteri alanlarında doğal ışığı artırmak hem konforu hem verimliliği yükseltir. Renk sıcaklığını (2700–4000K) alan kullanımına göre seçmek göz yorgunluğunu azaltır ve gereksiz parlaklığı önler. Acil aydınlatma ve çıkış yönlendirme sistemlerini yılda en az bir kez test edin. Aydınlatma devrelerini Shelly veya benzeri akıllı prizlerle izleyerek gece tüketim sızıntılarını tespit edebilirsiniz.',
   'hvac': 'HVAC',
-  'hvac_tip': 'Soğutma 24°C / Isıtma 20°C seviyelerinde tutun.',
+  'hvac_tip':
+      'Soğutmayı 24°C, ısıtmayı 20°C civarında tutun; kapı ve pencere açıkken klima çalıştırmayın. Mesai dışı saatlerde programlı kapatma, gece modu ve periyodik filtre temizliği hem konforu korur hem elektrik tüketimini düşürür. Yoğun müşteri saatlerinde kapı açılıp kapanıyorsa hava perdesi veya antre bölmesi kullanın. Yazın güneş alan cephelerde stor ve perde kullanmak soğutma yükünü hafifletir.',
   'hvac_details':
-      'Her 1°C değişim enerji kullanımını yaklaşık %3–5 etkileyebilir. Filtreleri aylık temizleyin.',
+      'Her 1°C\'lik sapma enerji kullanımını yaklaşık %3–5 artırabilir veya azaltabilir; yazın termostatı 1°C yükseltmek aylık ciddi tasarruf sağlar. Filtreleri ayda bir temizleyin, sezon başında profesyonel bakım yaptırın; kirli filtre fanı zorlar, verimi düşürür ve CO₂ salınımını artırır. Perde, raf, kolt ve ekipmanların klima üfleme kanallarını kapatmadığından emin olun. Kışın gece dışarıdan gelen soğuğu sınırlamak ısıtmayı hafifletir. Nem kontrolü (nem alma cihazı veya uygun havalandırma) soğutma ihtiyacını azaltabilir. VRF/split sistemlerde uzaktan izleme ile anormal tüketim uyarısı alın. Personeli “kısa süreli açık kapı” kuralı konusunda bilinçlendirmek HVAC kayıplarını önemli ölçüde düşürür.',
   'logistics': 'Lojistik',
-  'logistics_tip': 'Sevkiyatları birleştirerek yolculukları azaltın.',
+  'logistics_tip':
+      'Teslimat ve tedarik seferlerini birleştirerek boş dönüşleri azaltın; aynı bölgeye giden siparişleri tek rotada toplayın. Haftalık sevkiyat takvimi veya rota planlama yazılımı yakıt, zaman ve emisyonu birlikte düşürür. Araç yüklemesini optimize edin; yarım dolu seferler hem maliyet hem karbon açısından verimsizdir. Mümkün olduğunda yerel tedarikçilerle çalışarak taşıma mesafesini kısaltın.',
   'logistics_details':
-      'Rotalama ve konsolidasyon yakıt tüketimini ve emisyonları belirgin şekilde azaltabilir.',
+      'Konsolidasyon ve rota optimizasyonu yakıt tüketimini ve emisyonları belirgin şekilde azaltabilir. Araç bakımını aksatmayın; düşük lastik basıncı, kirli hava filtresi ve gecikmiş yağ değişimi tüketimi artırır. Soğuk zincir gerektiren ürünlerde dolu kapasiteyle gidiş-dönüş planlamak israfı azaltır. Sürücülere yumuşak hızlanma, sabit hız ve rölanti süresini kısaltma eğitimi verin. Palet ve koli geri dönüşüm programı hem maliyet hem atık açısından fayda sağlar. Aylık km ve litre tüketimini kayıt altına alarak verimsiz rotaları tespit edin. Elektrikli veya hibrit hafif ticari araçları kısa mesafe dağıtımda değerlendirin. Tedarikçilerle “toplu teslimat penceresi” anlaşması yapmak trafikte bekleme süresini azaltır.',
   'water_saving_tip':
-      'Sızıntıları kontrol edin ve su kullanımını optimize edin.',
+      'Musluk, tuvalet ve boru sızıntılarını düzenli kontrol edin; kapanış sonrası kısa bir su hattı turu yapın. Düşük akışlı duş başlığı, perlatör ve musluk uçları su faturasını ve su ısıtma enerjisini birlikte düşürür. Yıkama sonrası muslukları açık bırakmama alışkanlığı küçük işletmelerde bile ciddi tasarruf sağlar. Su sayacını aylık okuyarak ani tüketim artışlarını erken yakalayın.',
   'water_saving_details':
-      'Damlayan musluklar günde 20 litre su israf edebilir. Düşük akışlı armatürler kullanarak %30\'a kadar tasarruf sağlayabilirsiniz.',
+      'Damlayan musluk günde 20 litreye kadar, gizli sızıntılar ise haftalarca fark edilmeden yüzlerce litre su israf edebilir. Düşük akışlı armatürlerle %30\'a varan tasarruf mümkündür. Berber ve kuaför işletmelerinde şampuanlama öncesi kısa durulama, otomatik musluk ve su geri kazanımı (uygunsa) önemli fark yaratır. Sıcak su tüketimi doğrudan elektrik veya doğalgaz emisyonuna bağlıdır; ısıtıcı sıcaklığını gereğinden yüksek tutmayın. Gece vardiyası sonrası ana vanayı kapatma prosedürü acil durumlar dışında sızıntı riskini azaltır. Yağmur suyu toplama (bahçe sulama vb.) mümkünse ek tasarruf sağlar. Personeli “tam yükte çamaşır makinesi” ve “kısa duş” gibi basit kurallarla bilinçlendirin. Su faturalarını uygulamadaki manuel kayıt veya sensör verileriyle karşılaştırarak tutarsızlıkları izleyin.',
   'waste_reduction_tip':
-      'Geri dönüşümü artırın ve tek kullanımlık ürünlerden kaçının.',
+      'Kağıt, plastik, cam, metal ve organik atıkları kaynağında ayırın; tek kullanımlık bardak, peçete ve ambalaj yerine tekrar kullanılabilir alternatifler tercih edin. Atık azaltma hem çevresel etkiyi hem bertaraf maliyetini düşürür. Satın alırken büyük ambalaj ve refill seçeneklerini değerlendirin. Müşterilere dijital fiş ve randevu hatırlatması sunarak kağıt tüketimini azaltın.',
   'waste_reduction_details':
-      'Atıkların %60\'ı geri dönüştürülebilir. Kompostlama ve kaynak ayrıştırma ile karbon ayak izinizi önemli ölçüde azaltabilirsiniz.',
+      'Atıkların büyük bölümü geri dönüştürülebilir; kompostlama organik atık hacmini ve çöp taşıma maliyetini azaltır. Renkli geri dönüşüm kutularını personelin erişebileceği noktalara yerleştirin ve haftalık boşaltma rutini oluşturun. Tehlikeli atık (boya, kimyasal, pil, floresan) için lisanslı toplayıcılarla çalışın; karışık atık ceza ve çevresel risk doğurur. Aylık atık tartımı yaparak hangi malzemenin en çok biriktiğini görün ve tedarik politikanızı güncelleyin. Karton ve plastik sıkıştırma makinesi hacim azaltır. Tek kullanımlık havlu yerine yıkanabilir alternatifler uzun vadede hem maliyet hem atık açısından avantajlıdır. Atık azaltma hedefini yeşil skor ve personel eğitimiyle birleştirmek sürdürülebilir alışkanlık oluşturur. Geri dönüşüm oranınızı raporlayarak müşterilerinize şeffaf sürdürülebilirlik mesajı verebilirsiniz.',
   'transportation': 'Ulaşım',
   'transportation_tip':
-      'Toplu taşıma kullanın ve araç paylaşımını tercih edin.',
+      'Kısa mesafelerde yürüyüş veya bisikleti; günlük işe geliş-gidişte toplu taşıma, metro veya araç paylaşımını tercih edin. Servis aracı rotalarını haftalık gözden geçirerek gereksiz km\'leri azaltın. Toplantılar için mümkün olduğunda video konferans kullanın. Araç bakımını aksatmayın; düşük lastik basıncı yakıt tüketimini artırır.',
   'transportation_details':
-      'Toplu taşıma kullanmak kişi başına emisyonları %45\'e kadar azaltabilir. Yürüme ve bisiklet kullanımı sıfır emisyon sağlar.',
+      'Toplu taşıma kişi başına emisyonları %45\'e kadar düşürebilir; yürüme ve bisiklet sıfır emisyon sağlar. Düzenli motor bakımı, doğru lastik basıncı, hafif gövde yükü ve ani hızlanmadan kaçınmak yakıt tüketimini belirgin azaltır. Elektrikli veya hibrit filo seçeneklerini kısa mesafe dağıtımda değerlendirin. Sürücülere eco-driving eğitimi verin: sabit hız, erken vites, rölanti kesme. İş seyahatlerinde tren tercih etmek uçuşa göre çok daha düşük emisyonludur. Personel için bisiklet park alanı ve toplu taşıma desteği teşvik edici olabilir. Aylık km ve yakıt kaydı tutarak verimsiz rotaları tespit edin. Müşteri ziyaretlerini coğrafi olarak gruplayarak aynı günde birden fazla randevu planlayın. Karbon ayak izi uygulamanızdaki manuel ulaşım kayıtlarıyla gerçek tüketimi karşılaştırarak hedef koyun.',
   'tree_donation': 'Ağaç Bağışı Yap',
   'greenpeace_turkey': 'Greenpeace Türkiye',
   'akut_foundation': 'AKUT Vakfı',
@@ -505,27 +508,33 @@ const Map<String, String> enTranslations = {
   'energy_tips': 'Energy and Environment Tips',
   'see_all': 'See All',
   'lighting': 'Lighting',
-  'lighting_tip': 'Switch to LED and turn off unused lights.',
+  'lighting_tip':
+      'Switch to LED lighting, turn off unused lights, and use daylight whenever possible. Turning off decorative spots after closing hours can noticeably cut your monthly electricity bill. Avoid over-lighting waiting areas—directed, low-watt fixtures are enough for comfort. Sensors and timers typically pay for themselves quickly.',
   'lighting_details':
-      'LED bulbs consume up to 75% less energy and last 25x longer. Perform periodic checks.',
+      'LED bulbs use up to 75% less energy than halogen or incandescent bulbs and last about 25 times longer. Motion sensors and timers automatically cut waste in empty rooms, storage, and restrooms. Clean fixtures regularly—dusty lamps need more power for the same brightness. More daylight in customer areas improves both comfort and efficiency. Choose color temperature (2700–4000K) by use case to reduce eye strain and unnecessary brightness. Test emergency and exit lighting at least once a year. Monitor circuits with smart plugs to spot overnight consumption leaks.',
   'hvac': 'HVAC',
-  'hvac_tip': 'Keep cooling at 24°C / heating at 20°C levels.',
+  'hvac_tip':
+      'Keep cooling around 24°C and heating around 20°C; never run HVAC with doors or windows open. Scheduled shutdown, night mode, and monthly filter cleaning maintain comfort while lowering electricity use. Use air curtains or an entry zone when doors open frequently during peak hours. Blinds on sunny facades in summer reduce cooling load.',
   'hvac_details':
-      'Every 1°C change can affect energy usage by approximately 3-5%. Clean filters monthly.',
+      'Each 1°C deviation can raise or lower energy use by roughly 3–5%; raising the thermostat 1°C in summer saves significantly each month. Clean filters monthly and schedule professional service at season start—dirty filters strain fans, cut efficiency, and increase CO₂. Keep shelves and equipment from blocking vents. Limit heat loss at night in winter. Humidity control (dehumidifier or proper ventilation) can reduce cooling demand. Remote monitoring on VRF/split systems helps catch abnormal use. Staff training on “short door open” rules cuts HVAC losses substantially.',
   'logistics': 'Logistics',
-  'logistics_tip': 'Reduce trips by consolidating shipments.',
+  'logistics_tip':
+      'Combine deliveries and supply runs to cut empty return trips; group orders to the same area on one route. A weekly shipping calendar or route software reduces fuel, time, and emissions together. Optimize vehicle loading—half-full trips are costly in both money and carbon. Prefer local suppliers when possible to shorten transport distance.',
   'logistics_details':
-      'Routing and consolidation can significantly reduce fuel consumption and emissions.',
-  'water_saving_tip': 'Check for leaks and optimize water usage.',
+      'Consolidation and route optimization can significantly cut fuel use and emissions. Keep vehicles maintained—low tire pressure, dirty air filters, and overdue oil changes increase consumption. For cold-chain goods, plan full-capacity round trips to reduce waste. Train drivers on smooth acceleration, steady speed, and shorter idling. Pallet and box return programs help cost and waste. Log monthly km and liters to spot inefficient routes. Consider electric or hybrid light commercial vehicles for short delivery runs. Agree delivery time windows with suppliers to cut waiting in traffic.',
+  'water_saving_tip':
+      'Check taps, toilets, and pipes for leaks regularly; do a quick water-line walkthrough after closing. Low-flow shower heads, aerators, and tap inserts lower both water bills and water-heating energy. Closing taps after washing saves noticeably even in small businesses. Read the water meter monthly to catch sudden spikes early.',
   'water_saving_details':
-      'Dripping taps can waste 20 liters of water per day. Using low-flow fixtures can save up to 30%.',
-  'waste_reduction_tip': 'Increase recycling and avoid single-use products.',
+      'A dripping tap can waste up to 20 liters per day; hidden leaks can waste hundreds of liters unnoticed for weeks. Low-flow fixtures can save up to 30%. In salons, short pre-rinse, automatic taps, and water reuse (where safe) make a real difference. Hot water use ties directly to electricity or gas emissions—do not keep heaters hotter than needed. A closing procedure to shut the main valve (except emergencies) reduces leak risk overnight. Rainwater harvesting (e.g. garden watering) can add savings where allowed. Train staff on simple rules like full laundry loads and shorter rinses. Compare bills with app manual entries or sensor data to track inconsistencies.',
+  'waste_reduction_tip':
+      'Separate paper, plastic, glass, metal, and organic waste at source; choose reusable options instead of single-use cups, towels, and packaging. Waste reduction lowers environmental impact and disposal costs. Prefer bulk and refill packaging when purchasing. Offer digital receipts and appointment reminders to cut paper use.',
   'waste_reduction_details':
-      '60% of waste is recyclable. Composting and source separation can significantly reduce your carbon footprint.',
+      'Most waste can be recycled; composting shrinks organic volume and collection costs. Place color-coded bins where staff can reach them and set a weekly emptying routine. Use licensed collectors for hazardous waste (paint, chemicals, batteries, fluorescent tubes). Weigh waste monthly to see what accumulates most and adjust purchasing. A compactor reduces volume for cardboard and plastic. Washable alternatives to disposable towels often win on cost and waste long term. Tie waste goals to green score and staff training for lasting habits. Reporting recycling rates gives customers a transparent sustainability message.',
   'transportation': 'Transportation',
-  'transportation_tip': 'Use public transport and prefer car sharing.',
+  'transportation_tip':
+      'Walk or cycle for short trips; use public transport, metro, or car sharing for daily commutes. Review service vehicle routes weekly to cut unnecessary kilometers. Use video meetings when possible instead of travel. Keep vehicles maintained—low tire pressure increases fuel use.',
   'transportation_details':
-      'Using public transport can reduce per-person emissions by up to 45%. Walking and cycling produce zero emissions.',
+      'Public transport can cut per-person emissions by up to 45%; walking and cycling are zero-emission. Regular engine service, correct tire pressure, lighter loads, and smooth driving noticeably reduce fuel use. Evaluate electric or hybrid fleet options for short delivery runs. Eco-driving training (steady speed, early gear changes, no long idling) helps. Trains often beat flights for business travel emissions. Bike parking and transit incentives can encourage staff. Log monthly km and fuel to find inefficient routes. Group customer visits geographically for multiple appointments same day. Compare manual transport logs in your carbon app with actual use to set realistic targets.',
   'tree_donation': 'Make Tree Donation',
   'greenpeace_turkey': 'Greenpeace Turkey',
   'akut_foundation': 'AKUT Foundation',
