@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui' show ImageFilter;
 import 'dart:math' as math;
@@ -62,6 +61,83 @@ double? _parseLocaleDouble(String raw) {
   return double.tryParse(t);
 }
 
+/// Hızlı ayar kaydırıcısı — Material 3'te iz kaybolmasını önlemek için altta sabit çubuk.
+class _QuickSetSlider extends StatelessWidget {
+  const _QuickSetSlider({
+    required this.value,
+    required this.max,
+    required this.divisions,
+    required this.onChanged,
+  });
+
+  final double value;
+  final double max;
+  final int divisions;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final trackColor = AppTheme.infoDialogForeground;
+    final inactiveColor = trackColor.withValues(alpha: 0.28);
+    final clamped = value.clamp(0.0, max);
+    final fraction = max > 0 ? (clamped / max).clamp(0.0, 1.0) : 0.0;
+
+    return SizedBox(
+      height: 44,
+      width: double.infinity,
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: SizedBox(
+                height: 10,
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ColoredBox(color: inactiveColor),
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: fraction,
+                      child: ColoredBox(color: trackColor),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 10,
+              activeTrackColor: Colors.transparent,
+              inactiveTrackColor: Colors.transparent,
+              disabledActiveTrackColor: Colors.transparent,
+              disabledInactiveTrackColor: Colors.transparent,
+              thumbColor: trackColor,
+              overlayColor: WidgetStateColor.resolveWith(
+                (states) => trackColor.withValues(
+                  alpha: states.contains(WidgetState.pressed) ? 0.22 : 0.12,
+                ),
+              ),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
+              trackShape: const RoundedRectSliderTrackShape(),
+            ),
+            child: Slider(
+              value: clamped,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Şablon satırı — hedef ekleme diyaloğu için (tema ile uyumlu chip seçimi).
 class _GoalAddTemplate {
   const _GoalAddTemplate({
@@ -86,6 +162,17 @@ class _GoalAddTemplate {
 
 /// [ReportsScreen] E/M toggle ile aynı anahtar (SharedPreferences).
 const String _kPrefsReportsUseEspData = 'prefs_reports_use_esp_data';
+const String _kGreenScoreFreshStartKey = 'gs_fresh_start_jun2026_v2';
+
+Map<String, bool> _defaultGreenScoreBadges() => {
+      'environment_friendly': false,
+      'energy_saving': false,
+      'water_protector': false,
+      'goal_master': false,
+      'eco_warrior': false,
+    };
+
+int _greenScoreLevel(int score) => (score ~/ 100) + 1;
 
 /// Günlük emisyon üst sınırı (Shelly/ESP sıçramalarını ay sonu tahminine taşımamak için).
 const double _kMaxPlausibleDailyKgCo2e = 80.0;
@@ -190,17 +277,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// Haftalık yürüyüş km toplamı (Pazartesi 00:00’tan itibaren).
   double _weekWalkKmTotal = 0;
   bool _weekWalkBonusClaimed = false;
-  Map<String, bool> _badges = {
-    'environment_friendly': false,
-    'energy_saving': false,
-    'water_protector': false,
-    'goal_master': false,
-    'eco_warrior': false,
-  };
+  Map<String, bool> _badges = _defaultGreenScoreBadges();
   StreamSubscription<int>? _greenScoreSubscription;
   StreamSubscription<List<Map<String, dynamic>>>? _goalsSubscription;
   StreamSubscription<ConsumptionEntry?>? _consumptionSubscription;
   StreamSubscription<Map<String, bool>>? _badgesSubscription;
+  bool _earnPointsDialogOpen = false;
+  SharedPreferences? _prefs;
 
   String? get _userId => _authService.currentUser?.uid;
 
@@ -208,6 +291,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
   void initState() {
     super.initState();
     _liveEmission.addListener(_onLiveGaugeUpdated);
+    unawaited(
+      SharedPreferences.getInstance().then((prefs) {
+        if (mounted) setState(() => _prefs = prefs);
+      }),
+    );
     _loadData();
   }
 
@@ -218,6 +306,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   Future<void> _loadData() async {
+    await _resetGreenScoreProgressIfNeeded();
+
     if (_userId == null) {
       await _refreshWeeklyWalkState();
       await _refreshPrediction();
@@ -803,9 +893,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final elapsedDays = now.day.clamp(1, daysInMonth);
     final remainingDays = (daysInMonth - elapsedDays).clamp(0, daysInMonth);
     const paceEps = 1e-9;
-    final hasForecastBasis = dailyKg > paceEps;
-    final projectedMonthEnd = dailyKg * daysInMonth.toDouble();
-    final isOnTrack = !hasForecastBasis || projectedMonthEnd <= targetMonthEndKg;
+    final clampedDaily = _clampPlausibleDailyKg(dailyKg);
+    final hasForecastBasis = clampedDaily > paceEps;
+    final projectedMonthEnd = hasForecastBasis
+        ? clampedDaily * elapsedDays + clampedDaily * remainingDays
+        : 0.0;
+    final isOnTrack =
+        !hasForecastBasis || projectedMonthEnd <= targetMonthEndKg;
     final gaugeEfficiency = !hasForecastBasis
         ? 0.0
         : math.min(1.0, targetMonthEndKg / math.max(projectedMonthEnd, paceEps));
@@ -813,11 +907,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return MonthlyPrediction(
       projectedMonthEndKg: projectedMonthEnd,
       targetMonthEndKg: targetMonthEndKg,
-      currentAverageKgPerDay: dailyKg,
+      currentAverageKgPerDay: clampedDaily,
       daysElapsed: elapsedDays,
       daysInMonth: daysInMonth,
       remainingDays: remainingDays,
       isOnTrack: isOnTrack,
+      isLowConfidence: true,
       trackMessage: !hasForecastBasis
           ? (isTr
               ? 'Tahmin için sensör veya manuel veri bekleniyor.'
@@ -906,7 +1001,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           liveKg = _liveEmission.combinedLiveKgCo2e();
         }
         if (liveKg > paceEps) {
-          dailyTotals[today] = liveKg;
+          dailyTotals[today] = _clampPlausibleDailyKg(liveKg);
         }
       }
 
@@ -917,20 +1012,25 @@ class _GoalsScreenState extends State<GoalsScreen> {
           .map(_clampPlausibleDailyKg)
           .toList();
 
-      final double est7 = _estimateDailyAverageFromSeries(last7);
+      final forecast = _computeMonthlyForecast(
+        dailyTotals: dailyTotals,
+        today: today,
+        elapsedDays: elapsedDays,
+        remainingDays: (daysInMonth - elapsedDays).clamp(0, daysInMonth),
+        last7: last7,
+        last30: last30,
+      );
 
-      final double estimatedDailyAverage = useEspSensorMode
-          ? (est7 > paceEps
-              ? est7
-              : _medianNonZeroDaily(last30))
-          : est7;
-      final double projectedMonthEnd =
-          estimatedDailyAverage * daysInMonth.toDouble();
-      final bool hasForecastBasis = estimatedDailyAverage > paceEps;
+      final double estimatedDailyAverage = forecast.dailyPaceKg;
+      final double projectedMonthEnd = forecast.projectedMonthEndKg;
+      final bool hasForecastBasis = forecast.hasForecastBasis;
+      final bool isLowConfidence = forecast.isLowConfidence;
 
-      final bool isOnTrack = targetMonthEndKg <= 0.0
+      final bool isOnTrack = !hasForecastBasis
           ? true
-          : projectedMonthEnd <= targetMonthEndKg;
+          : targetMonthEndKg <= 0.0
+              ? true
+              : projectedMonthEnd <= targetMonthEndKg;
       final int remainingDays =
           (daysInMonth - elapsedDays).clamp(0, daysInMonth);
 
@@ -958,13 +1058,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       final double userDaily = estimatedDailyAverage;
       final double diffWorldDaily = userDaily - worldDailyRefKg;
-      final bool worldRoughlyEqual = diffWorldDaily.abs() < 1e-6;
-      final bool isBetterThanWorld = !worldRoughlyEqual && diffWorldDaily < 0.0;
+      final bool worldRoughlyEqual = !hasForecastBasis ||
+          diffWorldDaily.abs() < 0.05;
+      final bool isBetterThanWorld =
+          hasForecastBasis && !worldRoughlyEqual && diffWorldDaily < 0.0;
       double worldDiffPct = 0.0;
-      if (worldDailyRefKg > 1e-9 && !worldRoughlyEqual) {
+      if (hasForecastBasis &&
+          worldDailyRefKg > 1e-9 &&
+          !worldRoughlyEqual) {
         worldDiffPct = (diffWorldDaily.abs() / worldDailyRefKg) * 100.0;
         if (!worldDiffPct.isFinite) worldDiffPct = 0.0;
-        worldDiffPct = worldDiffPct.clamp(0.0, 999.0);
+        worldDiffPct = worldDiffPct.clamp(0.0, 200.0);
       }
 
       final windowStart = today.subtract(const Duration(days: 13));
@@ -1045,13 +1149,44 @@ class _GoalsScreenState extends State<GoalsScreen> {
               : 'Daily pace is slightly above target; small efficiency gains help.')
           : 'Try powering down idle Shelly plugs overnight or updating manual logs to trim the forecast.';
 
-      final trendText = useEspSensorMode
+      final trendText = !hasForecastBasis
           ? (isTr
-              ? 'Son 30 güne kadar veri; E modunda ESP + Shelly ile uyumlu günlük ortalama.'
-              : 'Up to 30 days of data; daily pace aligned with E mode (ESP + Shelly).')
-          : (isTr
-              ? 'Son 7 gün (Manuel + ESP + Shelly) üzerinden tahmin.'
-              : 'Forecast from last 7 days (Manual + ESP + Shelly).');
+              ? 'Henüz yeterli günlük veri yok.'
+              : 'Not enough daily data yet.')
+          : isLowConfidence
+              ? (isTr
+                  ? 'Bu ay ${forecast.daysWithDataInMonth} günlük kayıt; tahmin kabaca gösteriliyor.'
+                  : 'Only ${forecast.daysWithDataInMonth} day(s) this month; forecast is approximate.')
+              : useEspSensorMode
+                  ? (isTr
+                      ? 'Bu ay ${forecast.daysWithDataInMonth} günlük kayıt; E modu (ESP + Shelly) ile ay sonu tahmini.'
+                      : '${forecast.daysWithDataInMonth} day(s) this month; month-end forecast from E mode (ESP + Shelly).')
+                  : (isTr
+                      ? 'Bu ay ${forecast.daysWithDataInMonth} günlük kayıt; manuel + sensör verisiyle tahmin.'
+                      : '${forecast.daysWithDataInMonth} day(s) this month; forecast from manual + sensor data.');
+
+      String trackMessage;
+      if (!hasForecastBasis) {
+        trackMessage = isTr
+            ? 'Tahmin için sensör veya manuel veri bekleniyor.'
+            : 'Waiting for sensor or manual data for forecast.';
+      } else if (isLowConfidence) {
+        trackMessage = isOnTrack
+            ? (isTr
+                ? 'Az veriyle kabaca hedefe uygun görünüyor; veri arttıkça netleşir.'
+                : 'Looks roughly on track with limited data; forecast will refine.')
+            : (isTr
+                ? 'Az veri var; tahmin güvenilir değil, hedefi kaçırabilirsiniz.'
+                : 'Limited data; forecast is uncertain, goal may be missed.');
+      } else {
+        trackMessage = isOnTrack
+            ? (isTr
+                ? 'Bu gidişle hedefe ulaşırsın.'
+                : 'At this pace, you will reach the goal.')
+            : (isTr
+                ? 'Bu gidişle hedefe ulaşamazsın.'
+                : 'At this pace, you may miss the goal.');
+      }
 
       if (mounted) {
         setState(() {
@@ -1065,13 +1200,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
             daysInMonth: daysInMonth,
             remainingDays: remainingDays,
             isOnTrack: isOnTrack,
-            trackMessage: isOnTrack
-                ? (isTr
-                    ? 'Bu gidişle hedefe ulaşırsın.'
-                    : 'At this pace, you will reach the goal.')
-                : (isTr
-                    ? 'Bu gidişle hedefe ulaşamazsın.'
-                    : 'At this pace, you may miss the goal.'),
+            isLowConfidence: isLowConfidence,
+            trackMessage: trackMessage,
             impactSummary: trendText,
             gaugeEfficiency: gaugeEfficiency,
             worldDiffPercent: worldDiffPct,
@@ -1148,29 +1278,69 @@ class _GoalsScreenState extends State<GoalsScreen> {
       }
     }
 
-    final Map<DateTime, ConsumptionEntry> latestPerDay = {};
-    for (final e in sorted) {
-      final key = _dayKey(e.createdAt);
-      final current = latestPerDay[key];
-      if (current == null || e.createdAt.isAfter(current.createdAt)) {
-        latestPerDay[key] = e;
+    return totals;
+  }
+
+  /// Ay içi gerçek toplam + kalan günler için muhafazakâr günlük tempo.
+  ({
+    double monthToDateKg,
+    int daysWithDataInMonth,
+    double dailyPaceKg,
+    double projectedMonthEndKg,
+    bool hasForecastBasis,
+    bool isLowConfidence,
+  }) _computeMonthlyForecast({
+    required Map<DateTime, double> dailyTotals,
+    required DateTime today,
+    required int elapsedDays,
+    required int remainingDays,
+    required List<double> last7,
+    required List<double> last30,
+  }) {
+    const paceEps = 1e-9;
+    var monthToDateKg = 0.0;
+    var daysWithDataInMonth = 0;
+
+    for (int d = 1; d <= elapsedDays; d++) {
+      final day = DateTime(today.year, today.month, d);
+      final v = _clampPlausibleDailyKg(dailyTotals[day] ?? 0);
+      if (v > paceEps) {
+        monthToDateKg += v;
+        daysWithDataInMonth++;
       }
     }
-    for (final e in latestPerDay.values) {
-      final key = _dayKey(e.createdAt);
-      if ((totals[key] ?? 0) > 1e-9) continue;
-      final snap = ConsumptionEntry(
-        electricityKwh: 0,
-        waterCubicMeters: e.waterCubicMeters,
-        fuelLiters: e.fuelLiters,
-        wasteKg: e.wasteKg,
-        createdAt: e.createdAt,
-        fuelIsNaturalGasM3: e.fuelIsNaturalGasM3,
-      );
-      final kg = _clampPlausibleDailyKg(Calculation.calculateDailyEmission(snap));
-      if (kg > 1e-9) totals[key] = kg;
+
+    double dailyPaceKg = 0.0;
+    if (daysWithDataInMonth >= 2) {
+      dailyPaceKg = monthToDateKg / daysWithDataInMonth;
+    } else if (daysWithDataInMonth == 1) {
+      dailyPaceKg = monthToDateKg;
+    } else {
+      dailyPaceKg = _medianNonZeroDaily(last7);
+      if (dailyPaceKg <= paceEps) {
+        dailyPaceKg = _medianNonZeroDaily(last30);
+      }
+      if (dailyPaceKg <= paceEps) {
+        dailyPaceKg = _estimateDailyAverageFromSeries(last7);
+      }
     }
-    return totals;
+    dailyPaceKg = _clampPlausibleDailyKg(dailyPaceKg);
+
+    final hasForecastBasis =
+        monthToDateKg > paceEps || dailyPaceKg > paceEps;
+    final projectedMonthEndKg = hasForecastBasis
+        ? monthToDateKg + dailyPaceKg * remainingDays.toDouble()
+        : 0.0;
+    final isLowConfidence = daysWithDataInMonth < 2;
+
+    return (
+      monthToDateKg: monthToDateKg,
+      daysWithDataInMonth: daysWithDataInMonth,
+      dailyPaceKg: dailyPaceKg,
+      projectedMonthEndKg: projectedMonthEndKg,
+      hasForecastBasis: hasForecastBasis,
+      isLowConfidence: isLowConfidence,
+    );
   }
 
   double _medianNonZeroDaily(List<double> series) {
@@ -1250,9 +1420,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
       }
     } catch (_) {}
 
+    final espDaily = _espReadingsToDailyKgCo2e(espHistory);
+
     DateTime dayKey(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
-    final Map<DateTime, ConsumptionEntry> latestEsp = {};
     final Map<DateTime, ConsumptionEntry> latestManual = {};
     final Map<DateTime, double> shellyKwhByDay = {};
 
@@ -1263,26 +1434,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
           (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
     }
 
-    void pushLatest(
-      Map<DateTime, ConsumptionEntry> target,
-      ConsumptionEntry entry,
-    ) {
+    void pushLatestManual(ConsumptionEntry entry) {
       final key = dayKey(entry.createdAt);
-      final current = target[key];
+      final current = latestManual[key];
       if (current == null || entry.createdAt.isAfter(current.createdAt)) {
-        target[key] = entry;
+        latestManual[key] = entry;
       }
     }
 
-    for (final entry in espHistory) {
-      pushLatest(latestEsp, entry);
-    }
     for (final entry in manualHistory) {
-      pushLatest(latestManual, entry);
+      pushLatestManual(entry);
     }
 
     final allDays = <DateTime>{
-      ...latestEsp.keys,
+      ...espDaily.keys,
       ...latestManual.keys,
       ...shellyKwhByDay.keys,
     };
@@ -1290,26 +1455,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final totals = <DateTime, double>{};
     for (final day in allDays) {
       final manual = latestManual[day];
-      final esp = latestEsp[day];
-      final shellyKwh = shellyKwhByDay[day] ?? 0.0;
-
       if (manual != null) {
         totals[day] =
             _clampPlausibleDailyKg(Calculation.calculateDailyEmission(manual));
         continue;
       }
 
-      if (esp != null || shellyKwh > 1e-12) {
-        final combined = ConsumptionEntry(
-          electricityKwh: shellyKwh,
-          waterCubicMeters: esp?.waterCubicMeters ?? 0,
-          fuelLiters: esp?.fuelLiters ?? 0,
-          wasteKg: esp?.wasteKg ?? 0,
-          createdAt: day,
-          fuelIsNaturalGasM3: esp?.fuelIsNaturalGasM3 ?? true,
-        );
-        totals[day] =
-            _clampPlausibleDailyKg(Calculation.calculateDailyEmission(combined));
+      final espKg = espDaily[day] ?? 0.0;
+      final shellyKg = (shellyKwhByDay[day] ?? 0.0) *
+          Calculation.factorElectricityKgPerKwh;
+      if (espKg > 1e-12 || shellyKg > 1e-12) {
+        totals[day] = _clampPlausibleDailyKg(espKg + shellyKg);
       }
     }
     return totals;
@@ -1327,43 +1483,46 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   double _estimateDailyAverageFromSeries(List<double> series) {
-    final cleaned = series.map((e) => e.clamp(0.0, double.infinity)).toList();
-    final indexed =
-        cleaned.asMap().entries.where((entry) => entry.value > 0).toList();
-    if (indexed.isEmpty) return 0.0;
-    if (indexed.length == 1) return indexed.first.value;
+    final nz = series
+        .map(_clampPlausibleDailyKg)
+        .where((v) => v > 1e-9)
+        .toList();
+    if (nz.isEmpty) return 0.0;
+    if (nz.length == 1) return nz.first;
+    nz.sort();
+    final mid = nz.length ~/ 2;
+    return nz.length.isOdd
+        ? nz[mid]
+        : (nz[mid - 1] + nz[mid]) / 2.0;
+  }
 
-    final tail = indexed.skip(math.max(0, indexed.length - 3)).toList();
-    final weights = tail.length == 1
-        ? const [1.0]
-        : tail.length == 2
-            ? const [0.4, 0.6]
-            : const [0.2, 0.3, 0.5];
-    double weighted = 0;
-    double totalWeight = 0;
-    for (int i = 0; i < tail.length; i++) {
-      weighted += tail[i].value * weights[i];
-      totalWeight += weights[i];
+  Future<void> _resetGreenScoreProgressIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_kGreenScoreFreshStartKey) == true) return;
+
+    final uid = _userId ?? 'guest';
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith('gs_') && key.contains(uid)) {
+        await prefs.remove(key);
+      }
     }
-    final weightedAvg =
-        totalWeight > 0 ? (weighted / totalWeight) : tail.last.value;
 
-    final xs = indexed.map((e) => e.key.toDouble()).toList();
-    final ys = indexed.map((e) => e.value).toList();
-    final xMean = xs.reduce((a, b) => a + b) / xs.length;
-    final yMean = ys.reduce((a, b) => a + b) / ys.length;
-    double numerator = 0;
-    double denominator = 0;
-    for (int i = 0; i < xs.length; i++) {
-      numerator += (xs[i] - xMean) * (ys[i] - yMean);
-      denominator += math.pow(xs[i] - xMean, 2).toDouble();
+    if (!mounted) return;
+    setState(() {
+      _greenScore = 0;
+      _badges = _defaultGreenScoreBadges();
+      _weekWalkKmTotal = 0;
+      _weekWalkBonusClaimed = false;
+    });
+
+    if (_userId != null) {
+      try {
+        await _firebaseService.saveGreenScore(_userId!, 0);
+        await _firebaseService.saveBadges(_userId!, _defaultGreenScoreBadges());
+      } catch (_) {}
     }
-    final slope = denominator == 0 ? 0.0 : numerator / denominator;
-    final intercept = yMean - slope * xMean;
-    final regressionNext = (intercept + slope * 7).clamp(0.0, double.infinity);
 
-    return ((weightedAvg * 0.7) + (regressionNext * 0.3))
-        .clamp(0.0, double.infinity);
+    await prefs.setBool(_kGreenScoreFreshStartKey, true);
   }
 
   Future<void> _awardPoints(int points) async {
@@ -1446,13 +1605,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
     required IconData icon,
     required _EnginePointKind kind,
   }) async {
+    if (_earnPointsDialogOpen || !mounted) return;
+    _earnPointsDialogOpen = true;
+
     final locale = widget.languageProvider?.currentLocale ?? const Locale('tr');
     final mult = _engineMultiplier(kind);
     final maxSlide = _engineSliderMax(kind);
-    final prefs = await SharedPreferences.getInstance();
     final uid = _userId ?? 'guest';
     final dayKey = DateTime.now().toIso8601String().split('T').first;
-    final savingsUsedToday = prefs.getBool('gs_sav_${uid}_$dayKey') ?? false;
+    final prefs = _prefs;
+    final savingsUsedToday =
+        prefs?.getBool('gs_sav_${uid}_$dayKey') ?? false;
     final savingsEligible = _userId != null &&
         _worldDailyRefKg > 0 &&
         _userDailyEmissionKg < _worldDailyRefKg - 1e-9;
@@ -1473,10 +1636,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final controller = TextEditingController();
     var sliderVal = 0.0;
 
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
+    try {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        useRootNavigator: true,
+        builder: (ctx) {
         // Bilgi (i) diyaloğu ile aynı: her zaman açık yeşil zemin + koyu yeşil metin.
         final ThemeData earnTheme = ThemeData(
           useMaterial3: true,
@@ -1667,34 +1833,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             ),
                           ),
                         ),
-                        child: SliderTheme(
-                          data: earnTheme.sliderTheme.copyWith(
-                            activeTrackColor: AppTheme.infoDialogForeground,
-                            inactiveTrackColor:
-                                AppTheme.infoDialogForeground.withValues(
-                              alpha: 0.45,
-                            ),
-                            trackHeight: 10,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 12,
-                            ),
-                          ),
-                          child: Slider(
-                            value: sliderVal.clamp(0.0, maxSlide),
-                            max: maxSlide,
-                            divisions:
-                                maxSlide <= 50 ? maxSlide.round() : 48,
-                            label: sliderVal.toStringAsFixed(1),
-                            onChanged: (v) {
-                              setLocal(() {
-                                sliderVal = v;
-                                controller.text =
-                                    kind == _EnginePointKind.recycle
-                                        ? v.toStringAsFixed(2)
-                                        : v.toStringAsFixed(1);
-                              });
-                            },
-                          ),
+                        child: _QuickSetSlider(
+                          value: sliderVal.clamp(0.0, maxSlide),
+                          max: maxSlide,
+                          divisions:
+                              maxSlide <= 50 ? maxSlide.round() : 48,
+                          onChanged: (v) {
+                            setLocal(() {
+                              sliderVal = v;
+                              controller.text =
+                                  kind == _EnginePointKind.recycle
+                                      ? v.toStringAsFixed(2)
+                                      : v.toStringAsFixed(1);
+                            });
+                          },
                         ),
                       ),
                       const SizedBox(height: 15),
@@ -1806,7 +1958,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
         );
       },
     );
-    controller.dispose();
+    } finally {
+      _earnPointsDialogOpen = false;
+      controller.dispose();
+    }
   }
 
   /// Rozet kontrolü yap ve gerekirse aç
@@ -2398,123 +2553,59 @@ class _GoalsScreenState extends State<GoalsScreen> {
                               // Seviye: kısa progress çubuğu solda, başlık yanında; altta özet + kutular
                               LayoutBuilder(
                                 builder: (context, constraints) {
-                                  final double barW = math
-                                      .min(
-                                        132.0,
-                                        constraints.maxWidth * 0.32,
-                                      )
-                                      .clamp(88.0, 132.0);
                                   final progressValue =
                                       ((_greenScore % 100) / 100).clamp(
                                     0.0,
                                     1.0,
                                   );
+                                  final level = _greenScoreLevel(_greenScore);
+                                  final trackBg = isDark
+                                      ? Colors.white.withValues(alpha: 0.18)
+                                      : AppTheme.infoDialogForeground
+                                          .withValues(alpha: 0.16);
                                   return Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
                                       Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
                                         children: [
-                                          SizedBox(
-                                            width: barW,
-                                            child: ClipRRect(
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
+                                                  .withValues(alpha: 0.18),
                                               borderRadius:
-                                                  BorderRadius.circular(10),
-                                              child:
-                                                  TweenAnimationBuilder<double>(
-                                                tween: Tween<double>(
-                                                  begin: 0.0,
-                                                  end: progressValue,
-                                                ),
-                                                duration: const Duration(
-                                                  milliseconds: 1000,
-                                                ),
-                                                curve: Curves.easeInOut,
-                                                builder:
-                                                    (context, value, child) {
-                                                  return Container(
-                                                    height: 12,
-                                                    decoration: BoxDecoration(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              10),
-                                                      color: Colors.white
-                                                          .withValues(
-                                                        alpha: 0.2,
-                                                      ),
-                                                    ),
-                                                    child: Stack(
-                                                      clipBehavior: Clip.none,
-                                                      children: [
-                                                        FractionallySizedBox(
-                                                          widthFactor: value,
-                                                          child: Container(
-                                                            decoration:
-                                                                BoxDecoration(
-                                                              borderRadius:
-                                                                  BorderRadius
-                                                                      .circular(
-                                                                          10),
-                                                              gradient:
-                                                                  LinearGradient(
-                                                                colors: [
-                                                                  Colors
-                                                                      .deepOrange
-                                                                      .shade800,
-                                                                  Colors
-                                                                      .deepOrange
-                                                                      .shade600,
-                                                                  Colors
-                                                                      .deepOrange
-                                                                      .shade500,
-                                                                ],
-                                                                begin: Alignment
-                                                                    .centerLeft,
-                                                                end: Alignment
-                                                                    .centerRight,
-                                                              ),
-                                                              boxShadow: [
-                                                                BoxShadow(
-                                                                  color: Colors
-                                                                      .deepOrange
-                                                                      .withValues(
-                                                                          alpha:
-                                                                              0.45),
-                                                                  blurRadius: 8,
-                                                                  spreadRadius:
-                                                                      1,
-                                                                ),
-                                                              ],
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                },
+                                                  BorderRadius.circular(20),
+                                              border: Border.all(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary,
+                                                width: 1.2,
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
                                             child: Text(
                                               translate(
-                                                'next_level',
+                                                'current_level',
                                                 locale,
+                                                params: {'level': '$level'},
                                               ),
                                               style: Theme.of(context)
                                                   .textTheme
                                                   .titleSmall
                                                   ?.copyWith(
-                                                    color: isDark
-                                                        ? Colors.white
-                                                        : Colors.black,
-                                                    fontWeight: FontWeight.w600,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .primary,
+                                                    fontWeight: FontWeight.w800,
                                                   ),
                                             ),
                                           ),
+                                          const Spacer(),
                                           Text(
                                             '${100 - (_greenScore % 100)} ${translate('points_to_go', locale)}',
                                             style: Theme.of(context)
@@ -2526,6 +2617,116 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                                 ),
                                           ),
                                         ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      ClipRRect(
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        child: TweenAnimationBuilder<double>(
+                                          tween: Tween<double>(
+                                            begin: 0.0,
+                                            end: progressValue,
+                                          ),
+                                          duration: const Duration(
+                                            milliseconds: 1000,
+                                          ),
+                                          curve: Curves.easeInOut,
+                                          builder: (context, value, child) {
+                                            return Container(
+                                              height: 12,
+                                              width: double.infinity,
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                color: trackBg,
+                                                border: Border.all(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primary
+                                                      .withValues(alpha: 0.35),
+                                                ),
+                                              ),
+                                              child: FractionallySizedBox(
+                                                alignment:
+                                                    Alignment.centerLeft,
+                                                widthFactor: value,
+                                                child: Container(
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            10),
+                                                    gradient: LinearGradient(
+                                                      colors: [
+                                                        Colors.deepOrange
+                                                            .shade800,
+                                                        Colors.deepOrange
+                                                            .shade600,
+                                                        Colors.deepOrange
+                                                            .shade500,
+                                                      ],
+                                                      begin: Alignment
+                                                          .centerLeft,
+                                                      end: Alignment
+                                                          .centerRight,
+                                                    ),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.deepOrange
+                                                            .withValues(
+                                                                alpha: 0.45),
+                                                        blurRadius: 8,
+                                                        spreadRadius: 1,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
+                                                  .withValues(alpha: 0.65),
+                                              width: 1.2,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            translate(
+                                              'next_level',
+                                              locale,
+                                              params: {
+                                                'level': '${level + 1}',
+                                              },
+                                            ),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleSmall
+                                                ?.copyWith(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primary,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                          ),
+                                        ),
                                       ),
                                       const SizedBox(height: 14),
                                       Row(
@@ -3687,6 +3888,7 @@ class MonthlyPrediction {
   final int daysInMonth;
   final int remainingDays;
   final bool isOnTrack;
+  final bool isLowConfidence;
   final String trackMessage;
   final String impactSummary;
   final double gaugeEfficiency;
@@ -3706,6 +3908,7 @@ class MonthlyPrediction {
     required this.daysInMonth,
     required this.remainingDays,
     required this.isOnTrack,
+    this.isLowConfidence = false,
     required this.trackMessage,
     required this.impactSummary,
     required this.gaugeEfficiency,
@@ -5243,15 +5446,15 @@ class _ActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final locale = context.watch<LanguageProvider>().currentLocale;
     final Color primary = Theme.of(context).colorScheme.primary;
-    return Tooltip(
-      message: '$label • $rateSubtitle',
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
             color: primary.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(12),
@@ -5262,7 +5465,6 @@ class _ActionChip extends StatelessWidget {
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
@@ -5272,28 +5474,44 @@ class _ActionChip extends StatelessWidget {
                 ),
                 child: Icon(
                   icon,
-                  size: 24,
+                  size: 22,
                   color: primary,
                 ),
               ),
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: primary.withValues(alpha: 0.45),
-                  ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.w700,
+                            height: 1.15,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      rateSubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: _goalsReadableOnCard(context, isDark),
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  translate('save', locale),
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                Icons.add_circle_outline,
+                size: 22,
+                color: primary,
               ),
             ],
           ),

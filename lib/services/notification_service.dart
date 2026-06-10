@@ -11,12 +11,14 @@ class NotificationPreferences {
     required this.monthlyReports,
     required this.goalReminders,
     required this.energyTips,
+    required this.dailySensorSummary,
   });
 
   final bool weeklyReports;
   final bool monthlyReports;
   final bool goalReminders;
   final bool energyTips;
+  final bool dailySensorSummary;
 }
 
 class NotificationService {
@@ -28,11 +30,16 @@ class NotificationService {
   static const String _monthlyKey = 'notifications_monthly_reports';
   static const String _goalKey = 'notifications_goal_reminders';
   static const String _tipsKey = 'notifications_energy_tips';
+  static const String _dailySensorKey = 'notifications_daily_sensor_summary';
+  static const String _cachedDailyKgKey = 'daily_sensor_summary_kg';
+  static const String _cachedDailyDateKey = 'daily_sensor_summary_date';
 
   static const int _weeklyId = 1001;
   static const int _monthlyId = 1002;
   static const int _goalId = 1003;
   static const int _tipsId = 1004;
+  static const int _dailySensorId = 1005;
+  static const int _dailySummaryHour = 21;
 
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
@@ -88,7 +95,37 @@ class NotificationService {
       monthlyReports: prefs.getBool(_monthlyKey) ?? true,
       goalReminders: prefs.getBool(_goalKey) ?? true,
       energyTips: prefs.getBool(_tipsKey) ?? true,
+      dailySensorSummary: prefs.getBool(_dailySensorKey) ?? true,
     );
+  }
+
+  /// ESP + Shelly günlük kg değerini önbelleğe alır; gün sonu bildirimini günceller.
+  Future<void> cacheAndScheduleDailySensorSummary({
+    required double? kgCo2e,
+    required bool sensorMode,
+  }) async {
+    if (kIsWeb) return;
+    final settings = await loadPreferences();
+    if (!settings.dailySensorSummary || !sensorMode) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now().toIso8601String().split('T').first;
+    if (kgCo2e != null && kgCo2e > 1e-9) {
+      await prefs.setDouble(_cachedDailyKgKey, kgCo2e);
+      await prefs.setString(_cachedDailyDateKey, today);
+    }
+    await _scheduleDailySensorSummary();
+  }
+
+  Future<void> setDailySensorSummaryEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_dailySensorKey, enabled);
+    if (kIsWeb) return;
+    if (enabled) {
+      await _scheduleDailySensorSummary();
+    } else {
+      await _notifications.cancel(id: _dailySensorId);
+    }
   }
 
   Future<void> setWeeklyReportsEnabled(bool enabled) async {
@@ -162,6 +199,38 @@ class NotificationService {
     } else {
       await _notifications.cancel(id: _tipsId);
     }
+
+    if (settings.dailySensorSummary) {
+      await _scheduleDailySensorSummary();
+    } else {
+      await _notifications.cancel(id: _dailySensorId);
+    }
+  }
+
+  Future<void> _scheduleDailySensorSummary() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedKg = prefs.getDouble(_cachedDailyKgKey);
+    final cachedDate = prefs.getString(_cachedDailyDateKey);
+    final today = DateTime.now().toIso8601String().split('T').first;
+
+    final String body;
+    if (cachedKg != null && cachedKg > 1e-9 && cachedDate == today) {
+      body =
+          'Bugunun ESP+Shelly ozeti: ${cachedKg.toStringAsFixed(2)} kg CO2e (elektrik, su, dogalgaz).';
+    } else {
+      body =
+          'Bugun icin sensor verisi alinmadi. Raporlar sekmesinden cihaz baglantinizi kontrol edin.';
+    }
+
+    await _notifications.zonedSchedule(
+      id: _dailySensorId,
+      title: 'Gunluk karbon ozeti',
+      body: body,
+      scheduledDate: _nextInstanceOfTime(hour: _dailySummaryHour),
+      notificationDetails: _notificationDetails(),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
   }
 
   Future<void> _scheduleWeeklyReport() async {

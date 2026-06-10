@@ -175,9 +175,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     return ButtonStyle(
       visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       padding: WidgetStateProperty.all(
         const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
+      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       foregroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
         return states.contains(WidgetState.selected) ? appGreen : unselectedFg;
       }),
@@ -195,11 +197,47 @@ class _ReportsScreenState extends State<ReportsScreen> {
         return BorderSide(color: Colors.white.withValues(alpha: 0.35));
       }),
       textStyle: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-        final base = Theme.of(context).textTheme.labelLarge;
-        return states.contains(WidgetState.selected)
-            ? base?.copyWith(fontWeight: FontWeight.w700, color: appGreen)
-            : base?.copyWith(fontWeight: FontWeight.w500);
+        return TextStyle(
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w700
+              : FontWeight.w500,
+          color: states.contains(WidgetState.selected) ? appGreen : unselectedFg,
+        );
       }),
+    );
+  }
+
+  /// Haftalık/aylık PDF butonları: şeffaf zemin + beyaz metin/ikon.
+  ButtonStyle _pdfExportButtonStyle() {
+    return FilledButton.styleFrom(
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
+      disabledBackgroundColor: Colors.transparent,
+      disabledForegroundColor: Colors.white.withValues(alpha: 0.45),
+      side: BorderSide(
+        color: Colors.white.withValues(alpha: 0.75),
+        width: 1,
+      ),
+      textStyle: const TextStyle(
+        fontWeight: FontWeight.w600,
+        color: Colors.white,
+      ),
+      iconColor: Colors.white,
+    );
+  }
+
+  Widget _pdfLangSegmentLabel(
+    String labelKey,
+    Locale locale,
+    bool selected,
+  ) {
+    const Color appGreen = AppTheme.lightPrimaryColor;
+    return Text(
+      translate(labelKey, locale),
+      style: TextStyle(
+        color: selected ? appGreen : Colors.white.withValues(alpha: 0.72),
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
     );
   }
 
@@ -613,33 +651,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
     bool showDataSourceIcon = true,
   }) {
     final isReal = isRealData ?? true;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 16,
-          height: 3,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          Container(
+            width: 16,
+            height: 3,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: labelStyle.copyWith(fontWeight: FontWeight.w500),
-        ),
-        if (showDataSourceIcon && isRealData != null) ...[
-          const SizedBox(width: 4),
-          Icon(
-            isReal ? Icons.check_circle : Icons.info_outline,
-            size: 12,
-            color: isReal
-                ? Colors.green.withValues(alpha: 0.8)
-                : Colors.orange.withValues(alpha: 0.8),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              style: labelStyle.copyWith(
+                fontWeight: FontWeight.w500,
+                fontSize: (labelStyle.fontSize ?? 12) - 0.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
+          if (showDataSourceIcon && isRealData != null) ...[
+            const SizedBox(width: 3),
+            Icon(
+              isReal ? Icons.check_circle : Icons.info_outline,
+              size: 11,
+              color: isReal
+                  ? Colors.green.withValues(alpha: 0.8)
+                  : Colors.orange.withValues(alpha: 0.8),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -654,6 +702,135 @@ class _ReportsScreenState extends State<ReportsScreen> {
       'İngiltere': Colors.teal,
     };
     return countryColors[countryName] ?? Colors.grey;
+  }
+
+  DateTime _trendWeekEndDay() {
+    final base = DateTime.now().subtract(Duration(days: _weekOffset * 7));
+    return DateTime(base.year, base.month, base.day);
+  }
+
+  int _trendDayIndexFromWeekEnd(DateTime entryDate, DateTime weekEndDay) {
+    final entryDay =
+        DateTime(entryDate.year, entryDate.month, entryDate.day);
+    final diff = weekEndDay.difference(entryDay).inDays;
+    if (diff < 0 || diff > 6) return -1;
+    return diff;
+  }
+
+  String _trendWeekdayLabelForChartIndex(int chartIndex, Locale locale) {
+    const keys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    final day = _trendWeekEndDay().subtract(Duration(days: 6 - chartIndex));
+    return translate(keys[day.weekday - 1], locale);
+  }
+
+  Widget _buildLegendSourceItem({
+    required Widget swatch,
+    required String label,
+    required TextStyle labelStyle,
+  }) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          swatch,
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              style: labelStyle.copyWith(
+                fontWeight: FontWeight.w500,
+                fontSize: (labelStyle.fontSize ?? 12) - 0.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCountryComparisonLegend({
+    required Locale locale,
+    required TextStyle labelStyle,
+    required bool showUserSeries,
+  }) {
+    final items = <Widget>[];
+    if (showUserSeries) {
+      items.add(
+        _buildLegendItem(
+          _weekOffset == -1
+              ? 'Sizin Verileriniz (tahmini)'
+              : 'Sizin Verileriniz',
+          Colors.pinkAccent,
+          labelStyle: labelStyle,
+        ),
+      );
+    }
+    for (final countryName in _countryTrends.keys) {
+      items.add(
+        _buildLegendItem(
+          countryName,
+          _getCountryColor(countryName),
+          labelStyle: labelStyle,
+          isRealData: _countryDataSources[countryName] ?? false,
+          showDataSourceIcon: false,
+        ),
+      );
+    }
+    items.add(
+      _buildLegendSourceItem(
+        swatch: Container(
+          width: 14,
+          height: 3,
+          decoration: BoxDecoration(
+            color: Colors.pinkAccent,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        label: translate('real_data', locale),
+        labelStyle: labelStyle,
+      ),
+    );
+    items.add(
+      _buildLegendSourceItem(
+        swatch: _legendDashedSwatch(Colors.orangeAccent, barHeight: 3),
+        label: translate('estimated_data', locale),
+        labelStyle: labelStyle,
+      ),
+    );
+
+    const columns = 3;
+    final rows = <Widget>[];
+    for (int i = 0; i < items.length; i += columns) {
+      final rowItems = items.sublist(
+        i,
+        i + columns > items.length ? items.length : i + columns,
+      );
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(bottom: i + columns < items.length ? 4 : 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              for (int c = 0; c < columns; c++)
+                Expanded(
+                  child: c < rowItems.length
+                      ? rowItems[c]
+                      : const SizedBox.shrink(),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    );
   }
 
   Future<void> _initializeShelly() async {
@@ -1123,7 +1300,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     setState(() => _isLoadingTrends = true);
     try {
       final now = DateTime.now().subtract(Duration(days: _weekOffset * 7));
-      final startDate = now.subtract(const Duration(days: 7));
+      final weekEndDay = DateTime(now.year, now.month, now.day);
+      final startDate = weekEndDay.subtract(const Duration(days: 7));
       final endDate = now;
       final userId = FirebaseAuthService.instance.currentUser?.uid;
 
@@ -1430,10 +1608,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       // Her veriyi kaynağına göre günlere ayır
       for (var entry in historyData) {
-        final difference = now.difference(entry.createdAt);
-        final dayIndex = difference.inDays;
+        final dayIndex = _trendDayIndexFromWeekEnd(entry.createdAt, weekEndDay);
 
-        if (dayIndex >= 0 && dayIndex < 7) {
+        if (dayIndex >= 0) {
           final timestamp = entry.createdAt.millisecondsSinceEpoch;
 
           if (espTimestamps.contains(timestamp)) {
@@ -3383,83 +3560,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                                                     double value,
                                                                                     TitleMeta meta,
                                                                                   ) {
-                                                                                    final axisDayStyle = subStyle;
-                                                                                    Widget text;
-                                                                                    switch (value.toInt()) {
-                                                                                      case 0:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'mon',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      case 1:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'tue',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      case 2:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'wed',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      case 3:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'thu',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      case 4:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'fri',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      case 5:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'sat',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      case 6:
-                                                                                        text = Text(
-                                                                                          translate(
-                                                                                            'sun',
-                                                                                            locale,
-                                                                                          ),
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
-                                                                                      default:
-                                                                                        text = Text(
-                                                                                          '',
-                                                                                          style: axisDayStyle,
-                                                                                        );
-                                                                                        break;
+                                                                                    final idx =
+                                                                                        value.round();
+                                                                                    if (idx < 0 ||
+                                                                                        idx >
+                                                                                            6) {
+                                                                                      return const SizedBox
+                                                                                          .shrink();
                                                                                     }
                                                                                     return SideTitleWidget(
-                                                                                      axisSide: meta.axisSide,
+                                                                                      axisSide: meta
+                                                                                          .axisSide,
                                                                                       space: 8,
-                                                                                      child: text,
+                                                                                      child: Text(
+                                                                                        _trendWeekdayLabelForChartIndex(
+                                                                                          idx,
+                                                                                          locale,
+                                                                                        ),
+                                                                                        style:
+                                                                                            subStyle,
+                                                                                      ),
                                                                                     );
                                                                                   },
                                                                                 ),
@@ -3689,115 +3809,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                         padding:
                                                             const EdgeInsets
                                                                 .only(
-                                                                top: 12,
-                                                                bottom: 8),
-                                                        child: Wrap(
-                                                          spacing: 16,
-                                                          runSpacing: 8,
-                                                          alignment:
-                                                              WrapAlignment
-                                                                  .center,
-                                                          children: [
-                                                            // Kullanıcının kendi verisi
-                                                            if ((_showGlobalTrend
-                                                                        ? _globalDailyTrends
-                                                                        : (_useEspData
-                                                                            ? _dailyEmissions
-                                                                            : _manualDailyEmissions))
-                                                                    .any((e) =>
-                                                                        e >
-                                                                        0) ||
-                                                                (_useEspData
-                                                                        ? _lastCalculatedKgCo2e
-                                                                        : _manualCalculatedKgCo2e) !=
-                                                                    null)
-                                                              _buildLegendItem(
-                                                                _weekOffset ==
-                                                                        -1
-                                                                    ? 'Sizin Verileriniz (tahmini)'
-                                                                    : 'Sizin Verileriniz',
-                                                                Colors
-                                                                    .pinkAccent,
-                                                                labelStyle:
-                                                                    subStyle,
-                                                              ),
-                                                            // Ülke verileri
-                                                            ..._countryTrends
-                                                                .keys
-                                                                .map(
-                                                              (countryName) =>
-                                                                  _buildLegendItem(
-                                                                countryName,
-                                                                _getCountryColor(
-                                                                    countryName),
-                                                                labelStyle:
-                                                                    subStyle,
-                                                                isRealData:
-                                                                    _countryDataSources[
-                                                                            countryName] ??
-                                                                        false,
-                                                                showDataSourceIcon:
-                                                                    false,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    // Veri kaynağı açıklaması
-                                                    if (_showCountryComparison &&
-                                                        !_showGlobalTrend &&
-                                                        _countryTrends
-                                                            .isNotEmpty)
-                                                      Padding(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .only(
-                                                                top: 4,
-                                                                bottom: 8),
-                                                        child: Row(
-                                                          mainAxisAlignment:
-                                                              MainAxisAlignment
-                                                                  .center,
-                                                          children: [
-                                                            Container(
-                                                              width: 14,
-                                                              height: 3,
-                                                              decoration:
-                                                                  BoxDecoration(
-                                                                color: Colors
-                                                                    .pinkAccent,
-                                                                borderRadius:
-                                                                    BorderRadius
-                                                                        .circular(
-                                                                            2),
-                                                              ),
-                                                            ),
-                                                            const SizedBox(
-                                                                width: 5),
-                                                            Text(
-                                                              translate(
-                                                                'real_data',
-                                                                locale,
-                                                              ),
-                                                              style: subStyle,
-                                                            ),
-                                                            const SizedBox(
-                                                                width: 14),
-                                                            _legendDashedSwatch(
-                                                              Colors
-                                                                  .orangeAccent,
-                                                              barHeight: 3,
-                                                            ),
-                                                            const SizedBox(
-                                                                width: 5),
-                                                            Text(
-                                                              translate(
-                                                                'estimated_data',
-                                                                locale,
-                                                              ),
-                                                              style: subStyle,
-                                                            ),
-                                                          ],
+                                                                top: 8,
+                                                                bottom: 4),
+                                                        child:
+                                                            _buildCountryComparisonLegend(
+                                                          locale: locale,
+                                                          labelStyle: subStyle,
+                                                          showUserSeries: (_showGlobalTrend
+                                                                      ? _globalDailyTrends
+                                                                      : (_useEspData
+                                                                          ? _dailyEmissions
+                                                                          : _manualDailyEmissions))
+                                                                  .any((e) =>
+                                                                      e > 0) ||
+                                                              (_useEspData
+                                                                      ? _lastCalculatedKgCo2e
+                                                                      : _manualCalculatedKgCo2e) !=
+                                                                  null,
                                                         ),
                                                       ),
                                                     const SizedBox(height: 16),
@@ -3823,7 +3851,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           alignment: Alignment
                                                               .centerLeft,
                                                           child: Text(
-                                                            'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: kg CO2e',
+                                                            'X ekseni: Son 7 gün (takvim günleri)  |  Y ekseni: kg CO2e',
                                                             style: subStyle,
                                                             textAlign:
                                                                 TextAlign.start,
@@ -3839,7 +3867,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                           alignment: Alignment
                                                               .centerLeft,
                                                           child: Text(
-                                                            'X ekseni: Son 7 gün (Pzt-Paz)  |  Y ekseni: normalize endeks (%)',
+                                                            'X ekseni: Son 7 gün (takvim günleri)  |  Y ekseni: normalize endeks (%)',
                                                             style: subStyle,
                                                             textAlign:
                                                                 TextAlign.start,
@@ -4196,58 +4224,68 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             style: subStyle,
                                           ),
                                           const SizedBox(height: 8),
-                                          SizedBox(
-                                            width: double.infinity,
-                                            child: SegmentedButton<String>(
-                                              multiSelectionEnabled: false,
-                                              showSelectedIcon: true,
-                                              selectedIcon: const Icon(
-                                                Icons.check_circle,
-                                                size: 18,
-                                              ),
-                                              segments: [
-                                                ButtonSegment<String>(
-                                                  value: 'tr',
-                                                  label: Text(
-                                                    translate(
-                                                      'pdf_lang_tr',
-                                                      locale,
-                                                    ),
+                                          Builder(
+                                            builder: (context) {
+                                              final selectedLang =
+                                                  _pdfExportLocaleSegmentSelection();
+                                              return SizedBox(
+                                                width: double.infinity,
+                                                child: SegmentedButton<String>(
+                                                  multiSelectionEnabled: false,
+                                                  emptySelectionAllowed: false,
+                                                  showSelectedIcon: true,
+                                                  selectedIcon: const Icon(
+                                                    Icons.check_circle,
+                                                    size: 18,
+                                                    color: AppTheme
+                                                        .lightPrimaryColor,
                                                   ),
-                                                ),
-                                                ButtonSegment<String>(
-                                                  value: 'en',
-                                                  label: Text(
-                                                    translate(
-                                                      'pdf_lang_en',
-                                                      locale,
+                                                  segments: [
+                                                    ButtonSegment<String>(
+                                                      value: 'tr',
+                                                      label: _pdfLangSegmentLabel(
+                                                        'pdf_lang_tr',
+                                                        locale,
+                                                        selectedLang == 'tr',
+                                                      ),
                                                     ),
-                                                  ),
+                                                    ButtonSegment<String>(
+                                                      value: 'en',
+                                                      label: _pdfLangSegmentLabel(
+                                                        'pdf_lang_en',
+                                                        locale,
+                                                        selectedLang == 'en',
+                                                      ),
+                                                    ),
+                                                  ],
+                                                  selected: {selectedLang},
+                                                  onSelectionChanged:
+                                                      (Set<String> selection) {
+                                                    if (selection.isEmpty) {
+                                                      return;
+                                                    }
+                                                    final v = selection.first;
+                                                    setState(() {
+                                                      switch (v) {
+                                                        case 'tr':
+                                                          _pdfExportLocaleOverride =
+                                                              const Locale(
+                                                                  'tr');
+                                                          break;
+                                                        case 'en':
+                                                          _pdfExportLocaleOverride =
+                                                              const Locale(
+                                                                  'en');
+                                                          break;
+                                                      }
+                                                    });
+                                                  },
+                                                  style:
+                                                      _pdfLangSegmentedStyle(
+                                                          context),
                                                 ),
-                                              ],
-                                              selected: {
-                                                _pdfExportLocaleSegmentSelection(),
-                                              },
-                                              onSelectionChanged:
-                                                  (Set<String> selection) {
-                                                if (selection.isEmpty) return;
-                                                final v = selection.first;
-                                                setState(() {
-                                                  switch (v) {
-                                                    case 'tr':
-                                                      _pdfExportLocaleOverride =
-                                                          const Locale('tr');
-                                                      break;
-                                                    case 'en':
-                                                      _pdfExportLocaleOverride =
-                                                          const Locale('en');
-                                                      break;
-                                                  }
-                                                });
-                                              },
-                                              style: _pdfLangSegmentedStyle(
-                                                  context),
-                                            ),
+                                              );
+                                            },
                                           ),
                                           const SizedBox(height: 14),
                                           LayoutBuilder(
@@ -4265,6 +4303,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       width: buttonConstraints
                                                           .maxWidth,
                                                       child: FilledButton.icon(
+                                                        style:
+                                                            _pdfExportButtonStyle(),
                                                         onPressed: () =>
                                                             _generateCarbonPdfReport(
                                                                 monthly: false),
@@ -4279,6 +4319,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                       width: buttonConstraints
                                                           .maxWidth,
                                                       child: FilledButton.icon(
+                                                        style:
+                                                            _pdfExportButtonStyle(),
                                                         onPressed: () =>
                                                             _generateCarbonPdfReport(
                                                                 monthly: true),
@@ -4297,6 +4339,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 children: [
                                                   Expanded(
                                                     child: FilledButton.icon(
+                                                      style:
+                                                          _pdfExportButtonStyle(),
                                                       onPressed: () =>
                                                           _generateCarbonPdfReport(
                                                               monthly: false),
@@ -4310,6 +4354,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   const SizedBox(width: 10),
                                                   Expanded(
                                                     child: FilledButton.icon(
+                                                      style:
+                                                          _pdfExportButtonStyle(),
                                                       onPressed: () =>
                                                           _generateCarbonPdfReport(
                                                               monthly: true),

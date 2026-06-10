@@ -277,35 +277,65 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onSharedGaugeUpdated() {
-    _applyPublishedGaugeIfAny();
+    if (!mounted) return;
+    final kg = _liveEmission.effectiveDailyKgCo2e(
+      preferEspLive: _liveEmission.gaugeUseEspMode,
+    );
+    setState(() {
+      if (kg != null && kg > 1e-9) {
+        _dailyEmissionKg = _clampPlausibleDailyKg(kg);
+        _hasRealUserEmission = true;
+        _emissionRetryTimer?.cancel();
+      }
+    });
   }
 
   void _applyPublishedGaugeIfAny() {
-    final kg = _liveEmission.gaugeDailyKgCo2e;
-    if (kg != null && kg > 1e-9) {
-      _applyResolvedEmissionKg(kg);
-    }
+    _onSharedGaugeUpdated();
   }
 
   Future<void> _bootstrapAndLoadEmission() async {
+    await _syncLiveEmissionModeFromPrefs();
     await LiveEmissionService.instance.bootstrapFromFirebase(
       firebase: _firebaseService,
       api: _apiService,
       shellyDeviceId: _shellyDeviceId,
     );
+    await _syncLiveEmissionModeFromPrefs();
     await _loadUserDailyEmission();
+  }
+
+  Future<void> _syncLiveEmissionModeFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final useEsp = prefs.getBool(_kPrefsReportsUseEspData) ?? true;
+    final live = LiveEmissionService.instance;
+    if (live.gaugeUseEspMode != useEsp) {
+      double? kg;
+      if (useEsp) {
+        kg = live.effectiveDailyKgCo2e(preferEspLive: true);
+      } else {
+        kg = await _loadManualDailyEmissionKg();
+      }
+      live.publishGaugeDailyKg(kg ?? live.gaugeDailyKgCo2e, useEspMode: useEsp);
+    } else if (useEsp) {
+      live.syncEspGaugeFromLiveSensors();
+    }
   }
 
   void _listenToEmissionSources() {
     final live = LiveEmissionService.instance;
 
     _espEmissionSubscription?.cancel();
-    _espEmissionSubscription = _firebaseService
-        .listenToEsp8266Data('esp8266_001')
-        .listen((entry) {
+    _espEmissionSubscription =
+        _firebaseService.listenToEsp8266Data('esp8266_001').listen((entry) {
       if (entry == null || !mounted) return;
       live.setEspEntry(entry);
-      _applyResolvedEmissionKg(live.combinedLiveKgCo2e());
+      final kg = live.effectiveDailyKgCo2e(
+        preferEspLive: live.gaugeUseEspMode,
+      );
+      if (kg != null && kg > 1e-9) {
+        _applyResolvedEmissionKg(kg);
+      }
     });
 
     _shellyEmissionSubscription?.cancel();
@@ -317,7 +347,12 @@ class _HomeScreenState extends State<HomeScreen> {
         shellyData,
         _apiService.shellyDataToConsumptionEntry(shellyData),
       );
-      _applyResolvedEmissionKg(live.combinedLiveKgCo2e());
+      final kg = live.effectiveDailyKgCo2e(
+        preferEspLive: live.gaugeUseEspMode,
+      );
+      if (kg != null && kg > 1e-9) {
+        _applyResolvedEmissionKg(kg);
+      }
     });
   }
 
@@ -372,22 +407,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<double?> _resolveUserDailyEmissionKg(bool useEsp) async {
     const paceEps = 1e-9;
-
-    final published = _liveEmission.gaugeDailyKgCo2e;
-    if (published != null && published > paceEps) {
-      return _clampPlausibleDailyKg(published);
-    }
-
     final live = LiveEmissionService.instance;
 
+    final effective = live.effectiveDailyKgCo2e(preferEspLive: useEsp);
+    if (effective != null && effective > paceEps) {
+      return _clampPlausibleDailyKg(effective);
+    }
+
     if (useEsp) {
-      var kg = live.combinedLiveKgCo2e();
-      if (kg > paceEps) return _clampPlausibleDailyKg(kg);
-
-      kg = await _estimateTodayEspShellyKgFromHistory();
-      if (kg > paceEps) return kg;
-
-      kg = await _estimate7DayAverageEspShellyKg();
+      final kg = await _estimateTodayEspShellyKgFromHistory();
       if (kg > paceEps) return kg;
     } else {
       final manualKg = await _loadManualDailyEmissionKg();
@@ -418,24 +446,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final manual = await _firebaseService.getLatestManualData(userId);
     if (manual == null) return null;
     return _clampPlausibleDailyKg(Calculation.calculateDailyEmission(manual));
-  }
-
-  Future<double> _estimate7DayAverageEspShellyKg() async {
-    final now = DateTime.now();
-    final today = _dayKey(now);
-    final startDate = today.subtract(const Duration(days: 13));
-    final dailyTotals = await _buildDailyEspShellyTotals(startDate, now);
-
-    final last7 = <double>[];
-    for (int i = 0; i < 7; i++) {
-      final day = today.subtract(Duration(days: i));
-      final kg = dailyTotals[day] ?? 0.0;
-      if (kg > 1e-9) last7.add(kg);
-    }
-    if (last7.isEmpty) return 0.0;
-    return _clampPlausibleDailyKg(
-      last7.reduce((a, b) => a + b) / last7.length,
-    );
   }
 
   Map<DateTime, double> _espReadingsToDailyKgCo2e(List<ConsumptionEntry> raw) {
@@ -496,15 +506,14 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final entry
         in _apiService.shellyDataListToDeltaConsumptionEntries(shellyRaw)) {
       final key = _dayKey(entry.createdAt);
-      shellyKwhByDay[key] =
-          (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
+      shellyKwhByDay[key] = (shellyKwhByDay[key] ?? 0.0) + entry.electricityKwh;
     }
 
     final allDays = <DateTime>{...espDaily.keys, ...shellyKwhByDay.keys};
     final totals = <DateTime, double>{};
     for (final day in allDays) {
-      final shellyKg = (shellyKwhByDay[day] ?? 0.0) *
-          Calculation.factorElectricityKgPerKwh;
+      final shellyKg =
+          (shellyKwhByDay[day] ?? 0.0) * Calculation.factorElectricityKgPerKwh;
       totals[day] = _clampPlausibleDailyKg((espDaily[day] ?? 0.0) + shellyKg);
     }
     return totals;
@@ -826,13 +835,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: homeTitleStyle,
                 ),
                 const SizedBox(height: _kHomeTitleBelowGap),
-                _BusinessComparisonTable(
-                  locale: locale,
-                  isDark: isDark,
-                  gaugeDailyKgCo2e:
-                      _liveEmission.gaugeDailyKgCo2e ?? _dailyEmissionKg,
-                  hasRealUserEmission: _hasRealUserEmission ||
-                      (_liveEmission.gaugeDailyKgCo2e ?? 0) > 0,
+                ListenableBuilder(
+                  listenable: _liveEmission,
+                  builder: (context, _) {
+                    final dailyKg = _liveEmission.effectiveDailyKgCo2e(
+                      preferEspLive: _liveEmission.gaugeUseEspMode,
+                    );
+                    final hasGaugeValue =
+                        dailyKg != null && dailyKg > 1e-9;
+                    return _BusinessComparisonTable(
+                      locale: locale,
+                      isDark: isDark,
+                      gaugeDailyKgCo2e: dailyKg,
+                      hasRealUserEmission: hasGaugeValue,
+                      isEspLiveGauge: _liveEmission.gaugeUseEspMode,
+                    );
+                  },
                 ),
                 const SizedBox(height: _kHomeSectionGap),
                 // Fatura tarama başlığı
@@ -2144,12 +2162,14 @@ class _BusinessComparisonTable extends StatelessWidget {
     required this.isDark,
     this.gaugeDailyKgCo2e,
     this.hasRealUserEmission = false,
+    this.isEspLiveGauge = true,
   });
 
   final Locale locale;
   final bool isDark;
   final double? gaugeDailyKgCo2e;
   final bool hasRealUserEmission;
+  final bool isEspLiveGauge;
 
   List<Map<String, dynamic>> _buildBusinessRows() {
     final unit = translate('tonnes_co2e_monthly', locale);
@@ -2200,7 +2220,8 @@ class _BusinessComparisonTable extends StatelessWidget {
         'industryAvgLabel': '${sectorAvg.toStringAsFixed(1)} $unit',
         'status': userStatus,
         'isHighlighted': true,
-        'isLiveData': hasRealUserEmission &&
+        'isLiveData': isEspLiveGauge &&
+            hasRealUserEmission &&
             gaugeDailyKgCo2e != null &&
             gaugeDailyKgCo2e! > 0,
       },
@@ -2362,8 +2383,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                         final business = entry.value;
                         final bool isHighlighted =
                             business['isHighlighted'] == true;
-                        final bool isLiveData =
-                            business['isLiveData'] == true;
+                        final bool isLiveData = business['isLiveData'] == true;
                         final String status = business['status'] as String;
                         final statusStyle = _statusStyle(status);
 
@@ -2504,9 +2524,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 .textTheme
                                 .bodySmall
                                 ?.copyWith(
-                                  color: isDark
-                                      ? Colors.white70
-                                      : Colors.black54,
+                                  color:
+                                      isDark ? Colors.white70 : Colors.black54,
                                   fontStyle: FontStyle.italic,
                                 ),
                           ),
@@ -2643,8 +2662,7 @@ class _BusinessComparisonTable extends StatelessWidget {
                         final business = entry.value;
                         final bool isHighlighted =
                             business['isHighlighted'] == true;
-                        final bool isLiveData =
-                            business['isLiveData'] == true;
+                        final bool isLiveData = business['isLiveData'] == true;
                         final String status = business['status'] as String;
                         final statusStyle = _statusStyle(status);
 
@@ -2788,9 +2806,8 @@ class _BusinessComparisonTable extends StatelessWidget {
                                 .textTheme
                                 .bodySmall
                                 ?.copyWith(
-                                  color: isDark
-                                      ? Colors.white70
-                                      : Colors.black54,
+                                  color:
+                                      isDark ? Colors.white70 : Colors.black54,
                                   fontStyle: FontStyle.italic,
                                   fontSize: 11,
                                 ),

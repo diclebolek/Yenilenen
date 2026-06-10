@@ -34,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _monthlyReports = true;
   bool _goalReminders = true;
   bool _energyTips = true;
+  bool _dailySensorSummary = true;
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _monthlyReports = prefs.monthlyReports;
       _goalReminders = prefs.goalReminders;
       _energyTips = prefs.energyTips;
+      _dailySensorSummary = prefs.dailySensorSummary;
     });
   }
 
@@ -438,6 +440,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     });
                                     await NotificationService.instance
                                         .setEnergyTipsEnabled(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        translate(
+                                          'daily_sensor_summary',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      Text(
+                                        translate(
+                                          'daily_sensor_summary_desc',
+                                          widget.languageProvider
+                                                  ?.currentLocale ??
+                                              const Locale('tr'),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _dailySensorSummary,
+                                  onChanged: (value) async {
+                                    setState(() {
+                                      _dailySensorSummary = value;
+                                    });
+                                    await NotificationService.instance
+                                        .setDailySensorSummaryEnabled(value);
                                   },
                                 ),
                               ],

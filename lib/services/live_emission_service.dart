@@ -7,6 +7,7 @@ import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
 import 'api_service.dart';
 import 'firebase_realtime_service.dart';
+import 'notification_service.dart';
 
 /// Raporlar gauge'ı ile ana sayfa tablosu arasında paylaşılan canlı emisyon durumu.
 /// Sekmeler arası geçişte widget yeniden oluşsa bile değer bellekte kalır.
@@ -32,11 +33,26 @@ class LiveEmissionService extends ChangeNotifier {
 
   void setEspEntry(ConsumptionEntry? entry) {
     _espEntry = entry;
+    _syncDailySensorSummaryCache();
+    syncEspGaugeFromLiveSensors();
   }
 
   void ingestShellyReading(ShellyData data, ConsumptionEntry entry) {
     _registerShellyMeterDelta(data);
     _shellyEntry = entry;
+    _syncDailySensorSummaryCache();
+    syncEspGaugeFromLiveSensors();
+  }
+
+  void _syncDailySensorSummaryCache() {
+    final kg = combinedLiveKgCo2e();
+    if (kg <= 1e-9) return;
+    NotificationService.instance
+        .cacheAndScheduleDailySensorSummary(
+      kgCo2e: kg,
+      sensorMode: true,
+    )
+        .catchError((_) {});
   }
 
   void resetShellyBaseline() {
@@ -85,6 +101,30 @@ class LiveEmissionService extends ChangeNotifier {
     return total > 0 ? total : 0.0;
   }
 
+  /// Ana sayfa tablosu / raporlar gauge — önce canlı ESP+Shelly, sonra yayımlanan gauge.
+  double? effectiveDailyKgCo2e({bool preferEspLive = true}) {
+    const eps = 1e-9;
+    if (preferEspLive && _gaugeUseEspMode) {
+      final live = combinedLiveKgCo2e();
+      if (live > eps) return live;
+    }
+    if (_gaugeDailyKgCo2e != null && _gaugeDailyKgCo2e! > eps) {
+      return _gaugeDailyKgCo2e;
+    }
+    if (preferEspLive && _gaugeUseEspMode) {
+      return null;
+    }
+    return _gaugeDailyKgCo2e;
+  }
+
+  /// Canlı sensör okumasını yuvarlak gauge ile paylaş (E modu).
+  void syncEspGaugeFromLiveSensors() {
+    if (!_gaugeUseEspMode) return;
+    final live = combinedLiveKgCo2e();
+    if (live <= 1e-9) return;
+    publishGaugeDailyKg(live, useEspMode: true);
+  }
+
   void publishGaugeDailyKg(double? kg, {required bool useEspMode}) {
     final normalized = (kg != null && kg > 1e-9) ? kg : null;
     final changed = _gaugeDailyKgCo2e != normalized ||
@@ -93,6 +133,14 @@ class LiveEmissionService extends ChangeNotifier {
     _gaugeDailyKgCo2e = normalized;
     _gaugeUseEspMode = useEspMode;
     notifyListeners();
+    if (useEspMode) {
+      NotificationService.instance
+          .cacheAndScheduleDailySensorSummary(
+        kgCo2e: normalized,
+        sensorMode: true,
+      )
+          .catchError((_) {});
+    }
   }
 
   Future<void> bootstrapFromFirebase({
@@ -118,7 +166,10 @@ class LiveEmissionService extends ChangeNotifier {
         startDate: now.subtract(const Duration(days: 4)),
         endDate: now,
       );
-      if (hist.isEmpty) return;
+      if (hist.isEmpty) {
+        syncEspGaugeFromLiveSensors();
+        return;
+      }
 
       hist.sort((a, b) => a.timestamp.compareTo(b.timestamp));
       _shellyEntry = api.shellyDataToConsumptionEntry(hist.last);
@@ -153,7 +204,10 @@ class LiveEmissionService extends ChangeNotifier {
         _shellyPrevMeterKwh = hist.last.energyKwh;
         _shellyConsumptionDayStart = dayStart;
       }
-    } catch (_) {}
+      syncEspGaugeFromLiveSensors();
+    } catch (_) {
+      syncEspGaugeFromLiveSensors();
+    }
   }
 }
 

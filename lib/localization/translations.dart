@@ -69,6 +69,9 @@ const Map<String, String> trTranslations = {
   'goal_reminders_desc': 'Hedeflerinize ulaştığınızda bildirim al',
   'energy_tips_notifications': 'Enerji İpuçları',
   'energy_tips_desc': 'Günlük enerji tasarrufu önerileri al',
+  'daily_sensor_summary': 'Günlük Sensör Özeti',
+  'daily_sensor_summary_desc':
+      'Her gün saat 21:00\'de ESP + Shelly günlük CO₂ özetini bildir',
 
   // Hero Donate Banner
   'donate_title': 'BAĞIŞ YAP',
@@ -286,13 +289,13 @@ const Map<String, String> trTranslations = {
   'gauge_info_title': 'Gösterge: M ve E',
   'gauge_info_body':
       'M: Manuel — aşağıdaki manuel veri girişi veya kayıtlı manuel verilerinizle hesaplanan günlük toplam emisyondur.\n\n'
-      'E: ESP — canlı sensör (ESP) ve Shelly ölçümlerinin birleşik günlük toplam emisyondur.\n\n'
-      'Ortadaki değer bugüne ait tahmini CO₂e\'yi gösterir; dış halka bu toplamın bir üst referansa göre doluluk oranını yansıtır. '
-      'Mod değiştirmek için bu beyaz yuvarlağın herhangi bir yerine dokunun.',
+          'E: ESP — canlı sensör (ESP) ve Shelly ölçümlerinin birleşik günlük toplam emisyondur.\n\n'
+          'Ortadaki değer bugüne ait tahmini CO₂e\'yi gösterir; dış halka bu toplamın bir üst referansa göre doluluk oranını yansıtır. '
+          'Mod değiştirmek için bu beyaz yuvarlağın herhangi bir yerine dokunun.',
   'category_distribution_info_title': 'Kategori dağılımı',
   'category_distribution_info_body':
       'Bu grafik elektrik, su ve doğalgaz tüketimlerinizin günlük karbon ayak izindeki payını yüzde olarak gösterir. '
-      'Veriler manuel giriş veya canlı sensör (M/E) moduna göre güncellenir.',
+          'Veriler manuel giriş veya canlı sensör (M/E) moduna göre güncellenir.',
   'manual': 'Manuel',
   'mon': 'Pzt',
   'tue': 'Sal',
@@ -330,8 +333,7 @@ const Map<String, String> trTranslations = {
   'set_new_goal_help':
       'Şablon seçin, başlık ve hedefi düzenleyin. Elektrik, CO₂ ve su hedefleri tüketim verilerinize göre otomatik güncellenir; özel hedeflerde ilerlemeyi siz takip edersiniz.',
   'goal_choose_template': 'Hedef şablonu',
-  'goal_tracking_auto':
-      'Tüketim verilerine göre otomatik güncellenir',
+  'goal_tracking_auto': 'Tüketim verilerine göre otomatik güncellenir',
   'goal_tracking_waste':
       'Atık hedefi — ilerleme şimdilik manuel (otomatik bağlantı eklenebilir)',
   'goal_tracking_custom':
@@ -354,7 +356,9 @@ const Map<String, String> trTranslations = {
   'badge_eco_desc': 'Çevre için gerçek bir savaşçısınız',
   'all_goals_completed': 'Tüm hedefler tamamlandı',
   'goal_completed': 'Tamamlandı!',
-  'next_level': 'Sonraki Seviye',
+  'next_level': 'Sonraki: Seviye {level}',
+  'tap_to_log_points': 'Puan ekle',
+  'current_level': 'Seviye {level}',
   'points_to_go': 'puan kaldı',
   'total_goals': 'Toplam Hedef',
   'completed_goals': 'Tamamlanan',
@@ -453,12 +457,14 @@ const Map<String, String> trTranslations = {
   'update_business_info': 'İşletme Bilgilerini Güncelle',
   'sectors_load_error': 'Sektörler yüklenirken hata oluştu: {error}',
   'business_update_success': 'İşletme bilgileri başarıyla güncellendi',
-  'business_update_error': 'İşletme bilgileri güncellenirken hata oluştu: {error}',
+  'business_update_error':
+      'İşletme bilgileri güncellenirken hata oluştu: {error}',
   'email_update_success_verify':
       'E-posta başarıyla güncellendi. Lütfen yeni e-posta adresinizi doğrulayın.',
   'email_update_error': 'E-posta güncellenirken hata oluştu: {error}',
   'login_required_first': 'Lütfen önce giriş yapın',
-  'user_data_load_error': 'Kullanıcı bilgileri yüklenirken hata oluştu: {error}',
+  'user_data_load_error':
+      'Kullanıcı bilgileri yüklenirken hata oluştu: {error}',
   'current_password_for_change': 'Mevcut Şifre (şifre değiştirmek için)',
   'new_password': 'Yeni Şifre',
   'confirm_new_password': 'Yeni Şifre Tekrar',
@@ -552,6 +558,9 @@ const Map<String, String> enTranslations = {
   'goal_reminders_desc': 'Get notified when you reach your goals',
   'energy_tips_notifications': 'Energy Tips',
   'energy_tips_desc': 'Receive daily energy saving suggestions',
+  'daily_sensor_summary': 'Daily Sensor Summary',
+  'daily_sensor_summary_desc':
+      'Notify daily at 9 PM with ESP + Shelly CO₂ summary',
 
   // Hero Donate Banner
   'donate_title': 'DONATE',
@@ -639,8 +648,7 @@ const Map<String, String> enTranslations = {
   'water_hint_liters': 'E.g: 4200',
   'water_unit_m3': 'm³',
   'water_unit_liters': 'Liters',
-  'water_tip_liters':
-      'Enter water consumption in liters. 1000 L = 1 m³.',
+  'water_tip_liters': 'Enter water consumption in liters. 1000 L = 1 m³.',
   'waste_kg': 'Waste (kg)',
   'waste_hint_form': 'E.g: 12.0',
   'required': 'Required',
@@ -771,13 +779,13 @@ const Map<String, String> enTranslations = {
   'gauge_info_title': 'Gauge: M and E',
   'gauge_info_body':
       'M: Manual — daily total from manual entry below or your saved manual records.\n\n'
-      'E: ESP — combined daily total from the live ESP sensor and Shelly readings.\n\n'
-      'The center value is today\'s estimated CO₂e; the outer ring shows fill vs. a reference scale. '
-      'Tap anywhere on the white circle to switch modes.',
+          'E: ESP — combined daily total from the live ESP sensor and Shelly readings.\n\n'
+          'The center value is today\'s estimated CO₂e; the outer ring shows fill vs. a reference scale. '
+          'Tap anywhere on the white circle to switch modes.',
   'category_distribution_info_title': 'Category distribution',
   'category_distribution_info_body':
       'This chart shows how electricity, water, and natural gas contribute to your daily carbon footprint as percentages. '
-      'Figures update based on manual entry or live sensor (M/E) mode.',
+          'Figures update based on manual entry or live sensor (M/E) mode.',
   'manual': 'Manual',
   'mon': 'Mon',
   'tue': 'Tue',
@@ -837,7 +845,9 @@ const Map<String, String> enTranslations = {
   'badge_eco_desc': 'You are a true warrior for the environment',
   'all_goals_completed': 'All goals completed',
   'goal_completed': 'Completed!',
-  'next_level': 'Next Level',
+  'next_level': 'Next: Level {level}',
+  'tap_to_log_points': 'Add points',
+  'current_level': 'Level {level}',
   'points_to_go': 'points to go',
   'total_goals': 'Total Goals',
   'completed_goals': 'Completed',

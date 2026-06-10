@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../models/consumption_entry.dart';
@@ -28,7 +30,7 @@ const Color _kManualEntryOutlineOnGlass = Color(0xB3FFFFFF);
 /// Kategori çerçeve/yazı vurguları — tema’dan bağımsız sabit renkler.
 const Color _kAccentElectric = Color(0xFFFFC107);
 const Color _kAccentWater = Color(0xFF42A5F5);
-const Color _kAccentWaste = Color(0xFF2E1A0E);
+const Color _kAccentWaste = Color(0xFF3E2723); // Koyu kahve — metin ve vurgu
 const Color _kAccentFuel = Color(0xFFFF9800);
 
 /// Form to enter electricity, fuel, water, and waste data with validation.
@@ -65,9 +67,10 @@ class _ConsumptionFormState extends State<ConsumptionForm>
   late TabController _tabController;
 
   /// TabBarView yükseklikleri — sekmeler: atık, su, yakıt (elektrik dinamik).
-  static const List<double> _kTabViewHeights = [480.0, 430.0, 500.0];
+  static const List<double> _kTabViewHeights = [520.0, 480.0, 540.0];
   static const double _kElectricityTabHeightCollapsed = 400.0;
   static const double _kElectricityTabHeightExpanded = 680.0;
+  static const double _kDevicesMobileBreakpoint = 600.0;
   double _tabViewHeight = _kElectricityTabHeightCollapsed;
 
   // Her kategori için ayrı CO2 değerleri
@@ -239,14 +242,124 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
   void _syncTabViewHeight() {
     final index = _tabController.index;
+    final bool inlineDevicesOpen =
+        _devicesSectionExpanded && !_usesMobileDevicesPanel;
     final double h = index == 0
-        ? (_devicesSectionExpanded
+        ? (inlineDevicesOpen
             ? _kElectricityTabHeightExpanded
             : _kElectricityTabHeightCollapsed)
         : _kTabViewHeights[index - 1];
     if (_tabViewHeight != h) {
       setState(() => _tabViewHeight = h);
     }
+  }
+
+  bool get _usesMobileDevicesPanel {
+    final ctx = context;
+    if (!ctx.mounted) return false;
+    return MediaQuery.sizeOf(ctx).width < _kDevicesMobileBreakpoint;
+  }
+
+  void _setDevicesExpanded(bool expanded) {
+    setState(() {
+      _devicesSectionExpanded = expanded;
+      if (_tabController.index == 0) {
+        _tabViewHeight = expanded && !_usesMobileDevicesPanel
+            ? _kElectricityTabHeightExpanded
+            : _kElectricityTabHeightCollapsed;
+      }
+    });
+  }
+
+  void _handleDevicesHeaderTap(Locale locale) {
+    if (_usesMobileDevicesPanel) {
+      _showDevicesBottomSheet(locale);
+      return;
+    }
+    _setDevicesExpanded(!_devicesSectionExpanded);
+  }
+
+  Future<void> _showDevicesBottomSheet(Locale locale) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (sheetContext) {
+        final viewInsets = MediaQuery.viewInsetsOf(sheetContext);
+        final sheetHeight = MediaQuery.sizeOf(sheetContext).height * 0.88;
+        return Padding(
+          padding: EdgeInsets.only(bottom: viewInsets.bottom),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: Container(
+                  height: sheetHeight,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(16)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.22),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.devices_other,
+                              size: 18,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Cihazlar',
+                                style: Theme.of(sheetContext)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () =>
+                                  Navigator.of(sheetContext).pop(),
+                              icon: const Icon(Icons.close, color: Colors.white),
+                              tooltip: 'Kapat',
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                          child: _buildDevicesPanelBody(
+                            sheetContext,
+                            locale,
+                            preferWideTiles: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -355,8 +468,115 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
       );
 
+  /// Su alanı: şeffaf zemin, mavi etiket/metin ve mavi çerçeve.
+  InputDecoration _waterInputDecoration({
+    required String labelText,
+    required String hintText,
+    required IconData prefixIcon,
+  }) =>
+      InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: Icon(prefixIcon, color: _kAccentWater),
+        labelStyle: const TextStyle(color: _kAccentWater),
+        floatingLabelStyle: const TextStyle(
+          color: _kAccentWater,
+          fontWeight: FontWeight.w600,
+        ),
+        hintStyle: TextStyle(color: _kAccentWater.withValues(alpha: 0.45)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(
+            color: _kAccentWater.withValues(alpha: 0.55),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: _kAccentWater, width: 1.5),
+        ),
+      );
+
+  Widget _waterSegmentLabel(String text, bool selected) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: selected ? _kAccentWater : _kAccentWater.withValues(alpha: 0.85),
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
+    );
+  }
+
+  ButtonStyle get _waterOutlinedButtonStyle => _outlinedAccent(_kAccentWater);
+
+  ButtonStyle get _electricityOutlinedButtonStyle =>
+      _outlinedAccent(_kAccentElectric);
+
+  ButtonStyle get _fuelOutlinedButtonStyle => _outlinedAccent(_kAccentFuel);
+
+  InputDecoration _accentInputDecoration({
+    required Color accent,
+    required String labelText,
+    required String hintText,
+    required IconData prefixIcon,
+  }) =>
+      InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: Icon(prefixIcon, color: accent),
+        labelStyle: TextStyle(color: accent),
+        floatingLabelStyle: TextStyle(
+          color: accent,
+          fontWeight: FontWeight.w600,
+        ),
+        hintStyle: TextStyle(color: accent.withValues(alpha: 0.45)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: accent.withValues(alpha: 0.55)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: accent, width: 1.5),
+        ),
+      );
+
+  InputDecoration _electricityInputDecoration({
+    required String labelText,
+    required String hintText,
+    required IconData prefixIcon,
+  }) =>
+      _accentInputDecoration(
+        accent: _kAccentElectric,
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: prefixIcon,
+      );
+
+  InputDecoration _fuelInputDecoration({
+    required String labelText,
+    required String hintText,
+    required IconData prefixIcon,
+  }) =>
+      _accentInputDecoration(
+        accent: _kAccentFuel,
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: prefixIcon,
+      );
+
+  Widget _accentSegmentLabel(String text, bool selected, Color accent) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: selected ? accent : accent.withValues(alpha: 0.85),
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
+    );
+  }
+
+  /// Su / elektrik / yakıt birim seçici — şeffaf vurgulu segmentler.
   ButtonStyle _segmentedAccent(Color accent) => ButtonStyle(
         visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         foregroundColor: WidgetStateProperty.all<Color>(accent),
         iconColor: WidgetStateProperty.all<Color>(accent),
         backgroundColor:
@@ -373,34 +593,61 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         }),
       );
 
-  /// Atık sekmesi: çok koyu kahve — seçili segmentte açık metin, diğerleri beyaz.
-  ButtonStyle get _segmentedWasteAccent => ButtonStyle(
+  /// Atık birim seçici — seçili segment beyaz zemin + koyu kahve metin.
+  ButtonStyle _segmentedTabAccent(Color accent) => ButtonStyle(
         visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) {
-            return _kManualEntryOnGlass;
-          }
-          return Colors.white;
+          return states.contains(WidgetState.selected) ? accent : Colors.white;
         }),
         iconColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) {
-            return _kManualEntryOnGlass;
-          }
-          return Colors.white;
+          return states.contains(WidgetState.selected) ? accent : Colors.white;
         }),
         backgroundColor:
             WidgetStateProperty.resolveWith((Set<WidgetState> states) {
           if (states.contains(WidgetState.selected)) {
-            return _kAccentWaste.withValues(alpha: 0.92);
+            return Colors.white;
           }
-          return _kAccentWaste.withValues(alpha: 0.14);
+          return Colors.white.withValues(alpha: 0.12);
         }),
         side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-          final double a =
-              states.contains(WidgetState.selected) ? 0.95 : 0.45;
-          return BorderSide(color: _kAccentWaste.withValues(alpha: a));
+          if (states.contains(WidgetState.selected)) {
+            return BorderSide(color: accent, width: 1.5);
+          }
+          return BorderSide(color: Colors.white.withValues(alpha: 0.35));
+        }),
+        textStyle: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
+          return TextStyle(
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w700
+                : FontWeight.w500,
+            color: states.contains(WidgetState.selected) ? accent : Colors.white,
+          );
         }),
       );
+
+  ButtonStyle get _segmentedElectricityAccent =>
+      _segmentedAccent(_kAccentElectric);
+
+  ButtonStyle get _segmentedFuelAccent => _segmentedAccent(_kAccentFuel);
+
+  ButtonStyle get _segmentedWaterAccent => _segmentedAccent(_kAccentWater);
+
+  /// Atık birimi: seçili = beyaz zemin (okunabilirlik).
+  ButtonStyle get _segmentedWasteAccent => _segmentedTabAccent(_kAccentWaste);
+
+  Widget _wasteSegmentLabel(String text, bool selected) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: selected ? _kAccentWaste : Colors.white,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
+    );
+  }
+
+  ButtonStyle get _wasteOutlinedButtonStyle => _outlinedWhiteOnGlass;
 
   ButtonStyle get _manualFilledAccentStyle => FilledButton.styleFrom(
         foregroundColor: _kManualEntryOnGlass,
@@ -542,21 +789,21 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             _CategorySummaryRow(
               label: 'Elektrik',
               co2: _electricityCo2!,
-              color: Colors.orange,
+              color: _kAccentElectric,
               isHigh: _electricityCo2! > 1000000,
             ),
           if (_fuelCo2 != null)
             _CategorySummaryRow(
-              label: 'Yakıt',
+              label: 'Gaz/Yakıt',
               co2: _fuelCo2!,
-              color: Colors.red,
+              color: _kAccentFuel,
               isHigh: _fuelCo2! > 1000000,
             ),
           if (_waterCo2 != null)
             _CategorySummaryRow(
               label: 'Su',
               co2: _waterCo2!,
-              color: Colors.blue,
+              color: _kAccentWater,
               isHigh: _waterCo2! > 1000000,
             ),
           if (_wasteCo2 != null)
@@ -578,7 +825,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 'TOPLAM:',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: _kManualEntryOnGlass,
+                      color: Colors.white,
                     ),
               ),
               Row(
@@ -598,7 +845,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                           fontWeight: FontWeight.bold,
                           color: (isVeryHigh || hasExtremeValue)
                               ? Colors.red
-                              : _kManualEntryOnGlass,
+                              : Colors.white,
                         ),
                   ),
                 ],
@@ -1769,27 +2016,44 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
-        SegmentedButton<_ElectricityManualUnit>(
-          segments: [
-            ButtonSegment<_ElectricityManualUnit>(
-              value: _ElectricityManualUnit.kWh,
-              label: Text(translate('electricity_unit_kwh', locale)),
-              icon: const Icon(Icons.bolt, size: 18),
-            ),
-            ButtonSegment<_ElectricityManualUnit>(
-              value: _ElectricityManualUnit.wh,
-              label: Text(translate('electricity_unit_wh', locale)),
-              icon: const Icon(Icons.flash_on, size: 18),
-            ),
-            ButtonSegment<_ElectricityManualUnit>(
-              value: _ElectricityManualUnit.mwh,
-              label: Text(translate('electricity_unit_mwh', locale)),
-              icon: const Icon(Icons.power, size: 18),
-            ),
-          ],
-          selected: {_electricityManualUnit},
-          onSelectionChanged: _onElectricityManualUnitChanged,
-          style: _segmentedAccent(_kAccentElectric),
+        Builder(
+          builder: (context) {
+            final selected = _electricityManualUnit;
+            return SegmentedButton<_ElectricityManualUnit>(
+              segments: [
+                ButtonSegment<_ElectricityManualUnit>(
+                  value: _ElectricityManualUnit.kWh,
+                  label: _accentSegmentLabel(
+                    translate('electricity_unit_kwh', locale),
+                    selected == _ElectricityManualUnit.kWh,
+                    _kAccentElectric,
+                  ),
+                  icon: const Icon(Icons.bolt, size: 18, color: _kAccentElectric),
+                ),
+                ButtonSegment<_ElectricityManualUnit>(
+                  value: _ElectricityManualUnit.wh,
+                  label: _accentSegmentLabel(
+                    translate('electricity_unit_wh', locale),
+                    selected == _ElectricityManualUnit.wh,
+                    _kAccentElectric,
+                  ),
+                  icon: const Icon(Icons.flash_on, size: 18, color: _kAccentElectric),
+                ),
+                ButtonSegment<_ElectricityManualUnit>(
+                  value: _ElectricityManualUnit.mwh,
+                  label: _accentSegmentLabel(
+                    translate('electricity_unit_mwh', locale),
+                    selected == _ElectricityManualUnit.mwh,
+                    _kAccentElectric,
+                  ),
+                  icon: const Icon(Icons.power, size: 18, color: _kAccentElectric),
+                ),
+              ],
+              selected: {selected},
+              onSelectionChanged: _onElectricityManualUnitChanged,
+              style: _segmentedElectricityAccent,
+            );
+          },
         ),
         const SizedBox(height: 8),
         Text(
@@ -1802,7 +2066,8 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         TextFormField(
           controller: _electricityCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
+          style: const TextStyle(color: _kAccentElectric),
+          decoration: _electricityInputDecoration(
             labelText: _electricityManualUnit == _ElectricityManualUnit.kWh
                 ? translate('electricity_label_kwh', locale)
                 : _electricityManualUnit == _ElectricityManualUnit.wh
@@ -1813,7 +2078,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 : _electricityManualUnit == _ElectricityManualUnit.wh
                     ? translate('electricity_hint_wh', locale)
                     : translate('electricity_hint_mwh', locale),
-            prefixIcon: const Icon(Icons.electrical_services),
+            prefixIcon: Icons.electrical_services,
           ),
           validator: _validateOptionalNumeric,
           onChanged: (value) {
@@ -1825,11 +2090,11 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
         // Elektrik için hesaplama butonu ve sonuç
         _buildCategoryCalculateRow(
-          buttonStyle: _outlinedAccent(_kAccentElectric),
+          buttonStyle: _electricityOutlinedButtonStyle,
           onPressed: () => _calculateCategory('electricity'),
           buttonLabel: 'Elektrik CO₂ Hesapla',
           co2Result: _electricityCo2,
-          resultColor: Colors.orange,
+          resultColor: _kAccentElectric,
         ),
         const SizedBox(height: 12),
 
@@ -1850,94 +2115,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
       ),
     );
 
-    void onDevicesChanged() {
-      _calculateCategory('electricity');
-      _calculateTotal(skipValidation: true);
-    }
-
-    Widget deviceTileGrid() {
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          final double maxW = constraints.maxWidth;
-          final int columns = maxW >= 520 ? 2 : 1;
-          final double tileW =
-              columns == 2 ? (maxW - 10) / 2 : maxW;
-          return Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            alignment: WrapAlignment.start,
-            children: _devicePresets
-                .map(
-                  (p) => SizedBox(
-                    width: tileW,
-                    child: _DeviceTile(
-                      preset: p,
-                      onAddQuantity: (qty) {
-                        setState(() {
-                          _selectedDevices.add(
-                            _SelectedDevice(
-                              name: p.name,
-                              powerW: p.powerW,
-                              hoursPerDay: p.hoursPerDay,
-                              quantity: qty,
-                            ),
-                          );
-                        });
-                        onDevicesChanged();
-                      },
-                      onEdit: () async {
-                        final customized = await _customizeNewDevice(p);
-                        if (customized != null) {
-                          setState(() => _selectedDevices.add(customized));
-                          onDevicesChanged();
-                        }
-                      },
-                    ),
-                  ),
-                )
-                .toList(),
-          );
-        },
-      );
-    }
-
-    Widget selectedChips() {
-      if (_selectedDevices.isEmpty) return const SizedBox.shrink();
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 10),
-          Text(
-            'Seçilen Cihazlar',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: _kManualEntryOnGlass.withValues(alpha: 0.92),
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _selectedDevices
-                  .map(
-                    (d) => Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: Chip(
-                        label: Text('${d.name} x${d.quantity}'),
-                        deleteIcon: const Icon(Icons.close, size: 16),
-                        onDeleted: () {
-                          setState(() => _selectedDevices.remove(d));
-                          onDevicesChanged();
-                        },
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ],
-      );
-    }
+    final bool mobilePanel = _usesMobileDevicesPanel;
+    final bool showInlineExpanded =
+        _devicesSectionExpanded && !mobilePanel;
 
     return Container(
       decoration: panelDecoration,
@@ -1948,14 +2128,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () => setState(() {
-                _devicesSectionExpanded = !_devicesSectionExpanded;
-                if (_tabController.index == 0) {
-                  _tabViewHeight = _devicesSectionExpanded
-                      ? _kElectricityTabHeightExpanded
-                      : _kElectricityTabHeightCollapsed;
-                }
-              }),
+              onTap: () => _handleDevicesHeaderTap(locale),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -1970,12 +2143,17 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                     ),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text(
-                        'Cihazlar',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _handleDevicesHeaderTap(locale),
+                        child: Text(
+                          'Cihazlar',
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
                       ),
                     ),
                     if (_selectedDevices.isNotEmpty)
@@ -1983,22 +2161,32 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                         padding: const EdgeInsets.only(right: 6),
                         child: Text(
                           '${_selectedDevices.length}',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
                                 color: Colors.lightGreenAccent,
                                 fontWeight: FontWeight.w700,
                               ),
                         ),
                       ),
-                    AnimatedRotation(
-                      turns: _devicesSectionExpanded ? 0.5 : 0,
-                      duration: const Duration(milliseconds: 220),
-                      curve: Curves.easeInOutCubic,
-                      child: const Icon(
-                        Icons.expand_more,
+                    if (mobilePanel)
+                      const Icon(
+                        Icons.open_in_full,
                         color: Colors.white,
-                        size: 22,
+                        size: 20,
+                      )
+                    else
+                      AnimatedRotation(
+                        turns: _devicesSectionExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeInOutCubic,
+                        child: const Icon(
+                          Icons.expand_more,
+                          color: Colors.white,
+                          size: 22,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -2009,21 +2197,135 @@ class _ConsumptionFormState extends State<ConsumptionForm>
             curve: Curves.easeInOutCubic,
             alignment: Alignment.topCenter,
             clipBehavior: Clip.hardEdge,
-            child: _devicesSectionExpanded
+            child: showInlineExpanded
                 ? Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        deviceTileGrid(),
-                        selectedChips(),
-                      ],
+                    child: _buildDevicesPanelBody(
+                      context,
+                      locale,
+                      preferWideTiles: false,
                     ),
                   )
                 : const SizedBox(width: double.infinity, height: 0),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDevicesPanelBody(
+    BuildContext context,
+    Locale locale, {
+    required bool preferWideTiles,
+  }) {
+    void onDevicesChanged() {
+      _calculateCategory('electricity');
+      _calculateTotal(skipValidation: true);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildDeviceTileGrid(
+          context,
+          onDevicesChanged: onDevicesChanged,
+          preferWideTiles: preferWideTiles,
+        ),
+        _buildSelectedDeviceChips(onDevicesChanged),
+      ],
+    );
+  }
+
+  Widget _buildDeviceTileGrid(
+    BuildContext context, {
+    required VoidCallback onDevicesChanged,
+    required bool preferWideTiles,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double maxW = constraints.maxWidth;
+        final bool mobile = MediaQuery.sizeOf(context).width <
+            _kDevicesMobileBreakpoint;
+        final int columns = preferWideTiles || mobile
+            ? (maxW >= 720 ? 2 : 1)
+            : (maxW >= 560 ? 2 : 1);
+        const double spacing = 10;
+        final double tileW =
+            columns == 2 ? (maxW - spacing) / 2 : maxW;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          alignment: WrapAlignment.start,
+          children: _devicePresets
+              .map(
+                (p) => SizedBox(
+                  width: tileW,
+                  child: _DeviceTile(
+                    preset: p,
+                    onAddQuantity: (qty) {
+                      setState(() {
+                        _selectedDevices.add(
+                          _SelectedDevice(
+                            name: p.name,
+                            powerW: p.powerW,
+                            hoursPerDay: p.hoursPerDay,
+                            quantity: qty,
+                          ),
+                        );
+                      });
+                      onDevicesChanged();
+                    },
+                    onEdit: () async {
+                      final customized = await _customizeNewDevice(p);
+                      if (customized != null) {
+                        setState(() => _selectedDevices.add(customized));
+                        onDevicesChanged();
+                      }
+                    },
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildSelectedDeviceChips(VoidCallback onDevicesChanged) {
+    if (_selectedDevices.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 10),
+        Text(
+          'Seçilen Cihazlar',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: _kManualEntryOnGlass.withValues(alpha: 0.92),
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _selectedDevices
+                .map(
+                  (d) => Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      label: Text('${d.name} x${d.quantity}'),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () {
+                        setState(() => _selectedDevices.remove(d));
+                        onDevicesChanged();
+                      },
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -2038,22 +2340,35 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
-        SegmentedButton<_FuelInputUnit>(
-          segments: [
-            ButtonSegment<_FuelInputUnit>(
-              value: _FuelInputUnit.liquidLiters,
-              label: Text(translate('fuel_unit_liquid', locale)),
-              icon: const Icon(Icons.local_gas_station, size: 18),
-            ),
-            ButtonSegment<_FuelInputUnit>(
-              value: _FuelInputUnit.naturalGasM3,
-              label: Text(translate('fuel_unit_gas', locale)),
-              icon: const Icon(Icons.local_fire_department, size: 18),
-            ),
-          ],
-          selected: {_fuelInputUnit},
-          onSelectionChanged: _onFuelUnitChanged,
-          style: _segmentedAccent(_kAccentFuel),
+        Builder(
+          builder: (context) {
+            final selected = _fuelInputUnit;
+            return SegmentedButton<_FuelInputUnit>(
+              segments: [
+                ButtonSegment<_FuelInputUnit>(
+                  value: _FuelInputUnit.liquidLiters,
+                  label: _accentSegmentLabel(
+                    translate('fuel_unit_liquid', locale),
+                    selected == _FuelInputUnit.liquidLiters,
+                    _kAccentFuel,
+                  ),
+                  icon: const Icon(Icons.local_gas_station, size: 18, color: _kAccentFuel),
+                ),
+                ButtonSegment<_FuelInputUnit>(
+                  value: _FuelInputUnit.naturalGasM3,
+                  label: _accentSegmentLabel(
+                    translate('fuel_unit_gas', locale),
+                    selected == _FuelInputUnit.naturalGasM3,
+                    _kAccentFuel,
+                  ),
+                  icon: const Icon(Icons.local_fire_department, size: 18, color: _kAccentFuel),
+                ),
+              ],
+              selected: {selected},
+              onSelectionChanged: _onFuelUnitChanged,
+              style: _segmentedFuelAccent,
+            );
+          },
         ),
         const SizedBox(height: 8),
         Text(
@@ -2066,14 +2381,15 @@ class _ConsumptionFormState extends State<ConsumptionForm>
         TextFormField(
           controller: _fuelCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
+          style: const TextStyle(color: _kAccentFuel),
+          decoration: _fuelInputDecoration(
             labelText: _fuelInputUnit == _FuelInputUnit.liquidLiters
                 ? translate('fuel_label_liquid', locale)
                 : translate('fuel_label_gas', locale),
             hintText: _fuelInputUnit == _FuelInputUnit.liquidLiters
                 ? translate('fuel_hint_liquid', locale)
                 : translate('fuel_hint_gas', locale),
-            prefixIcon: const Icon(Icons.local_gas_station),
+            prefixIcon: Icons.local_gas_station,
           ),
           validator: _validateOptionalNumeric,
           onChanged: (value) {
@@ -2084,11 +2400,11 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
         // Yakıt için hesaplama butonu ve sonuç
         _buildCategoryCalculateRow(
-          buttonStyle: _outlinedAccent(_kAccentFuel),
+          buttonStyle: _fuelOutlinedButtonStyle,
           onPressed: () => _calculateCategory('fuel'),
           buttonLabel: 'Yakıt CO₂ Hesapla',
           co2Result: _fuelCo2,
-          resultColor: Colors.red,
+          resultColor: _kAccentFuel,
         ),
         const SizedBox(height: 12),
         // Araç ekleme butonu ve seçilen araçlar
@@ -2174,35 +2490,47 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
-        SegmentedButton<_WaterInputUnit>(
-          segments: [
-            ButtonSegment<_WaterInputUnit>(
-              value: _WaterInputUnit.cubicMeters,
-              label: Text(translate('water_unit_m3', locale)),
-              icon: const Icon(Icons.crop_square, size: 18),
-            ),
-            ButtonSegment<_WaterInputUnit>(
-              value: _WaterInputUnit.liters,
-              label: Text(translate('water_unit_liters', locale)),
-              icon: const Icon(Icons.opacity, size: 18),
-            ),
-          ],
-          selected: {_waterInputUnit},
-          onSelectionChanged: _onWaterUnitChanged,
-          style: _segmentedAccent(_kAccentWater),
+        Builder(
+          builder: (context) {
+            final selected = _waterInputUnit;
+            return SegmentedButton<_WaterInputUnit>(
+              segments: [
+                ButtonSegment<_WaterInputUnit>(
+                  value: _WaterInputUnit.cubicMeters,
+                  label: _waterSegmentLabel(
+                    translate('water_unit_m3', locale),
+                    selected == _WaterInputUnit.cubicMeters,
+                  ),
+                  icon: const Icon(Icons.crop_square, size: 18, color: _kAccentWater),
+                ),
+                ButtonSegment<_WaterInputUnit>(
+                  value: _WaterInputUnit.liters,
+                  label: _waterSegmentLabel(
+                    translate('water_unit_liters', locale),
+                    selected == _WaterInputUnit.liters,
+                  ),
+                  icon: const Icon(Icons.opacity, size: 18, color: _kAccentWater),
+                ),
+              ],
+              selected: {selected},
+              onSelectionChanged: _onWaterUnitChanged,
+              style: _segmentedWaterAccent,
+            );
+          },
         ),
         const SizedBox(height: 12),
         TextFormField(
           controller: _waterCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
+          style: const TextStyle(color: _kAccentWater),
+          decoration: _waterInputDecoration(
             labelText: _waterInputUnit == _WaterInputUnit.cubicMeters
                 ? translate('water_cubic', locale)
                 : translate('water_liters_label', locale),
             hintText: _waterInputUnit == _WaterInputUnit.cubicMeters
                 ? translate('water_hint_form', locale)
                 : translate('water_hint_liters', locale),
-            prefixIcon: const Icon(Icons.water_drop),
+            prefixIcon: Icons.water_drop,
           ),
           validator: _validateOptionalNumeric,
           onChanged: (value) {
@@ -2213,11 +2541,11 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
         // Su için hesaplama butonu ve sonuç
         _buildCategoryCalculateRow(
-          buttonStyle: _outlinedAccent(_kAccentWater),
+          buttonStyle: _waterOutlinedButtonStyle,
           onPressed: () => _calculateCategory('water'),
           buttonLabel: 'Su CO₂ Hesapla',
           co2Result: _waterCo2,
-          resultColor: Colors.blue,
+          resultColor: _kAccentWater,
         ),
         const SizedBox(height: 12),
         Container(
@@ -2265,27 +2593,59 @@ class _ConsumptionFormState extends State<ConsumptionForm>
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 12),
-        SegmentedButton<_WasteInputUnit>(
-          segments: [
-            ButtonSegment<_WasteInputUnit>(
-              value: _WasteInputUnit.kg,
-              label: Text(translate('waste_unit_kg', locale)),
-              icon: const Icon(Icons.scale, size: 18),
-            ),
-            ButtonSegment<_WasteInputUnit>(
-              value: _WasteInputUnit.tonnes,
-              label: Text(translate('waste_unit_tonnes', locale)),
-              icon: const Icon(Icons.inventory_2, size: 18),
-            ),
-            ButtonSegment<_WasteInputUnit>(
-              value: _WasteInputUnit.grams,
-              label: Text(translate('waste_unit_g', locale)),
-              icon: const Icon(Icons.pie_chart_outline, size: 18),
-            ),
-          ],
-          selected: {_wasteInputUnit},
-          onSelectionChanged: _onWasteUnitChanged,
-          style: _segmentedWasteAccent,
+        Builder(
+          builder: (context) {
+            final selected = _wasteInputUnit;
+            return SegmentedButton<_WasteInputUnit>(
+              segments: [
+                ButtonSegment<_WasteInputUnit>(
+                  value: _WasteInputUnit.kg,
+                  label: _wasteSegmentLabel(
+                    translate('waste_unit_kg', locale),
+                    selected == _WasteInputUnit.kg,
+                  ),
+                  icon: Icon(
+                    Icons.scale,
+                    size: 18,
+                    color: selected == _WasteInputUnit.kg
+                        ? _kAccentWaste
+                        : Colors.white,
+                  ),
+                ),
+                ButtonSegment<_WasteInputUnit>(
+                  value: _WasteInputUnit.tonnes,
+                  label: _wasteSegmentLabel(
+                    translate('waste_unit_tonnes', locale),
+                    selected == _WasteInputUnit.tonnes,
+                  ),
+                  icon: Icon(
+                    Icons.inventory_2,
+                    size: 18,
+                    color: selected == _WasteInputUnit.tonnes
+                        ? _kAccentWaste
+                        : Colors.white,
+                  ),
+                ),
+                ButtonSegment<_WasteInputUnit>(
+                  value: _WasteInputUnit.grams,
+                  label: _wasteSegmentLabel(
+                    translate('waste_unit_g', locale),
+                    selected == _WasteInputUnit.grams,
+                  ),
+                  icon: Icon(
+                    Icons.pie_chart_outline,
+                    size: 18,
+                    color: selected == _WasteInputUnit.grams
+                        ? _kAccentWaste
+                        : Colors.white,
+                  ),
+                ),
+              ],
+              selected: {selected},
+              onSelectionChanged: _onWasteUnitChanged,
+              style: _segmentedWasteAccent,
+            );
+          },
         ),
         const SizedBox(height: 8),
         Text(
@@ -2321,7 +2681,7 @@ class _ConsumptionFormState extends State<ConsumptionForm>
 
         // Atık için hesaplama butonu ve sonuç
         _buildCategoryCalculateRow(
-          buttonStyle: _outlinedWhiteOnGlass,
+          buttonStyle: _wasteOutlinedButtonStyle,
           onPressed: () => _calculateCategory('waste'),
           buttonLabel: 'Atık CO₂ Hesapla',
           co2Result: _wasteCo2,
@@ -2365,24 +2725,23 @@ class _ConsumptionFormState extends State<ConsumptionForm>
     double co2 = 0.0;
     switch (category) {
       case 'electricity':
-        // Manuel satır (birime göre kWh) + cihazlardan gelen kWh/gün toplamı
         final electricityKwh = _manualElectricityKwhFromField() +
             _calculateDevicesElectricity();
         co2 = electricityKwh * Calculation.factorElectricityKgPerKwh;
-        setState(() => _electricityCo2 = co2);
+        setState(() => _electricityCo2 = co2 > 1e-9 ? co2 : null);
         break;
       case 'fuel':
         co2 = _fuelCo2FromManualAndVehicles();
-        setState(() => _fuelCo2 = co2);
+        setState(() => _fuelCo2 = co2 > 1e-9 ? co2 : null);
         break;
       case 'water':
         final waterCubicMeters = _waterCubicMetersFromField();
         co2 = waterCubicMeters * Calculation.factorWaterKgPerM3;
-        setState(() => _waterCo2 = co2);
+        setState(() => _waterCo2 = co2 > 1e-9 ? co2 : null);
         break;
       case 'waste':
         co2 = _wasteKgFromField() * Calculation.factorWasteKgPerKg;
-        setState(() => _wasteCo2 = co2);
+        setState(() => _wasteCo2 = co2 > 1e-9 ? co2 : null);
         break;
     }
   }
@@ -2598,6 +2957,7 @@ class _DeviceTileState extends State<_DeviceTile> {
                   widget.preset.name,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -2634,7 +2994,9 @@ class _DeviceTileState extends State<_DeviceTile> {
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
                       '$_quantity',
-                      style: Theme.of(context).textTheme.titleSmall,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: Colors.white,
+                          ),
                     ),
                   ),
                   _QtyButton(icon: Icons.add, onPressed: _increase),
@@ -2842,6 +3204,10 @@ class _CategorySummaryRow extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
