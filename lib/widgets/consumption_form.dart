@@ -1899,7 +1899,9 @@ class _ConsumptionFormState extends State<ConsumptionForm>
                 child: TabBar(
                   controller: _tabController,
                   isScrollable: MediaQuery.sizeOf(context).width < 480,
-                  tabAlignment: TabAlignment.start,
+                  tabAlignment: MediaQuery.sizeOf(context).width < 480
+                      ? TabAlignment.start
+                      : TabAlignment.fill,
                   indicator: UnderlineTabIndicator(
                     borderSide: BorderSide(
                       width: 3.0,
