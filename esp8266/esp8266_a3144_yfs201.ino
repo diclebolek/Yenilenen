@@ -3,9 +3,8 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
 
-// WiFi Bilgileri
-const char* WIFI_SSID = "Dicle";
-const char* WIFI_PASSWORD = "kabuk011";
+// WiFi / Firebase — secrets.h dosyasindan (git'e gitmez; secrets.example.h'den kopyalayin)
+#include "secrets.h"
 
 // Pin map
 const uint8_t WATER_FLOW_PIN = 4;   // D2

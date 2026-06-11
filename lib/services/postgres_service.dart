@@ -2,10 +2,13 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
+import '../config/env_config.dart';
+
 /// PostgreSQL veritabanı bağlantı ve işlem servisi (HTTP API üzerinden)
 class PostgresService {
   static PostgresService? _instance;
-  final String baseUrl = 'http://localhost:3000/api'; // Backend API URL'i
+
+  String get baseUrl => EnvConfig.postgresApiBaseUrl;
 
   PostgresService._();
 

@@ -15,6 +15,7 @@ import '../widgets/realtime_esp_data_widget.dart';
 import '../widgets/realtime_shelly_data_widget.dart';
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
+import '../config/env_config.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
@@ -297,7 +298,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   StreamSubscription<ConsumptionEntry?>? _espDataSubscription;
   StreamSubscription<ShellyData?>? _shellyDataSubscription;
   final ApiService _apiService = ApiService();
-  final String _shellyDeviceId = 'shelly_plug_001';
+  String get _shellyDeviceId => EnvConfig.shellyDeviceId;
 
   /// Shelly sayacı kümülatif; emisyon için oturum içi tüketilen kWh (delta toplamı)
   double _shellySessionKwhConsumed = 0;
@@ -834,9 +835,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _initializeShelly() async {
-    debugPrint('🔌 Shelly başlatılıyor... IP: 192.168.137.43');
+    debugPrint('🔌 Shelly başlatılıyor... IP: ${EnvConfig.shellyDeviceIp}');
     _apiService.initializeShelly(
-      deviceIp: '192.168.137.43',
+      deviceIp: EnvConfig.shellyDeviceIp,
       deviceId: _shellyDeviceId,
     );
     try {
@@ -855,12 +856,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         } else {
           debugPrint('❌ Shelly cihazına bağlanılamadı!');
           debugPrint('📋 Kontrol listesi:');
-          debugPrint('   1. IP adresi doğru mu? (192.168.137.43)');
+          debugPrint('   1. IP adresi doğru mu? (${EnvConfig.shellyDeviceIp})');
           debugPrint('   2. Cihaz aynı WiFi ağında mı?');
           debugPrint('   3. Cihaz çalışıyor mu? (LED ışığı yanıyor mu?)');
           debugPrint('   4. Firewall/Antivirus engelliyor olabilir');
           debugPrint(
-              '   5. Tarayıcıda http://192.168.137.43/status adresini açmayı deneyin');
+              '   5. Tarayıcıda http://${EnvConfig.shellyDeviceIp}/status adresini açmayı deneyin');
         }
       } catch (checkError) {
         debugPrint('❌ Bağlantı kontrolü hatası: $checkError');
@@ -900,7 +901,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void _listenToEspData() {
     _espDataSubscription?.cancel(); // Önceki subscription'ı iptal et
     _espDataSubscription =
-        _firebaseService.listenToEsp8266Data('esp8266_001').listen((entry) {
+        _firebaseService.listenToEsp8266Data(EnvConfig.espDeviceId).listen((entry) {
       if (entry != null && mounted) {
         LiveEmissionService.instance.setEspEntry(entry);
         // ESP ham verisini sakla (su+gaz için)
@@ -918,7 +919,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// Açılışta Firebase'deki son ESP kaydını çek (stream gecikmesine karşı).
   Future<void> _loadInitialEspDataFromFirebase() async {
     try {
-      final entry = await _firebaseService.getLatestData('esp8266_001');
+      final entry = await _firebaseService.getLatestData(EnvConfig.espDeviceId);
       if (entry != null && mounted) {
         LiveEmissionService.instance.setEspEntry(entry);
         setState(() {
@@ -1335,7 +1336,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       Future<void> loadEspHistory() async {
         espHistoryData = await _firebaseService
             .getHistoryData(
-              deviceId: 'esp8266_001',
+              deviceId: EnvConfig.espDeviceId,
               startDate: startDate,
               endDate: endDate,
             )
@@ -1423,7 +1424,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         try {
           // ESP latest verisini al
           final espLatestEntry =
-              await _firebaseService.getLatestData('esp8266_001');
+              await _firebaseService.getLatestData(EnvConfig.espDeviceId);
 
           // Shelly latest verisini al
           ConsumptionEntry? shellyLatestEntry;

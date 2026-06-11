@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:ui' show ImageFilter;
 
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'config/env_config.dart';
 import 'themes/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
@@ -31,11 +31,13 @@ void main() async {
     debugPrint = (String? message, {int? wrapWidth}) {};
   }
 
+  await EnvConfig.load();
+
   // Firebase'i başlat
   try {
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
+        options: EnvConfig.firebaseOptions,
       );
     }
     FirebaseRealtimeService.instance.initialize();

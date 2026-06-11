@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Locale;
 
+import '../config/env_config.dart';
 import '../algorithms/calculation.dart';
 import '../localization/translations.dart';
 import '../models/consumption_entry.dart';
@@ -149,7 +150,7 @@ class LiveEmissionService extends ChangeNotifier {
     required String shellyDeviceId,
   }) async {
     try {
-      final esp = await firebase.getLatestData('esp8266_001');
+      final esp = await firebase.getLatestData(EnvConfig.espDeviceId);
       if (esp != null) {
         setEspEntry(esp);
       }

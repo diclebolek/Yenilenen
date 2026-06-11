@@ -32,6 +32,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.15.0
 
   # Utilities
+  flutter_dotenv: ^5.2.1
   url_launcher: ^6.2.2
   shared_preferences: ^2.2.2
   pdf: ^3.11.3
@@ -57,6 +58,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/config/env.example
     - assets/images/
     # Web: 'assets/' ile başlayan anahtarlar çoğu zaman assets/assets/... 404 verir;
     # PDF TTF'leri proje kökündeki fonts/ altında (tek assets/ öneki).

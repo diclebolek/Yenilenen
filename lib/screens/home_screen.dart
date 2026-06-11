@@ -13,6 +13,7 @@ import '../services/weather_service.dart';
 import '../services/api_service.dart';
 import '../services/global_carbon_service.dart';
 import '../services/carbon_data_service.dart';
+import '../config/env_config.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/live_emission_service.dart';
@@ -80,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;
-  final String _shellyDeviceId = 'shelly_plug_001';
+  String get _shellyDeviceId => EnvConfig.shellyDeviceId;
   StreamSubscription<ConsumptionEntry?>? _espEmissionSubscription;
   StreamSubscription<ShellyData?>? _shellyEmissionSubscription;
   Timer? _emissionRetryTimer;
@@ -327,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _espEmissionSubscription?.cancel();
     _espEmissionSubscription =
-        _firebaseService.listenToEsp8266Data('esp8266_001').listen((entry) {
+        _firebaseService.listenToEsp8266Data(EnvConfig.espDeviceId).listen((entry) {
       if (entry == null || !mounted) return;
       live.setEspEntry(entry);
       final kg = live.effectiveDailyKgCo2e(
@@ -487,7 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
     DateTime endDate,
   ) async {
     final espHistory = await _firebaseService.getHistoryData(
-      deviceId: 'esp8266_001',
+      deviceId: EnvConfig.espDeviceId,
       startDate: startDate,
       endDate: endDate,
     );
@@ -523,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeShelly() async {
     // ⚠️ KENDİ IP ADRESİNİZİ YAZIN!
     _apiService.initializeShelly(
-      deviceIp: '192.168.137.43', // 👈 Shelly cihazınızın IP adresi
+      deviceIp: EnvConfig.shellyDeviceIp,
       deviceId: _shellyDeviceId,
     );
 

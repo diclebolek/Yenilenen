@@ -3,14 +3,15 @@ import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 import '../models/consumption_entry.dart';
 import '../models/shelly_data.dart';
+import '../config/env_config.dart';
 import 'firebase_realtime_service.dart';
 import 'shelly_service.dart';
 
 /// API servisi - ESP modülü, Shelly ve Firebase entegrasyonu
 class ApiService {
-  static const String espBaseUrl = 'http://172.20.10.2'; // ESP IP adresi
-  static const String deviceId =
-      'esp8266_001'; // Cihaz ID'si (değiştirilebilir)
+  static String get espBaseUrl => EnvConfig.espBaseUrl;
+
+  static String get deviceId => EnvConfig.espDeviceId;
 
   final FirebaseRealtimeService _firebaseService =
       FirebaseRealtimeService.instance;

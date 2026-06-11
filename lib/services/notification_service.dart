@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../config/small_home_limits.dart';
+
 class NotificationPreferences {
   const NotificationPreferences({
     required this.weeklyReports,
@@ -33,12 +35,15 @@ class NotificationService {
   static const String _dailySensorKey = 'notifications_daily_sensor_summary';
   static const String _cachedDailyKgKey = 'daily_sensor_summary_kg';
   static const String _cachedDailyDateKey = 'daily_sensor_summary_date';
+  static const String _highConsumptionAlertDateKey =
+      'notifications_high_consumption_alert_date';
 
   static const int _weeklyId = 1001;
   static const int _monthlyId = 1002;
   static const int _goalId = 1003;
   static const int _tipsId = 1004;
   static const int _dailySensorId = 1005;
+  static const int _highConsumptionId = 1006;
   static const int _dailySummaryHour = 21;
 
   final FlutterLocalNotificationsPlugin _notifications =
@@ -115,7 +120,48 @@ class NotificationService {
       await prefs.setDouble(_cachedDailyKgKey, kgCo2e);
       await prefs.setString(_cachedDailyDateKey, today);
     }
+    await _maybeNotifySmallHomeLimitExceeded(
+      kgCo2e: kgCo2e,
+      sensorMode: sensorMode,
+    );
     await _scheduleDailySensorSummary();
+  }
+
+  /// Küçük ev günlük limiti aşıldığında anlık bildirim (günde en fazla bir kez).
+  Future<void> _maybeNotifySmallHomeLimitExceeded({
+    required double? kgCo2e,
+    required bool sensorMode,
+  }) async {
+    if (kIsWeb) return;
+    if (!sensorMode || kgCo2e == null || kgCo2e <= 1e-9) return;
+    if (kgCo2e <= SmallHomeLimits.dailyKgCo2e) return;
+
+    final settings = await loadPreferences();
+    if (!settings.dailySensorSummary) return;
+
+    if (!_initialized) {
+      try {
+        await initialize();
+      } catch (_) {
+        return;
+      }
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now().toIso8601String().split('T').first;
+    if (prefs.getString(_highConsumptionAlertDateKey) == today) return;
+
+    await prefs.setString(_highConsumptionAlertDateKey, today);
+
+    final limit = SmallHomeLimits.dailyKgCo2e.toStringAsFixed(0);
+    await _notifications.show(
+      id: _highConsumptionId,
+      title: 'Yuksek tuketim uyarisi',
+      body:
+          'Kucuk ev gunluk limiti ($limit kg CO2e) asildi: ${kgCo2e.toStringAsFixed(2)} kg. '
+          'Elektrik, su veya dogalgaz tuketiminizi kontrol edin.',
+      notificationDetails: _notificationDetails(),
+    );
   }
 
   Future<void> setDailySensorSummaryEnabled(bool enabled) async {

@@ -6,6 +6,7 @@ import 'dart:ui' show ImageFilter;
 import 'dart:math' as math;
 import '../localization/translations.dart';
 import '../providers/language_provider.dart';
+import '../config/env_config.dart';
 import '../services/firebase_realtime_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/api_service.dart';
@@ -704,14 +705,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       // Bu ayın verilerini al
       final currentMonthData = await _firebaseService.getHistoryData(
-        deviceId: 'esp8266_001',
+        deviceId: EnvConfig.espDeviceId,
         startDate: currentMonthStart,
         endDate: now,
       );
 
       // Önceki ayın verilerini al
       final previousMonthData = await _firebaseService.getHistoryData(
-        deviceId: 'esp8266_001',
+        deviceId: EnvConfig.espDeviceId,
         startDate: previousMonthStart,
         endDate: previousMonthEnd,
       );
@@ -906,7 +907,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         DateTime(currentMonthStart.year, currentMonthStart.month - 4, 1);
     final end = currentMonthStart.subtract(const Duration(days: 1));
     final entries = await _firebaseService.getHistoryData(
-      deviceId: 'esp8266_001',
+      deviceId: EnvConfig.espDeviceId,
       startDate: start,
       endDate: end,
     );
@@ -1012,7 +1013,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     DateTime endDate,
   ) async {
     final espHistory = await _firebaseService.getHistoryData(
-      deviceId: 'esp8266_001',
+      deviceId: EnvConfig.espDeviceId,
       startDate: startDate,
       endDate: endDate,
     );
@@ -1023,7 +1024,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   Future<double> _estimateLiveEspShellyKgCo2eToday() async {
     double kg = 0.0;
     try {
-      final esp = await _firebaseService.getLatestData('esp8266_001');
+      final esp = await _firebaseService.getLatestData(EnvConfig.espDeviceId);
       if (esp != null) {
         kg += esp.waterCubicMeters * Calculation.factorWaterKgPerM3;
         kg += Calculation.fuelEmissionKgCo2e(esp);
@@ -1635,7 +1636,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     DateTime endDate,
   ) async {
     final espHistory = await _firebaseService.getHistoryData(
-      deviceId: 'esp8266_001',
+      deviceId: EnvConfig.espDeviceId,
       startDate: startDate,
       endDate: endDate,
     );
@@ -1673,7 +1674,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     DateTime endDate,
   ) async {
     final espHistory = await _firebaseService.getHistoryData(
-      deviceId: 'esp8266_001',
+      deviceId: EnvConfig.espDeviceId,
       startDate: startDate,
       endDate: endDate,
     );

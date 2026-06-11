@@ -92,6 +92,10 @@ app.*.map.json
 .env
 .env.local
 
+# Firmware / IoT secrets (WiFi, Firebase legacy token)
+secrets.h
+esp8266/secrets.h
+
 # Database
 *.db
 *.sqlite

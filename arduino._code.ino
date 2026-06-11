@@ -4,14 +4,8 @@
 #include <ArduinoJson.h>
 #include <FirebaseESP8266.h>
 
-// WiFi Bilgileri
-const char* WIFI_SSID = "Dicle";
-const char* WIFI_PASSWORD = "kabuk011";
-
-// Firebase Bilgileri
-// HATA DÜZELTİLDİ: Sonda fazla olan çift tırnak kaldırıldı.
-#define FIREBASE_HOST "carbon-footprint-app-8111a-default-rtdb.firebaseio.com" 
-#define FIREBASE_AUTH "sEi4sGA8rsHnHtgNrbd3F7m74loJb3lCOoKGkILT"
+// WiFi / Firebase — secrets.h (proje kokunde; secrets.example.h'den kopyalayin)
+#include "secrets.h"
 
 // Pin map
 const uint8_t WATER_FLOW_PIN = 4;   // D2
